@@ -17,13 +17,17 @@ Firmware lives in the vendored QMK tree under
    make epomaker/epomaker_split65:default epomaker/epomaker_split65:nathan
    ```
 
-2. Format C and Python to QMK style:
+2. Optionally format C to QMK style (vendor code is intentionally left as-is;
+   only run this on files you changed):
 
    ```bash
    qmk format-c -n <files>          # -n: check only
-   qmk format-python -n <files>
-   qmk format-text -n <files>
    ```
+
+   `qmk format-python` requires `yapf`, which is not installed here; `qmk
+   format-text` has no `-n` (check-only) flag. Do not reformat vendored QMK code
+   wholesale — it predates this formatter and such a change would desync us from
+   upstream.
 
 3. Check for stray whitespace: `git diff --check`.
 
@@ -51,7 +55,8 @@ Commits must be signed (`git commit -S`), and `git diff --check` must be clean.
   always include optional braces, `#pragma once` in headers, license header on
   every source file. Run `qmk format-c`.
 - **Python**: QMK/PEP 8 — 4-space indent, docstrings on all functions,
-  printf-style format strings, no type annotations. Run `qmk format-python`.
+  printf-style format strings, no type annotations. Formatter is `yapf` via
+  `qmk format-python` (see the caveat above — `yapf` is not installed here).
 - **Headers**: every source file starts with two lines:
 
   ```

@@ -1,5 +1,15 @@
 # TODO
 
+## Status
+
+- Left half: flashed and verified (`--pull` returns `CHG 100%`; firmware shows as
+  manufacturer `LEO`, `bcdDevice 0.30` vs stock `MILE` / `0.0b`).
+- Right half: **not yet flashed** — enter DFU via the R_Shift toggle +
+  spacebar-pin short (see `DEPENDENCIES.md`).
+- 2.4 GHz pull path: proven end-to-end with stock firmware; needs a real battery
+  report once both halves are on our firmware.
+- Bluetooth: not yet probed on hardware.
+
 ## Right-half DFU without hardware shorting
 
 Goal: let the right half enter the WB32 DFU bootloader by holding a key, like the

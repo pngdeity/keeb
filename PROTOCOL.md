@@ -13,14 +13,13 @@ a backwards-compatible extension; hosts must ignore bytes they do not know.
 - USB-wired: host **pulls** (sends the request; keyboard replies).
 - 2.4 GHz dongle: the dongle exposes a second raw HID collection with the same
   `0xFF60`/`0x61` usage page and **32-byte IN and OUT reports** (interface 2, no
-  report ID; verified by reading its report descriptor). Host pull over 2.4 GHz
-  **round-trips on real hardware**: writing `[0x00, 0xA4, ...]` to the dongle's
-  raw interface reaches the keyboard and its reply comes back (observed: the
-  current stock firmware answered `FF 00 00 ...`, i.e. its "unhandled command"
-  sentinel, because it has no `0xA4` handler yet). Pull is therefore the expected
-  path over 2.4 GHz; the push path is retained as a fallback (see Push mode).
-- Bluetooth: in scope; delivery path under investigation (raw HID vs. BLE
-  Battery Service `0x180F` / `0x2A19`).
+  report ID; verified by reading its report descriptor, below). Host pull over
+  2.4 GHz **round-trips on real hardware**. Pull is the normal path; push is a
+  fallback (see Push mode).
+- Bluetooth: in scope. Not yet probed on hardware — unknown whether the BT HID
+  link exposes the raw HID collection (`0xFF60`/`0x61`) and whether
+  `*md_getp_bat()` is populated over BT. The host falls back to the BLE Battery
+  Service `0x180F` / Battery Level `0x2A19` (via `bluetoothctl`).
 
 ### Dongle raw HID interface (verified)
 
@@ -91,18 +90,16 @@ Hosts reading over a dongle can use either `--listen` (accept push reports) or
 `--pull` (request/reply); both work now that the dongle's host→keyboard path is
 confirmed.
 
-## Verifying pull over 2.4 GHz (hardware — already confirmed working)
+## Verifying the pull path
 
 The keyboard-side tunnel exists: `md_raw.c` maps `md_receive_raw_cb()` →
 `raw_hid_receive()`, and `module.c` forwards received raw packets
-(`MD_RAW_SIZE = 32`) to that callback. The host side was confirmed on real
-hardware: writing the request to the dongle's raw interface reached the keyboard
-and its reply came back over the radio.
+(`MD_RAW_SIZE = 32`) to that callback. The host→dongle→keyboard→dongle→host
+round-trip was confirmed on real hardware with the stock firmware (which replied
+`FF ...`, its "unhandled command" sentinel, since it has no `0xA4` handler).
 
-Probe: with the dongle attached and the keyboard switched to 2.4 GHz (`KC_2G4`),
-run `python3 host/battery_polybar.py --pull`, or use the standalone
-`/tmp/opencode/split65-dongle-probe.sh`. The host enumerates by usage page
-`0xFF60`/usage `0x61` and selects the dongle's interface 2. Before flashing our
-firmware the reply is `FF ...` (stock firmware has no `0xA4` handler); after
-flashing it is the `0xA4` battery report. A read timeout means the pull path did
-not complete on that attempt — the push path then covers it.
+To check the battery now: with the keyboard in USB or 2.4 GHz mode, run
+`python3 host/battery_polybar.py --pull` (or `--listen` for push reports). The
+host enumerates by usage page `0xFF60` / usage `0x61` and selects the relevant
+interface (the dongle's interface 2 over 2.4 GHz). A read timeout means the pull
+did not complete on that attempt; the push path then covers it.

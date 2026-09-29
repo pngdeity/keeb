@@ -12,8 +12,10 @@ sentinel; it becomes a `0xA4` report only after flashing this firmware.
 
 ## Requirements
 
-- Python 3 and the `hid` package: `pip install hid` (or `uv pip install hid`).
-  Do **not** install `pyhidapi` — it is a different, unmaintained project.
+- Python 3 and the `hid` package. On Arch this is `python-hid` (`pacman -S
+  python-hid`); Do **not** install `pyhidapi` — it is a different, unmaintained
+  project. The API must be the newer `hid.Device` one, not the legacy
+  `hid.device()`/`open_path()` API.
 - For the Bluetooth fallback: BlueZ `bluetoothctl` on `PATH` and the keyboard
   paired and connected.
 

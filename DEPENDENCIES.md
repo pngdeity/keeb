@@ -15,7 +15,12 @@
 
 - Or use the project helper: `./split65.py build` / `./split65.py flash` /
   `./split65.py check` / `./split65.py setup` (see `--help`). It builds and
-  flashes the `nathan` keymap.
+  flashes the `nathan` keymap (built artifact:
+  `qmk_firmware/epomaker_epomaker_split65_nathan.bin`).
+- **`split65.py flash` and the raw `wb32-dfu-updater_cli` are for a human to
+  run.** `flash` calls `doas` and prompts with `input()`, so it must not be
+  launched by an agent or any non-interactive context: an unanswered `doas`
+  prompt locks the account after three failed attempts.
 
 ## Flashing
 
@@ -87,23 +92,32 @@ The `nathan` keymap enables `KEY_OVERRIDE_ENABLE` and `CAPS_WORD_ENABLE`.
 
 ## Host (polybar module)
 
-- Python 3 with the `hid` package (`pip install hid`, or Arch
-  `python-hid`). Use `hid`, not `pyhidapi`. The package must provide the
-  `hid.Device` API (`.read(size, timeout=ms)`, `.write(data)`,
+- Python 3 with the `hid` package. On Arch it is `python-hid` (already
+  installed here; `pacman -S python-hid`). Do **not** install `pyhidapi` — it is
+  a different, unmaintained project. The package must provide the `hid.Device`
+  API (`.read(size, timeout=ms)`, `.write(data)`,
   `.get_report_descriptor()`) and `hid.enumerate()`.
 - For the Bluetooth fallback: BlueZ `bluetoothctl` on `PATH`, keyboard paired.
 
 ## Diagnostics (optional)
 
-Pre-flash recon and verification scripts write reports to `/tmp/opencode/recon/`:
+Pre-flash reconnaissance scripts live under `/tmp/opencode/` (outside the repo)
+and write reports to `/tmp/opencode/recon/`. They are throwaway helpers, not part
+of the project; the facts they established are recorded in `FINDINGS.md` and
+`PROTOCOL.md`.
 
 - `/tmp/opencode/split65-dongle-probe.sh` — enumerates HID interfaces, dumps the
   raw (`0xFF60`/`0x61`) interface descriptor, sends the `0xA4` request and prints
-  the reply. Confirms the 2.4 GHz round-trip without elevated privileges.
+  the reply. Confirms the 2.4 GHz round-trip and needs no elevated privileges.
+  Requires the Python `hid` package.
 - `/tmp/opencode/split65-recon.sh` — USB/DFU/udev diagnostics; wraps the
-  privileged parts in `doas`. `--flash-udev-rule` installs the wb32-dfu udev rule
-  above. Needs `gcc` for the descriptor dump and `wb32-dfu-updater_cli` /
-  `lsusb` / `dfu-util` where available.
+  privileged parts in `doas` (run it yourself; an agent must never invoke
+  `doas`, as unanswered prompts lock the account). `--flash-udev-rule` installs
+  the wb32-dfu udev rule above. Needs `gcc` for the descriptor dump, plus
+  `wb32-dfu-updater_cli` / `lsusb` / `dfu-util` where available.
+
+`./split65.py check` is the supported, in-repo alternative for day-to-day
+diagnostics (toolchain, udev rules, device presence).
 
 ## Local patches to the QMK tree
 

@@ -35,4 +35,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `local-patches.diff`, now redundant with the tracked sources.
 
-[Unreleased]: https://github.com/pngdeity/keeb/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/pngdeity/keeb/commits/main

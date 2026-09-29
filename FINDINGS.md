@@ -11,25 +11,31 @@ over too. Keep transport logic modular so every transport shares one code path.
 - Vendor firmware (Hangsheng "tri-mode" lineage) is open:
   - `github.com/hangshengkeji/qmk_firmware` branch **`tri-mode`** — contains
     `keyboards/epomaker/epomaker_split65/` (the real upstream for this board).
-  - `keyboards/linker/wireless/` and `keyboards/wireless/` = shared wireless stack.
+  - The wireless stack is `keyboards/linker/wireless/` (included via the board's
+    `post_rules.mk`). There is **no** `keyboards/wireless/` in this tree — earlier
+    notes that cited that path were wrong.
 - Community mirrors: `zozonteq/epomaker_split65` (older, single-file, no `quantum/`),
   `Epomaker/Split65`. Upstream `hangshengkeji` is the authoritative base.
 
 ## KEY FINDING — battery data ALREADY EXISTS in firmware
-The wireless stack tracks battery internally:
+The wireless stack tracks battery internally. All paths below are in
+`qmk_firmware/keyboards/linker/wireless/`:
 
-- `keyboards/wireless/module.c`: `md_info_t` has field `uint8_t bat;` updated from the
-  dongle/BT module via `MD_REV_CMD_BATVOL (0x5C)` → `md_info.bat = md_rev_payload[1];`
+- `module.c`: `md_info_t` has field `uint8_t bat;`, updated from the dongle/BT
+  module via `MD_REV_CMD_BATVOL (0x5C)` → `md_info.bat = md_rev_payload[1];`
   Accessor: `uint8_t *md_getp_bat(void);`
-- The dongle reports the value; the keyboard does **not** read an ADC itself. Over 2.4GHz
-  the keyboard periodically asks the dongle: `md_inquire_bat()` →
+- The dongle reports the value; the keyboard does **not** read an ADC itself. The
+  keyboard periodically asks the dongle: `md_inquire_bat()` →
   `md_send_devctrl(MD_SND_CMD_DEVCTRL_INQVOL /*0x53*/)`, driven every
-  `WLS_INQUIRY_BAT_TIME` (3000 ms) from `wireless_task()` (active in upstream
-  `keyboards/wireless/wireless.c:386`; **commented out** in the older
-  `zozonteq`/`linker` copies — use the upstream).
-- `KC_BATQ` keycode (Fn+B) already exists: sets `im_bat_req_charging_flag` /
-  `rk_bat_req_flag` to trigger the visual battery indicator. So the trigger path is
-  proven; it just currently lights RGB instead of reporting to the host.
+  `WLS_INQUIRY_BAT_TIME` (3000 ms) from `wireless_task()` (`wireless.c`).
+- `uint8_t *md_getp_state(void)` reports the link state, compared against
+  `MD_STATE_CONNECTED`.
+- `bool charging_state;` and `bool bat_full_flag;` are defined in
+  `keyboard/epomaker/epomaker_split65.c` from the `HS_BAT_CABLE_PIN` and
+  `BAT_FULL_PIN` GPIOs.
+- `KC_BATQ` keycode (Fn+B) already exists: it triggers the *visual* battery
+  indicator (`bat_indicators()`) rather than reporting to the host. So the
+  battery-trigger path is proven; the work was to route the value to the host.
 
 ## KEY FINDING — raw HID is ALREADY bridged over the 2.4GHz dongle, both ways
 `keyboards/linker/wireless/md_raw.c` (guarded by `RAW_ENABLE`):
@@ -56,12 +62,12 @@ retained as a fallback only.
 Layered so transports share one code path. Reference: `PROTOCOL.md`.
 
 > Corrections applied after verifying against source and upstream docs
-> (2026-09-29): the wireless stack is `keyboards/linker/wireless/` (**not**
-> `keyboards/wireless/`); `VIA_ENABLE` is **off** so the hook is a strong
-> `raw_hid_receive()` override (**not** `via_command_kb()`); the 2.4 GHz dongle
-> **does** bridge host → keyboard raw HID — verified live — so pull over 2.4 GHz
-> works and push is only a fallback; and `raw_hid_send`'s macro remap is
-> line-specific, so new code calls `replaced_hid_send()` directly.
+> (2026-09-29): the wireless stack is `keyboards/linker/wireless/`; `VIA_ENABLE`
+> is **off** so the hook is a strong `raw_hid_receive()` override (**not**
+> `via_command_kb()`); the 2.4 GHz dongle **does** bridge host → keyboard raw HID
+> — verified live — so pull over 2.4 GHz works and push is only a fallback; and
+> `raw_hid_send`'s macro remap is line-specific, so new code calls
+> `replaced_hid_send()` directly.
 
 1. **Battery source abstraction** (done): in `wls/wls.c` —
    `kb_battery_percent()` (clamps `*md_getp_bat()` to 0–100),
@@ -93,8 +99,10 @@ Layered so transports share one code path. Reference: `PROTOCOL.md`.
 
 ## Build / flash facts (verified)
 - Build: `make epomaker/epomaker_split65:default` from `qmk_firmware/`.
-  With this change the bin grows from 62644 to **62976** bytes
-  (md5 `d08369f6ddee20816ac7643264b953f2` after the final clean-code pass).
+  Current sizes (after all changes):
+  - `default` — **63160** bytes (`f6b8`)
+  - `nathan` — **64932** bytes (`fda4`)
+  The stock (pre-change) bin was 62644 bytes.
 - Symbols: `raw_hid_receive` links as a strong `T` (the weak default at
   `tmk_core/protocol/chibios/usb_main.c:539` is overridden).
 - The dongle (VID 342D / PID E4C6) firmware is **not** in the QMK tree, but the
@@ -125,6 +133,11 @@ Device `342d:e4c6` "MILE 2.4G Dongle", three HID interfaces:
   dongle.bin` to preserve the factory image for inspection.
 
 ## Recon / probe scripts
+Two throwaway scripts under `/tmp/opencode/` (outside the repo) were used for
+the pre-flash reconnaissance. They are not part of the project and may not
+survive a reboot; their findings are recorded above and in `PROTOCOL.md`, so
+they do not need to be re-run to understand the design.
+
 - `/tmp/opencode/split65-recon.sh` — elevated diagnostics (dmesg, udev state, DFU
   scan, descriptor dump, block devices). `--flash-udev-rule` optionally installs
   the wb32-dfu udev rule. Writes reports to `/tmp/opencode/recon/`.
@@ -158,6 +171,25 @@ Device `342d:e4c6` "MILE 2.4G Dongle", three HID interfaces:
   claim the device as a normal user. `qmk doctor` flags this. The rule is the
   wb32 line from `qmk_firmware/util/udev/50-qmk.rules`:
   `SUBSYSTEMS=="usb", ATTRS{idVendor}=="342d", ATTRS{idProduct}=="dfa0", TAG+="uaccess"`.
+
+## Hardware verification status (2026-09-29)
+- **Left half: UPGRADED AND VERIFIED.** Flashed over wired USB and tested:
+  `python3 host/battery_polybar.py --pull` returns `CHG 100%`. The raw report
+  was `a4 64 00 00 01 01 01 ...` — byte 0 `0xA4`, byte 1 `100`, bytes 2-3 `00 00`
+  (reserved), byte 4 `1` (charging), byte 5 `01` (USB), byte 6 `01` (model id).
+  Every field matches `PROTOCOL.md`.
+- The flashed firmware identifies as manufacturer **`LEO`** (`bcdDevice 0.30`);
+  the stock firmware was **`MILE`** (`bcdDevice 0.0b`). This is the quickest way
+  to tell whether a half has our firmware: `lsusb` / the device string.
+- Esc-hold DFU re-entry still works after flashing (no lockout). The WB32
+  bootloader lives at `0x1FFFE000`, outside the 128 KB application region we
+  write at `0x08000000`, so a normal flash cannot damage it.
+- **Right half: NOT yet flashed.** Its DFU entry requires the R_Shift toggle +
+  spacebar-pin short (see Flashing). `TODO.md` tracks making this key-based.
+- 2.4 GHz: the host→dongle→keyboard→dongle→host round-trip was proven with the
+  stock firmware (reply `FF ...`); it will return a real `0xA4` report once both
+  halves carry our firmware.
+- Bluetooth: not yet probed on hardware.
 
 ## External software needed
 See DEPENDENCIES.md.
@@ -209,4 +241,8 @@ tested change (see `TODO.md`).
 
 `local-patches.diff` was deleted: every hunk it contained is already applied in
 `qmk_firmware/`, and its documented contents now live in `DEPENDENCIES.md`.
-`chunk87.bin` was kept (unidentified, matches no known build).
+`chunk87.bin` at the project root was kept; it is a keyboard flash artifact of
+unclear origin and is excluded from version control by the root `.gitignore`
+(`*.bin`). (The identically-named file inside `qmk_firmware/` is unrelated: a
+ChibiOS demo resource at
+`lib/chibios-contrib/demos/STM32/RT-STM32F429-DISCOVERY-DMA2D/res/chunk87.bin`.)
