@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+# Copyright 2026
+# SPDX-License-Identifier: Apache-2.0
+"""Read EPOMAKER Split65 battery level and print a polybar-friendly string.
+
+Firmware side: see PROTOCOL.md at the repository root. Command 0xA4
+(KC_GET_BATTERY_LEVEL) returns the battery percentage in reply byte 1.
+
+Usage:
+    battery_polybar.py            # auto: pull over USB, listen over dongle
+    battery_polybar.py --pull     # send the request, read the reply (USB)
+    battery_polybar.py --listen   # passively read push reports (2.4 GHz)
+
+Exits non-zero with no output when the keyboard is absent, so polybar hides
+the module.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import subprocess
+import sys
+
+try:
+    import hid
+except ImportError:  # pragma: no cover
+    print("battery_polybar: missing 'hid' package (pip install hid)", file=sys.stderr)
+    sys.exit(2)
+
+USAGE_PAGE = 0xFF60
+USAGE = 0x61
+REPORT_LENGTH = 32
+CMD_GET_BATTERY = 0xA4
+
+TRANSPORT_NAMES = {0x01: "USB", 0x02: "BT", 0x04: "2.4G"}
+
+
+def find_raw_hid_interface():
+    """Return the first raw HID interface matching the QMK raw HID usage."""
+    for info in hid.enumerate():
+        if info.get("usage_page") == USAGE_PAGE and info.get("usage") == USAGE:
+            return info
+    return None
+
+
+def read_battery_pull():
+    """Send the 0xA4 request and return the parsed reply, or None."""
+    info = find_raw_hid_interface()
+    if info is None:
+        return None
+
+    device = hid.Device(path=info["path"])
+    try:
+        # The first byte is the HID Report ID.
+        request = bytes([0x00, CMD_GET_BATTERY] + [0x00] * (REPORT_LENGTH - 1))
+        device.write(request)
+        reply = device.read(REPORT_LENGTH, timeout=1000)
+    finally:
+        device.close()
+
+    if not reply:
+        return None
+    return parse_reply(reply)
+
+
+def read_battery_listen(timeout_ms=6000):
+    """Passively read push reports. Returns the first valid parsed reply."""
+    info = find_raw_hid_interface()
+    if info is None:
+        return None
+
+    device = hid.Device(path=info["path"])
+    try:
+        while True:
+            report = device.read(REPORT_LENGTH, timeout=timeout_ms)
+            if not report:
+                return None
+            parsed = parse_reply(report)
+            if parsed is not None:
+                return parsed
+    finally:
+        device.close()
+
+
+def parse_reply(report: bytes):
+    # Accept only our own command echo. This rejects the 0xFF "unhandled"
+    # sentinel some firmware lineages emit, as well as stray HID reports.
+    if len(report) < 2 or report[0] != CMD_GET_BATTERY:
+        return None
+    # Bytes 2-3 are reserved (this board reports no voltage); skip them.
+    result = {"percent": report[1], "charging": 0, "transport": 0, "model": 0}
+    if len(report) >= 5:
+        result["charging"] = report[4]
+    if len(report) >= 6:
+        result["transport"] = report[5]
+    if len(report) >= 7:
+        result["model"] = report[6]
+    return result
+
+
+def read_battery_bluetooth(mac=None):
+    """Fallback: read the BLE Battery Service via bluetoothctl.
+
+    With no MAC, searches paired devices for one whose name looks like this
+    keyboard, then reads its 'Battery Percentage' line.
+    """
+    def bt_info(target):
+        try:
+            out = subprocess.run(
+                ["bluetoothctl", "info", target],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            return None
+        match = re.search(r"Battery Percentage:\s*0x[0-9a-fA-F]+\s*\((\d+)\)", out)
+        return int(match.group(1)) if match else None
+
+    if mac:
+        percent = bt_info(mac)
+        return {"percent": percent, "charging": 0, "transport": 0x02} if percent is not None else None
+
+    try:
+        devices = subprocess.run(
+            ["bluetoothctl", "devices"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    for line in devices.splitlines():
+        if "Split65" not in line:
+            continue
+        mac_addr = line.split()[1] if len(line.split()) > 1 else None
+        if not mac_addr:
+            continue
+        percent = bt_info(mac_addr)
+        if percent is not None:
+            return {"percent": percent, "charging": 0, "transport": 0x02}
+    return None
+
+
+def format_status(result):
+    percent = result["percent"]
+    if result.get("charging") in (1, 2):
+        return f"CHG {percent}%"
+    return f"BAT {percent}%"
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--pull", action="store_true", help="send the request and read the reply")
+    mode.add_argument("--listen", action="store_true", help="passively read push reports")
+    mode.add_argument("--bluetooth", action="store_true", help="read the BLE battery service")
+    parser.add_argument("--mac", help="Bluetooth MAC address for --bluetooth")
+    args = parser.parse_args()
+
+    result = None
+    if args.pull:
+        result = read_battery_pull()
+    elif args.listen:
+        result = read_battery_listen()
+    elif args.bluetooth:
+        result = read_battery_bluetooth(args.mac)
+    else:
+        result = read_battery_pull()
+        if result is None:
+            result = read_battery_listen()
+
+    if result is None or result.get("percent") is None:
+        return 1
+
+    print(format_status(result))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

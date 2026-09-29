@@ -1,0 +1,42 @@
+Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/
+
+Copyright (c) 2026
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+---
+
+Scope note
+==========
+
+The files in this repository are licensed under the Apache License, Version
+2.0, with the following exceptions, which retain their upstream licenses:
+
+*   `qmk_firmware/` is a vendored snapshot of the QMK Firmware project
+    (github.com/hangshengkeji/qmk_firmware, branch `tri-mode`) and is licensed
+    under the GNU General Public License v2.0 or later. Its own `LICENSE` and
+    per-file headers govern.
+
+*   Firmware sources derived from QMK under
+    `qmk_firmware/keyboards/epomaker/epomaker_split65/` — including
+    `wls/wls.c`, `wls/wls.h`, `wls/wls_battery.c` and the keymaps — carry
+    `SPDX-License-Identifier: GPL-2.0-or-later` headers in the files
+    themselves. They are GPL-2.0-or-later because they link against and derive
+    from GPL-licensed QMK code.
+
+Everything else authored for this project — the host scripts (`host/`,
+`split65.py`), the VIA definition (`EPOMAKER Split65.json`), and the
+documentation (`README.md`, `PROTOCOL.md`, `DEPENDENCIES.md`, `FINDINGS.md`,
+`TODO.md`, `CHANGELOG.md`, `CONTRIBUTING.md`) — is Apache-2.0.

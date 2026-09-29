@@ -1,0 +1,53 @@
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.settings/
+.project
+.classpath
+*.sublime-workspace
+*.sublime-project
+
+# Secrets & environment
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+secrets.yaml
+secrets.yml
+credentials.json
+
+# Build & artifacts
+*.log
+*.tmp
+*.temp
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# QMK build output
+qmk_firmware/.build/
+.build/
+
+# Serena (local agent tooling; never commit)
+.serena/
+
+# Firmware binaries (rebuilt from source; see CHANGELOG and FINDINGS)
+*.bin
+*.hex
+*.elf
+*.map
