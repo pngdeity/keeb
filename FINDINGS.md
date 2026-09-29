@@ -100,7 +100,7 @@ Layered so transports share one code path. Reference: `PROTOCOL.md`.
 ## Build / flash facts (verified)
 - Build: `make epomaker/epomaker_split65:default` from `qmk_firmware/`.
   Current sizes (after all changes):
-  - `default` — **63160** bytes (`f6b8`)
+  - `default` — **63168** bytes (`f6c0`)
   - `nathan` — **64932** bytes (`fda4`)
   The stock (pre-change) bin was 62644 bytes.
 - Symbols: `raw_hid_receive` links as a strong `T` (the weak default at

@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `wls/wls.c` and `wls/wls.h` had no license headers, which failed
   `qmk lint`.
+- The USB cable transport switch in `housekeeping_task_user()` is now gated to
+  the master half; it previously ran on both halves and mutated global radio
+  state from the slave.
 
 ### Changed
 

@@ -3,7 +3,9 @@
 ## Status
 
 - Left half: flashed and verified (`--pull` returns `CHG 100%`; firmware shows as
-  manufacturer `LEO`, `bcdDevice 0.30` vs stock `MILE` / `0.0b`).
+  manufacturer `LEO`, `bcdDevice 0.30` vs stock `MILE` / `0.0b`). **The artifact
+  is now 63168 bytes (`f6c0`) after the master-gate fix; the flashed left half is
+  one commit behind and should be re-flashed during the right-half session.**
 - Right half: **not yet flashed** — enter DFU via the R_Shift toggle +
   spacebar-pin short (see `DEPENDENCIES.md`).
 - 2.4 GHz pull path: proven end-to-end with stock firmware; needs a real battery
