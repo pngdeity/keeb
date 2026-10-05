@@ -68,6 +68,20 @@ def has_cmd(name: str) -> bool:
     return shutil.which(name) is not None
 
 
+def raw_hid_interfaces() -> list[dict] | None:
+    """Raw HID interfaces matching the QMK raw HID usage, or None if `hid`
+    is not importable. Imported lazily so `check` still runs without it."""
+    try:
+        import hid
+    except ImportError:
+        return None
+    return [
+        info
+        for info in hid.enumerate()
+        if info.get("usage_page") == 0xFF60 and info.get("usage") == 0x61
+    ]
+
+
 def has_pkg(name: str) -> bool:
     result = subprocess.run(["pacman", "-Q", name], capture_output=True, text=True)
     return result.returncode == 0
@@ -376,6 +390,34 @@ def check() -> None:
     else:
         warn("EPOMAKER keyboard not detected on USB -- may be on battery")
         issues += 1
+
+    # --- raw HID interface selection ---
+    step("Raw HID interface selection")
+    ifaces = raw_hid_interfaces()
+    if ifaces is None:
+        warn("Python 'hid' package not installed -- cannot verify raw HID")
+        issues += 1
+    elif not ifaces:
+        warn("No raw HID collection (0xFF60/0x61) -- keyboard absent or asleep")
+        issues += 1
+    else:
+        for info in ifaces:
+            which = {1: "keyboard", 2: "2.4G dongle"}.get(
+                info.get("interface_number"), "unknown"
+            )
+            ok(
+                f"interface {info.get('interface_number')} ({which}) "
+                f"on {info.get('path')}"
+            )
+        picks = [i.get("interface_number") for i in ifaces]
+        if len(ifaces) > 1:
+            warn(
+                "Multiple raw HID collections present; the host tooling prefers "
+                "interface 2 (dongle) -- use '--transport usb' to read the "
+                "keyboard's own collection"
+            )
+        elif picks and picks[0] == 1:
+            ok("Only the keyboard's own raw HID collection is present")
 
     # --- summary ---
     print("\n==============================")

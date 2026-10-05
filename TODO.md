@@ -36,10 +36,11 @@ sections below.
 
 **Tier 0 — blockers / one-way doors (do first, cheap, affect everything after):**
 
-1. **Fix defect 3** (`find_raw_hid_interface()` picks the wrong interface) and
-   **contain it in `split65.py check`.** This is a prerequisite for the 2.4 GHz
-   probe: with keyboard and dongle both attached, the probe reads the keyboard's
-   USB interface, so any 2.4 GHz measurement taken first is invalid.
+1. ~~**Fix defect 3** (`find_raw_hid_interface()` picks the wrong interface) and
+   **contain it in `split65.py check`.**~~ **DONE** — `find_raw_hid_interface()`
+   now prefers the dongle (interface 2) and accepts `--transport usb`;
+   `split65.py check` reports the collections present. A confirmation run with
+   the dongle attached remains (it needs the dongle and the user).
 2. **Decide and apply the critical ergonomics changes** (a pull-forward from
    Tier 3, abbreviated to only the items that are cheap and that a flash would
    otherwise force you to repeat):
@@ -191,15 +192,19 @@ wakes the slave over the inter-half UART).
 
 ### 3. Host tooling picks the wrong raw HID interface
 
-`host/battery_polybar.py:find_raw_hid_interface()` returns the first
+`host/battery_polybar.py:find_raw_hid_interface()` used to return the first
 `hid.enumerate()` entry matching usage page `0xFF60` / usage `0x61`. When both the
 keyboard's own USB interface (interface 1) and the 2.4 GHz dongle (interface 2)
-are attached, it grabs the keyboard's USB interface, so the module reports USB
-while the user is on 2.4 GHz. Fix: prefer interface 2 (or the `2.4G Dongle`
-product string) when several match.
+are attached, it grabbed the keyboard's USB interface, so the module reported USB
+while the user was on 2.4 GHz.
 
-`split65.py check` should validate this assumption too, since it is the tool a
-user is told to run; today it does not exercise raw HID selection at all.
+**Fixed.** `find_raw_hid_interface(prefer=...)` now enumerates all matching
+collections and prefers interface 2 (the dongle) by default, falling back to the
+only collection present when just one exists; `--transport usb` selects the
+keyboard's own collection. `split65.py check` gained a "Raw HID interface
+selection" step that lists the collections found and warns when more than one is
+present. Remaining: a hardware run with the dongle attached to confirm the
+2.4 GHz read is not silently satisfied by USB.
 
 ## Right-half DFU without hardware shorting
 

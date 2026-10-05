@@ -25,9 +25,11 @@ a backwards-compatible extension; hosts must ignore bytes they do not know.
 - **Host-side interface selection matters.** The keyboard's own raw collection is
   interface 1 and the dongle's is interface 2, and both are present whenever the
   keyboard is plugged in *and* the dongle is attached. `host/battery_polybar.py`
-  currently takes the first match, so with both attached a "2.4 GHz" read can
-  silently be a USB read (`TODO.md` defect 3). This must be fixed before any
-  measurement is trusted to be from the radio.
+  enumerates every match and **prefers interface 2 (the dongle)** by default,
+  falling back to the only collection present; `--transport usb` reads the
+  keyboard's own collection instead. `split65.py check` reports which collections
+  are present. (This was `TODO.md` defect 3; the code is fixed, a confirmation run
+  with the dongle attached is still outstanding.)
 - Bluetooth: in scope. Not yet probed on hardware — unknown whether the BT HID
   link exposes the raw HID collection (`0xFF60`/`0x61`) and whether
   `*md_getp_bat()` is populated over BT. The host falls back to the BLE Battery

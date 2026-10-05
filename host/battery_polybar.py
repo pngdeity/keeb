@@ -11,6 +11,10 @@ Usage:
     battery_polybar.py --pull     # send the request, read the reply (USB)
     battery_polybar.py --listen   # passively read push reports (2.4 GHz)
 
+When both the keyboard's USB collection (interface 1) and the 2.4 GHz dongle's
+(interface 2) are attached, the dongle is preferred by default; pass
+--transport usb to read the keyboard's own collection instead (see PROTOCOL.md).
+
 Exits non-zero with no output when the keyboard is absent, so polybar hides
 the module.
 """
@@ -35,18 +39,46 @@ CMD_GET_BATTERY = 0xA4
 
 TRANSPORT_NAMES = {0x01: "USB", 0x02: "BT", 0x04: "2.4G"}
 
+# Raw HID collection interface numbers (see PROTOCOL.md). The keyboard's own
+# collection is interface 1; the 2.4 GHz dongle exposes a second one on
+# interface 2. Both are present whenever the keyboard is plugged in *and* the
+# dongle is attached, so "first match" is ambiguous.
+INTERFACE_KEYBOARD = 1
+INTERFACE_DONGLE = 2
 
-def find_raw_hid_interface():
-    """Return the first raw HID interface matching the QMK raw HID usage."""
-    for info in hid.enumerate():
-        if info.get("usage_page") == USAGE_PAGE and info.get("usage") == USAGE:
+
+def enumerate_raw_hid_interfaces():
+    """Return every raw HID interface matching the QMK raw HID usage."""
+    return [
+        info
+        for info in hid.enumerate()
+        if info.get("usage_page") == USAGE_PAGE and info.get("usage") == USAGE
+    ]
+
+
+def find_raw_hid_interface(prefer=None):
+    """Pick the raw HID interface to use.
+
+    Several can match at once (keyboard interface 1 and, when the dongle is
+    attached, dongle interface 2). Default to the dongle so a read over 2.4 GHz
+    is not silently satisfied by the keyboard's USB collection; prefer="usb"
+    selects the keyboard instead.
+    """
+    candidates = enumerate_raw_hid_interfaces()
+    if not candidates:
+        return None
+
+    wanted = INTERFACE_DONGLE if prefer in (None, "dongle", "2.4g") else INTERFACE_KEYBOARD
+    for info in candidates:
+        if info.get("interface_number") == wanted:
             return info
-    return None
+    # Only one collection present: take it regardless of preference.
+    return candidates[0]
 
 
-def read_battery_pull():
+def read_battery_pull(prefer=None):
     """Send the 0xA4 request and return the parsed reply, or None."""
-    info = find_raw_hid_interface()
+    info = find_raw_hid_interface(prefer)
     if info is None:
         return None
 
@@ -64,9 +96,9 @@ def read_battery_pull():
     return parse_reply(reply)
 
 
-def read_battery_listen(timeout_ms=6000):
+def read_battery_listen(timeout_ms=6000, prefer=None):
     """Passively read push reports. Returns the first valid parsed reply."""
-    info = find_raw_hid_interface()
+    info = find_raw_hid_interface(prefer)
     if info is None:
         return None
 
@@ -158,19 +190,26 @@ def main():
     mode.add_argument("--listen", action="store_true", help="passively read push reports")
     mode.add_argument("--bluetooth", action="store_true", help="read the BLE battery service")
     parser.add_argument("--mac", help="Bluetooth MAC address for --bluetooth")
+    parser.add_argument(
+        "--transport",
+        choices=("dongle", "usb"),
+        default="dongle",
+        help="raw HID interface to read: 'dongle' (interface 2, default) or 'usb' (interface 1)",
+    )
     args = parser.parse_args()
 
+    prefer = args.transport
     result = None
     if args.pull:
-        result = read_battery_pull()
+        result = read_battery_pull(prefer)
     elif args.listen:
-        result = read_battery_listen()
+        result = read_battery_listen(prefer=prefer)
     elif args.bluetooth:
         result = read_battery_bluetooth(args.mac)
     else:
-        result = read_battery_pull()
+        result = read_battery_pull(prefer)
         if result is None:
-            result = read_battery_listen()
+            result = read_battery_listen(prefer=prefer)
 
     if result is None or result.get("percent") is None:
         return 1
