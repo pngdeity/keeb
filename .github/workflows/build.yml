@@ -1,0 +1,45 @@
+name: Build firmware
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-default:
+    name: Build epomaker/epomaker_split65:default
+    runs-on: ubuntu-latest
+    # QMK's official build image: ships arm-none-eabi-gcc, make, python3, pip and
+    # the QMK CLI. We still build with the CLI bundled in the pinned submodule
+    # (via bin/qmk), not the container's copy. QMK's own CI uses this same image.
+    container: ghcr.io/qmk/qmk_cli:latest
+    steps:
+      - name: Configure git safe.directory
+        # The container's git runs as a different uid than the checkout, so git
+        # otherwise refuses to operate on the workspace. QMK's CI does this too.
+        run: git config --global --add safe.directory '*'
+      - name: Checkout (with the pinned qmk_firmware submodule)
+        # submodules: recursive pulls the pinned qmk_firmware commit and its own
+        # submodules. The SSH submodule URL in .gitmodules is rewritten to HTTPS
+        # by actions/checkout; both repos are public, so it clones anonymously.
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install the tree's Python requirements
+        # bin/qmk runs the submodule's lib/python/qmk, which needs these. With no
+        # project .venv present it falls back to the container's python3.
+        run: pip3 install --no-cache-dir -r qmk_firmware/requirements.txt
+      - name: Build the board's default keymap
+        # QMK's build container presets QMK_USERSPACE=/qmk_userspace; there is no
+        # userspace repo in CI, so clear it. bin/make also blanks it when the
+        # sibling userspace directory is absent.
+        env:
+          QMK_USERSPACE: ""
+        run: ./bin/make epomaker/epomaker_split65:default
+      - name: Report the artifact
+        run: |
+          bin=$(find qmk_firmware/.build -name 'epomaker_epomaker_split65_default.bin' | head -1)
+          test -n "$bin" || { echo "no .bin produced"; exit 1; }
+          ls -l "$bin"
+          md5sum "$bin"

@@ -78,7 +78,9 @@ Use the project-local wrappers (no system install needed):
 - **`bin/make`** is a thin wrapper over the real `make` that exports
   `QMK_USERSPACE` (both as an environment variable and as a make command-line
   variable) and puts `bin/` on `PATH`. It resolves the real `make` path
-  *before* modifying `PATH`, so it does not recurse into itself.
+  *before* modifying `PATH`, so it does not recurse into itself. If the sibling
+  userspace directory is absent (e.g. in CI) it blanks `QMK_USERSPACE`, so the
+  tree does not try to copy firmware into a missing directory.
 - The userspace repo is a **sibling** of this repo (`../keeb-userspace/`), not a
   child; `bin/make` computes it that way.
 - Create the venv once with `uv venv` and `uv pip install --python
@@ -89,6 +91,20 @@ Use the project-local wrappers (no system install needed):
 
 Flashing (human only): `./split65.py flash`, or manually
 `wb32-dfu-updater_cli -t -s 0x08000000 -D <bin>` then `-R`.
+
+## CI
+
+`.github/workflows/build.yml` builds `epomaker/epomaker_split65:default` on every
+push to `main`, every PR, and on demand, so a broken board source is caught
+without a human build. It uses QMK's official image
+(`ghcr.io/qmk/qmk_cli:latest`), checks out this repo **with submodules**, installs
+the tree's `requirements.txt`, and runs `./bin/make`.
+
+**Toolchain note:** the container ships its own `arm-none-eabi-gcc` (currently
+15.2.0), which can differ from the host's (16.2.0). A different compiler version
+produces a **different `.bin` size and md5 for identical source**, so the CI
+artifact is not byte-comparable to a local build. CI's job is "does it build",
+not "is it byte-identical to the host".
 
 ## Software traps in this tree
 

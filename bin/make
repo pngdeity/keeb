@@ -25,8 +25,13 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 TREE="$ROOT/qmk_firmware"
 
-# The userspace repo is a SIBLING of this repo, not a child.
+# The userspace repo is a SIBLING of this repo, not a child. If it does not
+# exist (e.g. in CI, where only this repo is checked out), pass an empty value so
+# the tree does not attempt to copy firmware into a non-existent directory. Note
+# QMK's own build container presets QMK_USERSPACE=/qmk_userspace, so an explicit
+# value here also overrides that.
 USERSPACE="${QMK_USERSPACE:-$(dirname "$ROOT")/keeb-userspace}"
+[ -d "$USERSPACE" ] || USERSPACE=""
 
 # Resolve the real make BEFORE adding bin/ to PATH, or this wrapper would
 # re-invoke itself (bin/make is named `make`).
