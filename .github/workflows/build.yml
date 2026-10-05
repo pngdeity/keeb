@@ -8,11 +8,15 @@ permissions:
   contents: read
 jobs:
   build-default:
-    name: Build epomaker/epomaker_split65:default
+    name: Build epomaker/epomaker_split65:all
     runs-on: ubuntu-latest
     # QMK's official build image: ships arm-none-eabi-gcc, make, python3, pip and
     # the QMK CLI. We still build with the CLI bundled in the pinned submodule
     # (via bin/qmk), not the container's copy. QMK's own CI uses this same image.
+    #
+    # Toolchain note: the container's arm-none-eabi-gcc can differ from the host's,
+    # so an identical source tree produces a different .bin size/md5. This job
+    # asserts "it builds" (QMK's bar: `make keyboard:all`), not a fixed hash.
     container: ghcr.io/qmk/qmk_cli:latest
     steps:
       - name: Configure git safe.directory
@@ -21,25 +25,47 @@ jobs:
         run: git config --global --add safe.directory '*'
       - name: Checkout (with the pinned qmk_firmware submodule)
         # submodules: recursive pulls the pinned qmk_firmware commit and its own
-        # submodules. The SSH submodule URL in .gitmodules is rewritten to HTTPS
-        # by actions/checkout; both repos are public, so it clones anonymously.
+        # submodules. Both repos are public, and .gitmodules uses an HTTPS URL, so
+        # it clones anonymously without SSH. fetch-depth: 0 gives the full history
+        # so the whitespace check below can diff against the parent commit.
         uses: actions/checkout@v7
         with:
           submodules: recursive
+          fetch-depth: 0
       - name: Install the tree's Python requirements
         # bin/qmk runs the submodule's lib/python/qmk, which needs these. With no
         # project .venv present it falls back to the container's python3.
         run: pip3 install --no-cache-dir -r qmk_firmware/requirements.txt
-      - name: Build the board's default keymap
-        # QMK's build container presets QMK_USERSPACE=/qmk_userspace; there is no
-        # userspace repo in CI, so clear it. bin/make also blanks it when the
-        # sibling userspace directory is absent.
+      - name: Check for whitespace errors
+        # QMK asks for `git diff --check` before committing. Compare the pushed
+        # range; on a non-push event (or the root commit) fall back to the tip.
+        run: |
+          if git rev-parse --verify -q HEAD^ >/dev/null; then
+            git diff --check HEAD^ HEAD
+          else
+            git show --check --oneline HEAD
+          fi
+      - name: Check keyboard.json is canonically formatted
+        # QMK requires `qmk format-json` on this file before submitting. It must be
+        # a no-op, i.e. the file is already in QMK's canonical form.
         env:
           QMK_USERSPACE: ""
-        run: ./bin/make epomaker/epomaker_split65:default
-      - name: Report the artifact
         run: |
-          bin=$(find qmk_firmware/.build -name 'epomaker_epomaker_split65_default.bin' | head -1)
-          test -n "$bin" || { echo "no .bin produced"; exit 1; }
-          ls -l "$bin"
-          md5sum "$bin"
+          cp qmk_firmware/keyboards/epomaker/epomaker_split65/keyboard.json /tmp/before.json
+          ./bin/qmk format-json -i qmk_firmware/keyboards/epomaker/epomaker_split65/keyboard.json
+          diff -u /tmp/before.json qmk_firmware/keyboards/epomaker/epomaker_split65/keyboard.json \
+            || { echo "keyboard.json is not canonically formatted; run 'qmk format-json -i' on it"; exit 1; }
+      - name: Build every keymap for the board
+        # QMK's bar for a keyboard change is `make keyboard:all`. QMK's build
+        # container presets QMK_USERSPACE=/qmk_userspace; there is no userspace
+        # repo in CI, so clear it. bin/make also blanks it when the sibling
+        # userspace directory is absent.
+        env:
+          QMK_USERSPACE: ""
+        run: ./bin/make epomaker/epomaker_split65:all
+      - name: Report the artifacts
+        run: |
+          mapfile -t bins < <(find qmk_firmware/.build -name 'epomaker_epomaker_split65_*.bin' | sort)
+          test "${#bins[@]}" -gt 0 || { echo "no .bin produced"; exit 1; }
+          ls -l "${bins[@]}"
+          md5sum "${bins[@]}"
