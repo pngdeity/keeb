@@ -64,8 +64,12 @@ jobs:
           QMK_USERSPACE: ""
         run: ./bin/make epomaker/epomaker_split65:all
       - name: Report the artifacts
+        # POSIX sh (not bash): avoid mapfile/process substitution.
         run: |
-          mapfile -t bins < <(find qmk_firmware/.build -name 'epomaker_epomaker_split65_*.bin' | sort)
-          test "${#bins[@]}" -gt 0 || { echo "no .bin produced"; exit 1; }
-          ls -l "${bins[@]}"
-          md5sum "${bins[@]}"
+          found=0
+          for bin in $(find qmk_firmware/.build -name 'epomaker_epomaker_split65_*.bin' | sort); do
+            found=1
+            ls -l "$bin"
+            md5sum "$bin"
+          done
+          test "$found" -eq 1 || { echo "no .bin produced"; exit 1; }
