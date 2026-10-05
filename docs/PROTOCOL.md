@@ -1,10 +1,10 @@
 # EPOMAKER Split65 — Battery Reporting Protocol
 
 > **Scope.** This documents the protocol implemented by the **battery-feature
-> build** (our parked `nathan` firmware, which is what the halves currently
-> run). The current tree holds **vendor source**, which has **no `0xA4`
-> responder**; a stock/vendor build answers the raw HID interface with an
-> unhandled `FF` sentinel instead. See `TODO.md` Status.
+> build** (committed in the `qmk_firmware` submodule as `wls/wls_battery.c`; the
+> halves currently run an older build of it). On a stock/vendor build with no
+> responder, the raw HID interface answers with an unhandled `FF` sentinel
+> instead. See `TODO.md` Status.
 
 Raw HID command used by the host to read the keyboard battery over all
 transports. The command id `0xA4` (`KC_GET_BATTERY_LEVEL`) follows the
@@ -101,7 +101,7 @@ same reply report unprompted every `WLS_BATTERY_PUSH_INTERVAL` (default
 pull. Push is:
 
 - enabled by `WLS_BATTERY_PUSH_ENABLE` (a `config.h` knob in the battery-feature
-  build; not present in the vendor tree),
+  build),
 - emitted only on the split master half,
 - emitted only while `md_getp_state()` reports `MD_STATE_CONNECTED`.
 

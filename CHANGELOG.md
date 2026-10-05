@@ -19,22 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--bluetooth` (BLE Battery Service `0x180F`/`0x2A19`) modes.
 - Build/flash/diagnostics helper `split65.py`.
 - VIA keyboard definition `host/epomaker-split65-via.json`.
-- Personal keymap `keymaps/nathan/`.
-
-> The battery firmware and the `nathan` keymap are **not in the current tree**:
-> it was later reverted to the vendor source. They live in the old inner repo
-> (branch `split65-battery`) and in `/tmp/opencode/pre-vendor-revert/`. See
-> `TODO.md` Status.
+- Build wrappers `bin/make` and `bin/qmk`, and a userspace repo for the personal
+  `nathan` keymap (sibling `../keeb-userspace/`).
+- CI (`.github/workflows/build.yml`) building `epomaker/epomaker_split65:all` in
+  QMK's official container, plus whitespace and canonical-`keyboard.json` checks.
 
 ### Changed
 
-- Reverted the tree to the **vendor** board source, keeping only the vendor
-  `default` keymap; the battery reporter and personal keymap are parked outside
-  the tree.
-- Consolidated the former standalone `keeb` project into this repository; all
-  keyboard assets now live in one place.
-- Flattened `qmk_firmware/` from a submodule into ordinary tracked files and
-  pruned it (`keyboards/` reduced to the two trees this board needs).
+- **`qmk_firmware/` is a pinned git submodule** (`pngdeity/cleave-keeb`, branch
+  `split65-overlay`, vendor revision `580665f7` + our commits). Board changes are
+  commits inside the submodule; the root repo pins the result by gitlink.
+- `bootmagic.matrix` corrected from `[0,0]` to `[1,0]` (the top-left key's real
+  matrix position; row 0 is unused).
+- Board `keyboard.json` gained a `url` and the `readme.md` a hardware link.
+- Documentation restructured under `docs/` (`DEVICE.md`, `HARDWARE.md`,
+  `PROTOCOL.md`, `DEPENDENCIES.md`, `FINDINGS.md`); `AGENTS.md` added.
 
 ### Removed
 

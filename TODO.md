@@ -2,33 +2,32 @@
 
 ## Status
 
-- **The tree now holds the VENDOR firmware, not ours.** It was reverted: the
-  board source is vendor `epomaker_split65` at inner-repo commit `9054c880f1`
-  plus the `post_rules.mk` `leo/` -> `epomaker/` include-path fix. There is **no**
-  battery reporter (`wls/wls_battery.c` absent) and **no** `nathan` keymap — only
-  the vendor `default` keymap. Our battery work lives in the old inner repo
-  (`.git/modules/qmk_firmware`, branch `split65-battery`) and in
-  `/tmp/opencode/pre-vendor-revert/`. Device context and vocabulary:
-  `docs/DEVICE.md`.
-- The vendor `default` keymap builds to **61320 bytes (`ef88`), md5
-  `cf7c31a7361c2a2103bf4035fbac2e22`**. This is the new vendor baseline.
+- **The tree holds our battery firmware, committed inside the `qmk_firmware`
+  submodule.** `qmk_firmware/` is a **pinned submodule** of
+  `pngdeity/cleave-keeb` branch `split65-overlay` (pinned at vendor revision
+  `580665f777` plus our commits `e8f49af339` "feat: battery over raw HID",
+  `641fd27392` "correct bootmagic matrix and readme", `01528d1c5d` "add info.json
+  url and readme hardware link", and `059cd8bdf1` "math.py Python 3.12+"). The
+  board source therefore **contains the battery responder** (`wls/wls_battery.c`)
+  and the corrected `bootmagic.matrix [1,0]`.
+- The personal `nathan` keymap is **not** in the tree: it lives in the sibling
+  userspace repo `../keeb-userspace/`. Build with `./bin/make ...:nathan`
+  (`bin/make` supplies `QMK_USERSPACE`).
+- **Current build artifacts** (host toolchain `arm-none-eabi-gcc` 16.2.0):
+  `nathan` = **64932 bytes (`fda4`), md5 `0e3f05d2cc2d9a398b3244222eb72e94`**;
+  `default` = **63160 bytes (`f6b8`), md5 `4f24953fa88acf14afe2107eb9ea9dba`**.
+  (CI builds with the container's gcc 15.2.0, so its bytes differ — CI asserts
+  "it builds", not a fixed md5.)
 - Both halves enumerate as `342d:e4c6`, manufacturer `LEO` (stock is `MILE`).
-- Right half DFU entry used the R_Shift toggle + spacebar-pin short (see
-  `docs/HARDWARE.md`); it erased nothing and the firmware took. Key-based DFU is
-  still future work (next section).
-- **The halves have NOT been reflashed with the vendor `default` build.** They
-  currently run the older `nathan` build (63168 bytes md5
-  `3d0d47d9737c4209d2a7000cb8909033`).
-- **The tree is flat and pruned, and this is all uncommitted.** `qmk_firmware/`
-  is no longer a submodule: the gitlink, `.gitmodules` and the stale inner
-  `.gitmodules` are gone and its files are ordinary tracked files of the root
-  repo. `keyboards/` was pruned to the two this board needs
-  (`epomaker/epomaker_split65`, `linker/wireless`); `docs/`, `tests/`, `users/`
-  and unused `lib/` trees were deleted, but `layouts/` and `lib/lufa` had to be
-  **restored** — the prune wrongly removed them and the build failed without
-  them. `lib/{chibios,chibios-contrib,printf,fnv,lib8tion,lufa}` are kept whole.
-- The firmware fix commit in the old inner repo is `ff1e6e1d27` and is
-  **unsigned** (see Tier 0 item 2).
+- **The halves have NOT been reflashed with the current build.** They run an
+  older `nathan` build (63168 bytes md5 `3d0d47d9737c4209d2a7000cb8909033`), so
+  the tree and the hardware disagree. Reflashing is Tier 1 item 3.
+- Right-half DFU entry uses the R_Shift toggle + spacebar-pin short (see
+  `docs/HARDWARE.md`). Key-based DFU is still future work (a section below).
+- **The prune was discarded and the canonical tree restored.** `qmk_firmware/` is
+  a submodule again (the earlier flatten/prune/`layouts`+`lib/lufa` casualties are
+  resolved by P0). Both repos are pushed and CI is green. Device context and
+  vocabulary: `docs/DEVICE.md`.
 
 ## Priority order
 
@@ -37,51 +36,17 @@ sections below.
 
 **Tier 0 — blockers / one-way doors (do first, cheap, affect everything after):**
 
-1. **Verify the pruned tree still builds (byte-identical acceptance test).** The
-   tree was pruned from `qmk_firmware/` (1040 keyboard dirs -> 2, `docs/`,
-   `layouts/`, `tests/`, `users/` and the unused `lib/` trees removed) and
-   de-submoduled, but **no build has been run since**. Run, with the user's
-   go-ahead (it costs host compute):
-
-   ```sh
-   cd qmk_firmware
-   make clean
-   make epomaker/epomaker_split65:default
-   ```
-
-   Accept only **61320 bytes (`ef88`), md5 `cf7c31a7361c2a2103bf4035fbac2e22`**.
-   A byte-identical artifact is the proof the prune removed nothing the build
-   needs. Anything else means a pruned path was load-bearing and must be restored
-   — this already happened once: `layouts/` and `lib/lufa` were wrongly pruned and
-   had to be restored before the build would run. Do this before committing the
-   flatten, so a broken prune is not recorded.
-
-2. **Re-sign the unsigned firmware commit.** The last `qmk_firmware` commit
-   (`ff1e6e1d27`, *fix(epomaker/epomaker_split65): single source of truth for
-   default lighting*) was committed with `--no-gpg-sign` because GPG signing
-   failed in the non-interactive agent shell: the key's passphrase is not
-   cached for signing, and `~/.local/bin/pinentry-wrapper` falls back to
-   `pinentry-qt`, which the scrubbed gpg environment denies (`Inappropriate
-   ioctl for device` / `Timeout`). Re-sign it from a real terminal, e.g.
-   `git commit --amend -S --no-edit` inside `qmk_firmware/`, or re-commit.
-   Verify with `git log -1 --format='%G?'` -> `G`.
-
-3. **Commit the outstanding work.** Everything below is built on an uncommitted
-   tree (flattened root repo: the prune, the de-submodule, the vendor revert,
-   `docs/DEVICE.md` (new), `docs/HARDWARE.md`, `README.md`, `CONTRIBUTING.md`,
-   `TODO.md`). Nothing else should be verified before this is recorded, or the
-   verification is against an unreproducible state.
-4. **Fix defect 3** (`find_raw_hid_interface()` picks the wrong interface) and
+1. **Fix defect 3** (`find_raw_hid_interface()` picks the wrong interface) and
    **contain it in `split65.py check`.** This is a prerequisite for the 2.4 GHz
    probe: with keyboard and dongle both attached, the probe reads the keyboard's
    USB interface, so any 2.4 GHz measurement taken first is invalid.
-5. **Decide and apply the critical ergonomics changes** (a pull-forward from
+2. **Decide and apply the critical ergonomics changes** (a pull-forward from
    Tier 3, abbreviated to only the items that are cheap and that a flash would
    otherwise force you to repeat):
-   - **`QK_BOOT` / `EE_CLR` placement.** `EE_CLR` sitting at the Backspace
-     position on a layer is a genuine footgun (an accidental hold wipes
-     settings). Move it somewhere deliberate. One-line change, and it must be in
-     the same flash as everything else.
+  - **`QK_BOOT` / `EE_CLR` placement.** `EE_CLR` sitting at the Backspace
+    position on the Fn layer is a genuine footgun (an accidental hold wipes
+    settings). Move it somewhere deliberate. One-line change, and it must be in
+    the same flash as everything else.
    - **Decide the battery-indicator question.** With a uniform white fill the
      indicator is the only LED that differs; decide whether that single-LED
      exception stays, is made more prominent (it is the only per-half charge
@@ -95,52 +60,46 @@ sections below.
 
 **Tier 1 — the deliverable (the project exists for this):**
 
-6. **Reflash both halves** with the current artifact (default-lighting change plus
-   the Tier 0 decisions above). Cheap, and it also gives a clean baseline for the
-   measurement below. Do it *after* all the cheap pre-flash decisions are in, so
-   the flash is done once.
-7. **2.4 GHz: capture a real percentage** (the decisive test; needs the user at
-   the keyboard). Depends on 4 and 6.
-8. **2.4 GHz: confirm `chg` moves `1 -> 2` while charging.** Same session as 7.
-9. **Decide and implement the honesty fix for the fake 100** (defect 1).
-   Depends on 7 — you need to know what a real reading looks like before choosing
+3. **Reflash both halves** with the current build. Cheap, and it gives a clean
+   baseline for the measurement below. Do it *after* all the cheap pre-flash
+   decisions are in, so the flash is done once.
+4. **2.4 GHz: capture a real percentage** (the decisive test; needs the user at
+   the keyboard). Depends on 1 and 3.
+5. **2.4 GHz: confirm `chg` moves `1 -> 2` while charging.** Same session as 4.
+6. **Decide and implement the honesty fix for the fake 100** (defect 1).
+   Depends on 4 — you need to know what a real reading looks like before choosing
    how to represent "unknown".
 
 **Tier 2 — feature completeness (in scope, not yet probed):**
 
-10. **Probe Bluetooth at all**, then update `docs/PROTOCOL.md` and `README.md`.
-    Independent of Tier 1 except that it wants a committed, fixed host tool (4).
-11. **Wireless-while-charging investigation** (`## Other`). Independent; needs
-    hardware and the user.
+7. **Probe Bluetooth at all**, then update `docs/PROTOCOL.md` and `README.md`.
+   Independent of Tier 1 except that it wants a fixed host tool (1).
+8. **Wireless-while-charging investigation** (`## Other`). Independent; needs
+   hardware and the user.
 
 **Tier 3 — quality / ergonomics (valuable, not blocking):**
 
-12. **Firmware unit tests** for the pure battery helpers. Best done after 7/9 so
-    the tests encode settled semantics, not the current fake-100 behaviour.
-13. **Key-based right-half DFU.** Removes the case-opening procedure. Only worth
+9. **Firmware unit tests** for the pure battery helpers. Best done after 4/6 so
+   the tests encode settled semantics, not the current fake-100 behaviour.
+10. **Key-based right-half DFU.** Removes the case-opening procedure. Only worth
     doing if the physical short is a real pain point; the short stays documented
     as the recovery path regardless.
-14. **The rest of the UX / usability review** (whole section below) — layer
+11. **The rest of the UX / usability review** (whole section below) — layer
     ergonomics, held-modifier comfort, mode-switch discoverability, legends.
-    Largest, most subjective; depends on 9 and 12 for what is even possible.
+    Largest, most subjective; depends on 6 and 9 for what is even possible.
 
 **Tier 4 — long-horizon, high-cost, low-urgency:**
 
-15. **Re-base onto newer upstream QMK.** ~4.5 months of upstream but no wireless
-    stack; invalidates all hardware verification and would re-do 6-8. Do not
-    start before Tier 1 is closed and recorded.
+12. **Re-base onto newer upstream QMK.** See `## Other`; invalidates all hardware
+    verification and would re-do 4–5. Do not start before Tier 1 is closed.
 
 **Dependency notes (why the order is not free):**
 
-- 1 blocks the flatten commit: a broken prune must not be recorded.
-- 2 blocks the honest history: the firmware fix is currently unsigned.
-- 4 blocks 7/8/10 (interface selection is the read path).
-- 6 must come after 5 so the flash is done once, and before 7 so a mid-measurement
+- 1 blocks 4/5/7 (interface selection is the read path).
+- 3 must come after 2 so the flash is done once, and before 4 so a mid-measurement
   reflash cannot invalidate the result.
-- 3 blocks everything in the sense that unverified work cannot be honestly
-  reported; it is a one-way door on a *public* repo.
-- 5 must precede 6: every one of those decisions changes bytes that get flashed.
-- 15 invalidates 6-9, so it must come last or not at all.
+- 2 must precede 3: every one of those decisions changes bytes that get flashed.
+- 12 invalidates 4–6, so it must come last or not at all.
 
 ## Outstanding verification (the deliverable is not yet proven)
 
@@ -148,24 +107,13 @@ The host can read a report, but **no real battery percentage has ever been
 observed**. Until the items below are done, treat every displayed value as
 unverified.
 
-- [ ] **Verify the pruned tree still builds** (Tier 0 item 1): `make clean && make
-      epomaker/epomaker_split65:default` from `qmk_firmware/` must yield **61320
-      bytes, md5 `cf7c31a7361c2a2103bf4035fbac2e22`**. A different artifact means
-      the prune changed something load-bearing (this already happened once: see
-      the Status note about `layouts/` and `lib/lufa`).
-- [ ] **Re-sign the unsigned firmware commit** (Tier 0 item 2): `ff1e6e1d27` was
-      made with `--no-gpg-sign`; re-sign from a real terminal.
-- [ ] **Commit the outstanding work** (Tier 0 item 3): the flatten, prune,
-      doc restructure, `docs/DEVICE.md` and `AGENTS.md` are all uncommitted.
 - [ ] **Fix defect 3** (`find_raw_hid_interface()` picks the wrong interface) and
       cover it in `split65.py check`. **Do this before measuring** — it is the
       read path, and with keyboard and dongle both attached the probe would
       otherwise read the keyboard's USB interface.
-- [ ] **Flash both halves with the vendor `default` build** and confirm they
-      enumerate with manufacturer **`MILE`-vs-`LEO` consistency** and that the
-      battery raw HID command `0xA4` is **absent** (vendor has no responder).
-      Left via Esc-hold, right via the toggle + spacebar-pin short; see
-      `docs/HARDWARE.md`.
+- [ ] **Flash both halves with the current build** and confirm the manufacturer
+      string is `LEO` and the `0xA4` responder answers. Left via Esc-hold, right
+      via the toggle + spacebar-pin short; see `docs/HARDWARE.md`.
 - [ ] **2.4 GHz: capture a real percentage.** Every `100` seen so far is the
       module's compile-time init constant (defect 1). The radio path is the only
       transport known to populate `md_info.bat`, so this is where the first real
@@ -173,10 +121,8 @@ unverified.
       `docs/FINDINGS.md`.
 - [ ] **2.4 GHz: confirm the value changes while charging.** Re-run the probe with
       a cable in and watch `chg` go `1` -> `2` (full).
-- [ ] **USB: decide and implement the honesty fix for the fake 100** (defect 1) —
-      this is the first real firmware-writing task and needs the battery work
-      restored to the tree first. The report must not claim `100%` when the value
-      was never refreshed.
+- [ ] **USB: decide and implement the honesty fix for the fake 100** (defect 1).
+      The report must not claim `100%` when the value was never refreshed.
 - [ ] **Bluetooth: probe the transport at all.** Unknown whether the BT link
       exposes the raw HID collection (`0xFF60`/`0x61`) and whether `*md_getp_bat()`
       is populated over BT. If raw HID is absent, the BLE Battery Service
@@ -271,7 +217,8 @@ Rationale / evidence:
   `is_keyboard_master()`, so a `QK_BOOT` key pressed on the right half should jump
   *that half* into its own bootloader.
 - Both halves run identical firmware, so adding `QK_BOOT` to the keymap adds it
-  to both. The keymap maps `QK_BOOT` at Fn row 1 col 0 (`Fn+1`).
+  to both. The keymap maps `QK_BOOT` on the **base** layer at the left half's
+  `Esc` position (matrix `[1,0]`).
 - Esc-hold (bootmagic) does **not** work on the right half today; that asymmetry
   is why the physical short is currently required.
 
@@ -304,20 +251,19 @@ Caveats to confirm empirically:
 The mappings and indicators are inherited from the vendor and were designed for
 the stock firmware; they have never been reviewed against how this keyboard is
 actually used. Audit and question each of the following, then decide what (if
-anything) to change in the `nathan` keymap (parked outside this tree — see
-Status) and whether the vendor defaults deserve an upstream report.
+anything) to change in the `nathan` keymap (userspace repo — see Status) and
+whether the vendor defaults deserve an upstream report.
 
-Three of these were pulled forward into **Tier 0, item 5** because they are
-cheap and must land in the same flash as the default-lighting change: the
+Three of these were pulled forward into **Tier 0, item 2** because they are
+cheap and must land in the same flash as other pre-flash decisions: the
 `QK_BOOT`/`EE_CLR` placement, the battery-indicator-vs-fill decision, and whether
 to trim the compiled-in animation list. The remainder stay here.
 
 - **Charging/battery LED placement.** The only per-half-charge renderer is the
-  master-only soft indicator at `HS_MATRIX_BAT_SOFT_INDEX` (battery work, parked
-  — right half, bottom row, fourth from the right). Question whether that is
-  discoverable at all: it
-  sits on the *opposite* half from the half it describes, is master-only, and is
-  invisible when RGB brightness is zero. Consider a better location or a
+  master-only soft indicator at `HS_MATRIX_BAT_SOFT_INDEX 64` (right half, bottom
+  row, `[11,5]`, fourth from the right). Question whether that is discoverable at
+  all: it sits on the *opposite* half from the half it describes, is master-only,
+  and is invisible when RGB brightness is zero. Consider a better location or a
   dedicated indicator, and whether the level colours are distinguishable.
 - **Default RGB effects.** Partly addressed: the vendor rainbow is gone; the
   default is now solid white at 50%, declared in `keyboard.json`
@@ -339,8 +285,9 @@ to trim the compiled-in animation list. The remainder stay here.
 - **Keycap legends vs matrix.** Legends do not reliably match matrix positions
   (see `docs/HARDWARE.md`), so any mapping work must identify keys positionally
   ("right half, bottom row, fourth from the right"), never by legend.
-- **`QK_BOOT` / `EE_CLR` placement.** `QK_BOOT` at Fn row 1 col 0 (`Fn+1`) and
-  `EE_CLR` at Fn row 1 col 13 (`Fn+Backspace`) are easy to hit by accident;
+- **`QK_BOOT` / `EE_CLR` placement.** `QK_BOOT` sits on the **base** layer at the
+  left `Esc` position (matrix `[1,0]`) and `EE_CLR` on the Fn layer over the
+  `Bksp` position (right half, matrix `[7,7]`). Both are easy to hit by accident;
   question whether destructive actions are placed safely, especially given
   `EE_CLR` sits on the Backspace key position.
 - **Layers and ergonomics.** `_FL` is reached by holding right Spacebar

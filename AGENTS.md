@@ -35,7 +35,7 @@ source inside it carries our authored changes. The personal `nathan` keymap live
 **Use the project-local wrappers — never a bare `make` or `qmk`:**
 
 ```sh
-./bin/make epomaker/epomaker_split65:default   # vendor keymap
+./bin/make epomaker/epomaker_split65:default   # stock (vendor) keymap
 ./bin/make epomaker/epomaker_split65:nathan    # personal keymap (userspace)
 
 ./bin/qmk lint -kb epomaker/epomaker_split65 -km default
@@ -94,11 +94,12 @@ Flashing (human only): `./split65.py flash`, or manually
 
 ## CI
 
-`.github/workflows/build.yml` builds `epomaker/epomaker_split65:default` on every
+`.github/workflows/build.yml` builds `epomaker/epomaker_split65:all` on every
 push to `main`, every PR, and on demand, so a broken board source is caught
 without a human build. It uses QMK's official image
-(`ghcr.io/qmk/qmk_cli:latest`), checks out this repo **with submodules**, installs
-the tree's `requirements.txt`, and runs `./bin/make`.
+(`ghcr.io/qmk/qmk_cli:latest`), checks out this repo **with submodules**,
+installs the tree's `requirements.txt`, runs `./bin/make`, and also enforces
+`git diff --check` and canonical `qmk format-json` output.
 
 **Toolchain note:** the container ships its own `arm-none-eabi-gcc` (currently
 15.2.0), which can differ from the host's (16.2.0). A different compiler version
@@ -108,8 +109,10 @@ not "is it byte-identical to the host".
 
 ## Software traps in this tree
 
-The tree holds **vendor source only** (the vendor `default` keymap; no battery
-responder). The battery work is parked in the old inner repo — see `TODO.md`.
+The tree holds the vendor board **plus our battery changes**, committed inside
+the `qmk_firmware` submodule (branch `split65-overlay`). The personal `nathan`
+keymap is **not** in the tree — it lives in the sibling userspace repo
+(`../keeb-userspace/`).
 
 - **`keyboard.json` is the source of truth for defaults**, not `config.h`.
   Defining e.g. `RGB_MATRIX_DEFAULT_*` in `config.h` when `keyboard.json` already
@@ -124,8 +127,13 @@ responder). The battery work is parked in the old inner repo — see `TODO.md`.
 - **hidapi writes to the raw HID interface must be 33 bytes** (leading Report ID
   `0x00` + the 32-byte report). A bare 32-byte write is accepted and silently
   never answered.
-- **`qmk_firmware/` is not a submodule.** It is plain files in this repo. Do not
-  run submodule commands against it.
+- **`qmk_firmware/` is a submodule**, pinned to `pngdeity/cleave-keeb` branch
+  `split65-overlay`. Board edits are commits inside it; the root repo pins the
+  result by gitlink, so a board change needs a matching root bump.
+- **Editing `keyboard.json` with a text tool reflows the whole file.** The `edit`
+  tool rewrites every `rgb_matrix.layout` and `rotary` entry (hundreds of lines
+  of churn for a one-value change). Use `qmk format-json -i` for structural edits
+  and a line-targeted edit (e.g. `perl -i -pe`) for single values.
 
 ## Where to write what
 

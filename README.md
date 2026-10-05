@@ -10,14 +10,18 @@ answer the level inquiry on USB, so the value stays at its compile-time default
 (see `TODO.md` defect 1). Bluetooth is implemented on the host side but not yet
 probed on hardware.
 
+The `nathan` battery firmware is committed in the `qmk_firmware` submodule; the
+halves still run an older build of it (see Status).
+
 ## Layout
 
 | Path | Purpose |
 |------|---------|
-| `qmk_firmware/` | The QMK tree this board builds against, pruned to only what it needs. GPL-2.0-or-later. |
-| `qmk_firmware/keyboards/epomaker/epomaker_split65/` | Vendor board source (no battery responder; see `TODO.md`). |
-| `qmk_firmware/keyboards/epomaker/epomaker_split65/keymaps/default/` | Vendor keymap (the only one in the tree). |
+| `qmk_firmware/` | The QMK tree this board builds against, a **pinned submodule** (`pngdeity/cleave-keeb`, vendor revision `580665f7` + our commits). GPL-2.0-or-later. |
+| `qmk_firmware/keyboards/epomaker/epomaker_split65/` | Board source, including our battery responder (`wls/wls_battery.c`). |
+| `qmk_firmware/keyboards/epomaker/epomaker_split65/keymaps/default/` | Vendor `default` keymap (the only keymap in the tree). |
 | `qmk_firmware/keyboards/linker/wireless/` | The vendor wireless stack, included by the board's `post_rules.mk`. |
+| `bin/make`, `bin/qmk` | Project-local wrappers for `make`/`qmk` (see `AGENTS.md`). |
 | `host/battery_polybar.py` | Polybar module; reads battery over Raw HID or BLE. |
 | `host/README.md` | Host module usage and polybar configuration. |
 | `split65.py` | Build / flash / diagnostics helper. |
@@ -35,42 +39,40 @@ probed on hardware.
 
 ## Repositories
 
-- **`pngdeity/keeb`** (this project) — the whole tree, docs, host tooling and the
-  pruned firmware.
-- **`pngdeity/cleave-keeb`** — the QMK fork the firmware was originally taken
-  from (`split65-battery` branch). Upstream is `hangshengkeji/qmk_firmware`
-  (`tri-mode`).
+- **`pngdeity/keeb`** (this project) — the docs, host tooling, build wrappers and
+  the submodule pin.
+- **`pngdeity/cleave-keeb`** — the QMK fork the firmware builds from (branch
+  `split65-overlay`). It is the `qmk_firmware/` submodule's remote. Upstream is
+  `hangshengkeji/qmk_firmware` (`tri-mode`).
 
-The `qmk_firmware/` directory is **plain files**, not a submodule: it was
-flattened into this repository, so a normal `git clone` gets everything and no
-submodule commands are needed. `lib/{chibios,chibios-contrib,printf,fnv,lib8tion}`
-are kept whole; the vendor stack's own submodules under `qmk_firmware/lib/` were
-resolved into the same tree.
+`qmk_firmware/` is a **pinned git submodule**, not plain files. A fresh clone
+needs `git clone --recurse-submodules` (or `git submodule update --init
+--recursive`); the submodule URL is HTTPS so it fetches without an SSH key.
+Only the build-required libs are initialized inside it
+(`lib/{chibios,chibios-contrib,printf,lufa}`).
 
 ## Status
 
 **Both halves still run the earlier `nathan` battery build** (manufacturer
-`LEO`); they have **not** been reflashed with the vendor build now in the tree,
-which is why the tree and the hardware disagree. Read `TODO.md` for the
-authoritative, live status — do not rely on this summary.
+`LEO`); they have **not** been reflashed with the current tree's build. Read
+`TODO.md` for the authoritative, live status — do not rely on this summary.
 
-> The tree currently holds **vendor firmware** (no battery reporting); our
-> battery work is parked in the older inner repo. See `TODO.md` Status.
-
+- The tree **holds the battery feature**: `wls/wls_battery.c` (raw HID `0xA4`),
+  committed inside the `qmk_firmware` submodule, and the `nathan` keymap lives in
+  the sibling userspace repo `../keeb-userspace/`.
+- The `nathan` build is 64,932 bytes (`fda4`), md5
+  `0e3f05d2cc2d9a398b3244222eb72e94`; `default` is 63,160 bytes (`f6b8`).
 - Both halves enumerate as `342d:e4c6`, manufacturer `LEO` (stock firmware was
   `MILE`).
-- The battery `0xA4` responder is **not** in the current tree; `--pull` only
-  works against a battery-feature build (the `nathan` firmware on the halves).
 - The 2.4 GHz round-trip works; a real percentage has never been observed.
 - Bluetooth is unprobed.
 
 ## Quick start
 
 ```bash
-./split65.py check                # verify toolchain, udev rules, device
-
-# from qmk_firmware/ (the tree currently builds the vendor keymap):
-make epomaker/epomaker_split65:default
+./split65.py check                             # verify toolchain, udev rules, device
+./bin/make epomaker/epomaker_split65:default   # stock keymap
+./bin/make epomaker/epomaker_split65:nathan    # personal keymap (userspace)
 ```
 
 See `docs/DEPENDENCIES.md` for prerequisites and the DFU entry procedure for
@@ -93,8 +95,8 @@ If you are new to this project, read in this order:
 
 ## Development
 
-QMK conventions apply to the firmware tree: run `qmk lint` and build before
-committing. See `CONTRIBUTING.md`.
+QMK conventions apply to the firmware tree: lint and build before committing, via
+`./bin/qmk lint` and `./bin/make`. See `AGENTS.md` and `CONTRIBUTING.md`.
 
 ## License
 

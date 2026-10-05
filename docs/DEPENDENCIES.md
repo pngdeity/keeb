@@ -16,22 +16,22 @@
   `qmk_firmware/` itself):
 
   ```sh
-  ./bin/make epomaker/epomaker_split65:default   # vendor keymap
+  ./bin/make epomaker/epomaker_split65:default   # stock (vendor) keymap
   ./bin/make epomaker/epomaker_split65:nathan     # personal keymap (userspace)
   ```
 
 - The `nathan` keymap lives **outside** the tree, in the sibling userspace repo
-  `../keeb-userspace/` (Layer B of the plan; the submodule holds only the vendor
-  `default` keymap). **`QMK_USERSPACE` is required**: this tree's Makefile reads
-  `user.overlay_dir` from the qmk config but does **not** forward it into the
-  inner `build_keyboard.mk` submake, and `qmk list-keymaps` / `qmk compile` do not
-  consult userspace either. Without it, `make ...:nathan` resolves only `default`
-  and fails with `No rule to make target 'nathan'`. `bin/make` supplies it.
+  `../keeb-userspace/` (the submodule holds the vendor `default` keymap and our
+  board source; the personal keymap is userspace). **`QMK_USERSPACE` is
+  required**: this tree's Makefile reads `user.overlay_dir` from the qmk config
+  but does **not** forward it into the inner `build_keyboard.mk` submake, and
+  `qmk list-keymaps` / `qmk compile` do not consult userspace either. Without it,
+  `make ...:nathan` resolves only `default` and fails with `No rule to make
+  target 'nathan'`. `bin/make` supplies it.
 - Or use the project helper: `./split65.py build` / `./split65.py flash` /
   `./split65.py check` / `./split65.py setup` (see `--help`). Note: `split65.py`
-  still targets the `nathan` keymap (`KEYMAP` at the top), which is **not** in the
-  tree, so its build/flash steps fail until either the keymap is restored
-  or `KEYMAP` is changed to `default`.
+  targets the `nathan` keymap (`KEYMAP` at the top) and runs `make` directly, so
+  it does not supply `QMK_USERSPACE`; prefer `./bin/make`.
 - **`split65.py flash` and the raw `wb32-dfu-updater_cli` are for a human to
   run.** `flash` calls `doas` and prompts with `input()`, so it must not be
   launched by an agent or any non-interactive context: an unanswered `doas`
@@ -108,13 +108,13 @@ legend** and the **Fn-layer legend** are listed separately; they differ.
 | Hardware DFU | Hold reset button (PCB underside) + plug USB | Always works |
 | Bootmagic DFU | Hold Escape + plug USB (left half only) | Bootloader, clears EEPROM |
 | Right-half DFU | R_Shift toggle + spacebar-pin short + plug USB | Bootloader (see Flashing) |
-| Software DFU | `QK_BOOT` — layer-0 at left half, matrix `[1,0]` (the left `Esc` position) | Bootloader |
+| Software DFU | `QK_BOOT` — base layer at left half, matrix `[1,0]` (the left `Esc` position) | Bootloader |
 | Factory reset | `EE_CLR` — Fn layer at right half, matrix `[7,7]` (the `Bksp` position) | Clears EEPROM settings |
 
 > `QK_BOOT` sits on the **base** layer at the left half's `Esc` position, where it
 > is trivially hit — an accidental tap drops the left half into the bootloader.
 > `EE_CLR` sits on the Fn layer over the `Bksp` position. Both are footguns; see
-> `TODO.md` Tier 0 item 5.
+> `TODO.md` Tier 0.
 
 ### Wireless modes
 
@@ -138,10 +138,10 @@ Notes:
 
 ### Notable keymap features
 
-The tree currently contains **only the vendor `default` keymap**. The personal
-`nathan` keymap (key overrides, right-spacebar Fn hold, `CAPS_WORD`) is parked in
-the old inner repo and is **not** in this tree — see `TODO.md` Status. The
-features below describe the tree's actual keymap:
+The tree contains the vendor `default` keymap. The personal `nathan` keymap
+(key overrides, right-spacebar Fn hold, `CAPS_WORD`) lives in the sibling
+userspace repo `../keeb-userspace/` and is **not** in the tree — see `TODO.md`
+Status.
 
 | Combo | Effect |
 |---|---|
@@ -190,11 +190,10 @@ diagnostics (toolchain, udev rules, device presence).
 
 ## Local patches to the QMK tree
 
-The `qmk_firmware/` tree carries compatibility patches on top of the vendored
-upstream snapshot. **They are committed in this repository** (they were
-originally pushed to branch `split65-battery` of `pngdeity/cleave-keeb`, before
-the tree was flattened into the root repo), so a normal `git clone` gets them.
-The list is kept here so the intent is discoverable and so they can be
+The `qmk_firmware/` submodule carries our commits on top of the vendored upstream
+snapshot. They are **pushed** to the submodule's remote (`pngdeity/cleave-keeb`,
+branch `split65-overlay`), so `git submodule update --init --recursive` restores
+them. The list is kept here so the intent is discoverable and so they can be
 re-applied if the tree is ever reset to pristine upstream:
 
 - `lib/python/qmk/math.py`: replace the removed `ast.Num` with `ast.Constant`

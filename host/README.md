@@ -15,11 +15,11 @@ and **bridges host → keyboard**, so `--pull` works over 2.4 GHz as well as USB
 The keyboard also pushes the value unprompted, so `--listen` remains a valid (and
 more robust) mode.
 
-The `0xA4` command is answered only by a **battery-feature build** (our parked
-`nathan` firmware, which is what the halves currently run). On **stock/vendor**
-firmware — including the vendor tree now in this repo — the raw HID interface
-answers with an unhandled `FF` sentinel instead, so `--pull` returns nothing
-useful.
+The `0xA4` command is answered by a **battery-feature build** (the responder
+`wls/wls_battery.c` committed in the `qmk_firmware` submodule; the halves
+currently run an older build of it). On **stock/vendor** firmware with no
+responder, the raw HID interface answers with an unhandled `FF` sentinel
+instead, so `--pull` returns nothing useful.
 
 **Interface selection is currently naive** (`find_raw_hid_interface()` takes the
 first `0xFF60`/`0x61` match). With both the keyboard and the dongle attached it

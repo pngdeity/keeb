@@ -1,10 +1,9 @@
 # EPOMAKER Split65 — Battery reporting: findings and design
 
-> **Scope.** This narrates the **battery-feature work** (our parked `nathan`
-> firmware). The current tree holds **vendor source**: the layered helpers below
-> (`wls/wls_battery.c`, `WLS_BATTERY_PUSH_*`, the strong `raw_hid_receive`
-> override) are **not** in it. The findings about how the vendor stack works
-> still apply. See `TODO.md` Status.
+> **Scope.** This narrates the **battery-feature work**, which is committed in
+> the `qmk_firmware` submodule. The layered helpers below (`wls/wls_battery.c`,
+> `WLS_BATTERY_PUSH_*`, the strong `raw_hid_receive` override) are in the tree.
+> See `TODO.md` Status.
 
 Why the firmware is shaped the way it is, and which upstream facts a future
 change depends on. What the device is is in `DEVICE.md`; measured hardware facts
@@ -91,9 +90,10 @@ Layered so the transports share one code path. Wire format: `PROTOCOL.md`.
 
 ## Build facts
 
-- Build from `qmk_firmware/`: `make epomaker/epomaker_split65:<keymap>`. Current
-  sizes and artifact md5s are recorded in `TODO.md` Status — they change with
-  every keymap edit, so treat them as a freshness check, not a constant.
+- Build via the project wrappers from the repo root: `./bin/make
+  epomaker/epomaker_split65:<keymap>`. Current sizes and artifact md5s are
+  recorded in `TODO.md` Status — they change with every keymap edit, so treat
+  them as a freshness check, not a constant.
 - `raw_hid_receive` links as a strong `T`, overriding the weak default at
   `tmk_core/protocol/chibios/usb_main.c:539`.
 - **VIA is not enabled** (`VIA_ENABLE` unset), so the hook is the strong

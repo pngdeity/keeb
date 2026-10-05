@@ -47,9 +47,10 @@ One LED, on the **right half** bottom row. Its index is into
   (`im_bat_req_charging_flag`, set by `KC_BATQ`); they are not continuously
   shown.
 - This is **not a level display**: no key and no LED renders a percentage bar.
-- The earlier battery work added a second, always-on "soft" indicator at index
-  64 (`[11,5]`) via `HS_MATRIX_BAT_SOFT_INDEX`; that constant and the code that
-  used it are **ours** and are not in the current (vendor) tree.
+- The tree **additionally** carries our own always-on "soft" indicator at index
+  64 (`[11,5]`) via `HS_MATRIX_BAT_SOFT_INDEX`, alongside the vendor
+  `bat_indicators()` behaviour above. It is part of the battery work committed in
+  the submodule (see `TODO.md`).
 
 ## Raw HID interfaces
 

@@ -2,11 +2,11 @@
 
 ## Layout
 
-Firmware lives in the pruned QMK tree under
+Firmware lives in the `qmk_firmware/` submodule under
 `qmk_firmware/keyboards/epomaker/epomaker_split65/` (with the wireless stack at
 `qmk_firmware/keyboards/linker/wireless/`). Host tooling lives in `host/` and
-`split65.py`. Documentation lives in `docs/`, except `README.md`, `TODO.md`,
-`CHANGELOG.md` and this file at the repository root.
+`split65.py`; build wrappers in `bin/`. Documentation lives in `docs/`, except
+`README.md`, `TODO.md`, `CHANGELOG.md`, `AGENTS.md` and this file at the root.
 
 ## Where to write what
 
@@ -27,22 +27,22 @@ Firmware lives in the pruned QMK tree under
 
 ## Before committing
 
-1. Lint the firmware and build the keymap:
+1. Lint the firmware and build all keymaps (from the repo root):
 
    ```bash
-   cd qmk_firmware
-   qmk lint -kb epomaker/epomaker_split65 -km default
-   make epomaker/epomaker_split65:default
+   ./bin/qmk lint -kb epomaker/epomaker_split65 -km default
+   ./bin/make epomaker/epomaker_split65:all
    ```
 
-   The tree currently holds only the vendor `default` keymap; the `nathan`
-   keymap is parked in the old inner repo (see `TODO.md` Status).
+   The submodule holds the vendor `default` keymap plus our board source; the
+   `nathan` keymap is in the sibling userspace repo (`../keeb-userspace/`) and
+   `bin/make` supplies the `QMK_USERSPACE` it needs.
 
 2. Optionally format C to QMK style (vendor code is intentionally left as-is;
    only run this on files you changed):
 
    ```bash
-   qmk format-c -n <files>          # -n: check only
+   ./bin/qmk format-c -n <files>     # -n: check only
    ```
 
    `qmk format-python` requires `yapf`, which is not installed here; `qmk
@@ -106,9 +106,9 @@ Format: `// TODO: imperative description`.
 
 Verified gotchas that cost time if rediscovered. Check here before debugging.
 
-- **`ENCODER_MAP_ENABLE` is not set.** Both keymaps ship an `encoder_map[]`, but
+- **`ENCODER_MAP_ENABLE` is not set.** The keymap ships an `encoder_map[]`, but
   the macro is never defined, so it is dead code and never linked. Enabling the
-  encoder map means adding `ENCODER_MAP_ENABLE = yes` to that keymap's
+  encoder map means adding `ENCODER_MAP_ENABLE = yes` to the keymap's
   `rules.mk`.
 - **`RGB_MATRIX_DEFAULT_*` does not apply to a used keyboard.** It is only
   consumed when the RGB EEPROM is blank. Both halves carry vendor-persisted RGB
@@ -127,6 +127,10 @@ Verified gotchas that cost time if rediscovered. Check here before debugging.
 
 ## Tests
 
-Firmware unit tests use QMK's GoogleTest harness under `qmk_firmware/tests/`
-and run with `make test:<group>`. Host-side changes should be exercised against
+Firmware unit tests use QMK's GoogleTest harness under `qmk_firmware/tests/` and
+run with `./bin/make test:<group>`. **This does not work in the current
+submodule**: `lib/googletest` is deliberately not initialized (the submodule is
+kept thin and upstream-dependent), so `make test` cannot compile. Initialize it
+with `git -C qmk_firmware submodule update --init lib/googletest` before relying
+on the harness. Host-side changes should be exercised against
 `host/battery_polybar.py`'s pure functions before committing.

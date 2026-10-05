@@ -245,21 +245,20 @@ unproven is marked, not guessed.
 |---|---|---|---|
 | Manufacturer string | `MILE` | `LEO` | Measured |
 | VID:PID | `342d:e4c6` | `342d:e4c6` | Measured |
-| Battery raw HID `0xA4` | absent | present (master only) — **parked, not in the tree** | Source |
-| Default lighting | vendor rainbow (`cycle_left_right`, speed 135, val 150) | vendor default in the tree; our work set solid white 0/0/128 (parked) | Source (tree) |
+| Battery raw HID `0xA4` | absent | present (master only), committed in the tree | Source |
+| Default lighting | vendor rainbow (`cycle_left_right`, speed 135, val 150) | solid white 0/0/128 (set in `keyboard.json`; re-applied in `keyboard_post_init_user()`) | Source (tree) |
 | Default layer at first boot | unknown | unknown (persisted in EEPROM) | **Unverified** |
-| Keymap / layers as shipped | unknown | vendor `default` keymap in the tree | **Unverified** for stock |
+| Keymap / layers as shipped | unknown | vendor `default` keymap in the tree; `nathan` in the userspace repo | **Unverified** for stock |
 
 Notes:
 
-- The tree currently holds the **vendor board source**: no battery feature, no
-  `nathan` keymap, vendor rainbow default. The battery work (raw HID `0xA4`,
-  solid-white default, `nathan` keymap) lives in the older inner repo and in
-  `/tmp/opencode/pre-vendor-revert/`, **not** in this tree. State which firmware
-  a half runs by its manufacturer string (`LEO` = ours, `MILE` = stock).
+- The tree holds the vendor board **plus the battery feature** (`wls/wls_battery.c`,
+  `0xA4` responder, solid-white default). The personal `nathan` keymap is **not**
+  in the tree — it is in the sibling userspace repo `../keeb-userspace/`. State
+  which firmware a half runs by its manufacturer string (`LEO` = ours, `MILE` =
+  stock); the halves currently run an older `nathan` build.
 - The default layer is **persisted in EEPROM** and survives power cycles and
-  reflashes; a board can therefore be on a past operator's chosen default layer
-  (see `TODO.md` "Mac layer" note).
+  reflashes; a board can therefore be on a past operator's chosen default layer.
 
 ## Host machine
 
