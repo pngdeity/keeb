@@ -2,13 +2,29 @@
 
 `battery_polybar.py` reads the keyboard battery over raw HID (USB and the
 2.4 GHz dongle) or, as a fallback, the Bluetooth BLE Battery Service. See
-`../PROTOCOL.md` for the raw HID command.
+`../docs/PROTOCOL.md` for the raw HID command.
+
+> **The number is not yet trustworthy.** Over USB the keyboard reports `100`
+> because its wireless module never answers the level inquiry on that transport,
+> so the value is the firmware's compile-time default (`../TODO.md` defect 1).
+> Treat any output as a transport/plumbing check, not a charge reading, until
+> that defect is fixed.
 
 The dongle exposes the same raw HID interface (`0xFF60`/`0x61`) as the keyboard
 and **bridges host → keyboard**, so `--pull` works over 2.4 GHz as well as USB.
 The keyboard also pushes the value unprompted, so `--listen` remains a valid (and
-more robust) mode. On stock firmware a `--pull` returns an `FF ...` unhandled
-sentinel; it becomes a `0xA4` report only after flashing this firmware.
+more robust) mode.
+
+The `0xA4` command is answered only by a **battery-feature build** (our parked
+`nathan` firmware, which is what the halves currently run). On **stock/vendor**
+firmware — including the vendor tree now in this repo — the raw HID interface
+answers with an unhandled `FF` sentinel instead, so `--pull` returns nothing
+useful.
+
+**Interface selection is currently naive** (`find_raw_hid_interface()` takes the
+first `0xFF60`/`0x61` match). With both the keyboard and the dongle attached it
+picks the keyboard's USB interface, so a "2.4 GHz" reading may actually be USB.
+See `../TODO.md` defect 3 before trusting a transport label.
 
 ## Requirements
 
@@ -28,8 +44,10 @@ python3 battery_polybar.py --listen   # passively read push reports (2.4 GHz)
 python3 battery_polybar.py --bluetooth [--mac AA:BB:CC:DD:EE:FF]
 ```
 
-Output is a single token pair such as `BAT 82%` or `CHG 91%`. The script exits
-non-zero with no output when the keyboard is absent, so polybar hides it.
+Output is a single token pair such as `BAT 82%` or `CHG 91%`, followed by a
+newline. Exit codes: `0` on success, `1` when nothing could be read (no output —
+polybar hides the module), `2` when the `hid` package is missing. Default (no
+mode flag) tries pull then falls back to listen.
 
 ## Polybar module
 
@@ -45,5 +63,6 @@ format-foreground = ${colors.foreground}
 For the 2.4 GHz dongle, `--pull` and `--listen` both work: the dongle relays the
 request to the keyboard and the reply comes back. Use `--pull` for a
 request/response value or `--listen` to passively accept the keyboard's push.
-The keyboard reports the last known value between pushes, so a short `interval`
-is fine.
+The keyboard pushes every `WLS_BATTERY_PUSH_INTERVAL` (2000 ms), but `--listen`
+only waits for one report per invocation, so any `interval` of a few seconds
+works. `interval = 5` matches the module's own 5 s cadence.

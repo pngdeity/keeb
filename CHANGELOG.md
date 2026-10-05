@@ -11,28 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Battery reporting over Raw HID command `0xA4` (`KC_GET_BATTERY_LEVEL`),
   returning percentage, charging state, and active transport; documented in
-  `PROTOCOL.md`.
+  `docs/PROTOCOL.md`.
 - Firmware responder `wls/wls_battery.c` implementing a strong
   `raw_hid_receive()` override, master-half only.
 - 2.4 GHz push mode (`kb_battery_push_task()`) as a fallback to host pull.
 - Host polybar module `host/battery_polybar.py` with `--pull`, `--listen`, and
   `--bluetooth` (BLE Battery Service `0x180F`/`0x2A19`) modes.
 - Build/flash/diagnostics helper `split65.py`.
-- VIA keyboard definition `EPOMAKER Split65.json`.
+- VIA keyboard definition `host/epomaker-split65-via.json`.
 - Personal keymap `keymaps/nathan/`.
 
-### Fixed
-
-- `wls/wls.c` and `wls/wls.h` had no license headers, which failed
-  `qmk lint`.
-- The USB cable transport switch in `housekeeping_task_user()` is now gated to
-  the master half; it previously ran on both halves and mutated global radio
-  state from the slave.
+> The battery firmware and the `nathan` keymap are **not in the current tree**:
+> it was later reverted to the vendor source. They live in the old inner repo
+> (branch `split65-battery`) and in `/tmp/opencode/pre-vendor-revert/`. See
+> `TODO.md` Status.
 
 ### Changed
 
+- Reverted the tree to the **vendor** board source, keeping only the vendor
+  `default` keymap; the battery reporter and personal keymap are parked outside
+  the tree.
 - Consolidated the former standalone `keeb` project into this repository; all
   keyboard assets now live in one place.
+- Flattened `qmk_firmware/` from a submodule into ordinary tracked files and
+  pruned it (`keyboards/` reduced to the two trees this board needs).
 
 ### Removed
 

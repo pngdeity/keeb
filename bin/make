@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Project-local `make` for QMK builds.
+#
+# Wraps the QMK build so the personal keymap in the userspace repo resolves
+# without a manual environment setup. Two things are required and are applied
+# here automatically:
+#
+#   1. `bin/` first on PATH, so the Makefile's `QMK_BIN := qmk` finds the
+#      project-local CLI wrapper (the tree's modern CLI), not a system `qmk`.
+#   2. `QMK_USERSPACE` exported. The tree's Makefile reads `user.overlay_dir`
+#      from the qmk config but does NOT forward it into the inner
+#      build_keyboard.mk submake, and `qmk list-keymaps`/`qmk compile` do not
+#      consult userspace either. Without the export, `make ...:nathan`
+#      resolves only `default` and fails.
+#
+# Runs from the qmk_firmware submodule, so plain build targets work:
+#
+#   ./bin/make epomaker/epomaker_split65:nathan
+#   ./bin/make epomaker/epomaker_split65:default
+#
+# If you pass `-C <dir>`, this wrapper does not chdir (your -C wins).
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"
+TREE="$ROOT/qmk_firmware"
+
+# The userspace repo is a SIBLING of this repo, not a child.
+USERSPACE="${QMK_USERSPACE:-$(dirname "$ROOT")/keeb-userspace}"
+
+# Resolve the real make BEFORE adding bin/ to PATH, or this wrapper would
+# re-invoke itself (bin/make is named `make`).
+REAL_MAKE="$(command -v -p make)"
+
+# Pass QMK_USERSPACE both as an exported environment variable (so sub-makes and
+# recursive invocations see it) and as an explicit make variable on the command
+# line. The command-line form is what the outer Makefile's keymap wildcard
+# requires at parse time.
+export QMK_USERSPACE="$USERSPACE"
+export PATH="$HERE:$PATH"
+
+for arg in "$@"; do
+    if [ "$arg" = "-C" ] || [ "${arg#-C}" != "$arg" ]; then
+        exec "$REAL_MAKE" "QMK_USERSPACE=$USERSPACE" "$@"
+    fi
+done
+
+cd "$TREE"
+exec "$REAL_MAKE" "QMK_USERSPACE=$USERSPACE" "$@"

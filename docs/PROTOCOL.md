@@ -1,5 +1,11 @@
 # EPOMAKER Split65 — Battery Reporting Protocol
 
+> **Scope.** This documents the protocol implemented by the **battery-feature
+> build** (our parked `nathan` firmware, which is what the halves currently
+> run). The current tree holds **vendor source**, which has **no `0xA4`
+> responder**; a stock/vendor build answers the raw HID interface with an
+> unhandled `FF` sentinel instead. See `TODO.md` Status.
+
 Raw HID command used by the host to read the keyboard battery over all
 transports. The command id `0xA4` (`KC_GET_BATTERY_LEVEL`) follows the
 community/Keychron convention (Keychron `qmk_firmware` PR #504), where
@@ -16,6 +22,12 @@ a backwards-compatible extension; hosts must ignore bytes they do not know.
   report ID; verified by reading its report descriptor, below). Host pull over
   2.4 GHz **round-trips on real hardware**. Pull is the normal path; push is a
   fallback (see Push mode).
+- **Host-side interface selection matters.** The keyboard's own raw collection is
+  interface 1 and the dongle's is interface 2, and both are present whenever the
+  keyboard is plugged in *and* the dongle is attached. `host/battery_polybar.py`
+  currently takes the first match, so with both attached a "2.4 GHz" read can
+  silently be a USB read (`TODO.md` defect 3). This must be fixed before any
+  measurement is trusted to be from the radio.
 - Bluetooth: in scope. Not yet probed on hardware — unknown whether the BT HID
   link exposes the raw HID collection (`0xFF60`/`0x61`) and whether
   `*md_getp_bat()` is populated over BT. The host falls back to the BLE Battery
@@ -59,13 +71,19 @@ convention, giving a 33-byte write.
 | byte | meaning |
 |------|---------|
 | 0 | `0xA4` (echo) |
-| 1 | battery percentage, `0..100` |
+| 1 | battery percentage, `0..100` — **see the caveat below** |
 | 2 | reserved — `0x00` (no voltage source on this hardware) |
 | 3 | reserved — `0x00` |
 | 4 | charging state: `0` discharging, `1` charging, `2` full |
 | 5 | transport: `0x01` USB, `0x02` Bluetooth, `0x04` 2.4 GHz |
 | 6 | model id (`KB_BATTERY_MODEL_ID`; `0` = unspecified) |
 | 7..31 | `0x00` |
+
+> **Byte 1 is not yet a measurement.** The keyboard has no ADC; the value only
+> ever arrives from the wireless module, and on USB the module does not answer,
+> so `md_info.bat` keeps its compile-time init of `100`. A host cannot
+> distinguish "really 100%" from "never reported" today. Defect 1 in `TODO.md`
+> tracks the fix; until then, treat byte 1 as unverified.
 
 If the command is not recognised, the keyboard sends **no reply** (the raw HID
 contract is one report in, at most one report out; an unsolicited response would
@@ -82,7 +100,8 @@ same reply report unprompted every `WLS_BATTERY_PUSH_INTERVAL` (default
 `2000 ms`). This path needs no host request, so it is robust against a missed
 pull. Push is:
 
-- enabled by `WLS_BATTERY_PUSH_ENABLE` (see `config.h`),
+- enabled by `WLS_BATTERY_PUSH_ENABLE` (a `config.h` knob in the battery-feature
+  build; not present in the vendor tree),
 - emitted only on the split master half,
 - emitted only while `md_getp_state()` reports `MD_STATE_CONNECTED`.
 
@@ -94,12 +113,20 @@ confirmed.
 
 The keyboard-side tunnel exists: `md_raw.c` maps `md_receive_raw_cb()` →
 `raw_hid_receive()`, and `module.c` forwards received raw packets
-(`MD_RAW_SIZE = 32`) to that callback. The host→dongle→keyboard→dongle→host
-round-trip was confirmed on real hardware with the stock firmware (which replied
-`FF ...`, its "unhandled command" sentinel, since it has no `0xA4` handler).
+(`MD_RAW_SIZE = 32`) to that callback, so a host request reaches `0xA4` handling
+over every transport.
 
-To check the battery now: with the keyboard in USB or 2.4 GHz mode, run
+To check the battery: put the keyboard in USB or 2.4 GHz mode and run
 `python3 host/battery_polybar.py --pull` (or `--listen` for push reports). The
-host enumerates by usage page `0xFF60` / usage `0x61` and selects the relevant
-interface (the dongle's interface 2 over 2.4 GHz). A read timeout means the pull
-did not complete on that attempt; the push path then covers it.
+host enumerates by usage page `0xFF60` / usage `0x61`. **Verify the interface it
+picked before trusting the transport byte** — with keyboard and dongle both
+attached, a first-match selection returns the keyboard's USB interface
+(`TODO.md` defect 3). A read timeout means the pull did not complete on that
+attempt; the push path then covers it.
+
+What a successful pull proves and does not prove:
+
+- It proves the transport plumbing works end to end (request out, reply back).
+- It does **not** prove byte 1 is real. On USB, byte 1 is the module's init
+  constant (`100`); only the radio path has ever been seen to carry a value that
+  responds to actual use. See the byte-1 caveat above and `TODO.md` defect 1.

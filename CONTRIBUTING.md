@@ -2,20 +2,41 @@
 
 ## Layout
 
-Firmware lives in the vendored QMK tree under
-`qmk_firmware/keyboards/epomaker/epomaker_split65/`. Host tooling lives in
-`host/` and `split65.py`. Documentation lives at the repository root.
+Firmware lives in the pruned QMK tree under
+`qmk_firmware/keyboards/epomaker/epomaker_split65/` (with the wireless stack at
+`qmk_firmware/keyboards/linker/wireless/`). Host tooling lives in `host/` and
+`split65.py`. Documentation lives in `docs/`, except `README.md`, `TODO.md`,
+`CHANGELOG.md` and this file at the repository root.
+
+## Where to write what
+
+- **`docs/DEVICE.md`** — what the device is: physical layout, ports, modes of
+  operation, accessories, host machine, and the nomenclature for naming parts.
+  Read this before referring to a half, a port, or a key.
+- **`docs/HARDWARE.md`** — immutable physical/electrical facts learned by
+  measuring the keyboard (USB IDs, interfaces, DFU entry, sleep/wake, link
+  power). Record anything you discover by trial and error here, not in source
+  comments.
+- **`docs/PROTOCOL.md`** — the wire format of the `0xA4` battery command.
+- **`docs/FINDINGS.md`** — research narrative, design decisions and their
+  rationale.
+- **`TODO.md`** — outstanding work and known defects. **This is the live record**;
+  read it first and update it rather than scattering status elsewhere.
+- **`docs/DEPENDENCIES.md`** — toolchain, flashing procedure and host
+  dependencies.
 
 ## Before committing
 
-1. Lint the firmware and build every keymap:
+1. Lint the firmware and build the keymap:
 
    ```bash
    cd qmk_firmware
    qmk lint -kb epomaker/epomaker_split65 -km default
-   qmk lint -kb epomaker/epomaker_split65 -km nathan
-   make epomaker/epomaker_split65:default epomaker/epomaker_split65:nathan
+   make epomaker/epomaker_split65:default
    ```
+
+   The tree currently holds only the vendor `default` keymap; the `nathan`
+   keymap is parked in the old inner repo (see `TODO.md` Status).
 
 2. Optionally format C to QMK style (vendor code is intentionally left as-is;
    only run this on files you changed):
@@ -80,6 +101,29 @@ Tag annotations in comments; `FIXME`, `BUG`, and `HACK` must not be merged.
 | `NOTE` | Informational, no action |
 
 Format: `// TODO: imperative description`.
+
+## Traps in this tree
+
+Verified gotchas that cost time if rediscovered. Check here before debugging.
+
+- **`ENCODER_MAP_ENABLE` is not set.** Both keymaps ship an `encoder_map[]`, but
+  the macro is never defined, so it is dead code and never linked. Enabling the
+  encoder map means adding `ENCODER_MAP_ENABLE = yes` to that keymap's
+  `rules.mk`.
+- **`RGB_MATRIX_DEFAULT_*` does not apply to a used keyboard.** It is only
+  consumed when the RGB EEPROM is blank. Both halves carry vendor-persisted RGB
+  state, so the defaults are inert unless the keymap also calls
+  `rgb_matrix_mode()` / `rgb_matrix_sethsv()` at init (which it does).
+- **A raw HID write through hidapi must be 33 bytes** (Report ID `0x00` + the
+  32-byte report). A bare 32-byte write is accepted and silently never answered.
+  See `docs/HARDWARE.md`.
+- **`keyboard.json` is formatted by `qmk format-json`**, not by hand. Hand
+  editing drifts from QMK's canonical `InfoJSONEncoder` output and creates a noisy
+  diff.
+- **`qmk format-python` needs `yapf`, which is not installed here**, and
+  `qmk format-text` has no `-n` check flag.
+- **Do not run `doas` from an agent context.** An unanswered prompt locks the
+  account; `split65.py flash` therefore requires a human.
 
 ## Tests
 

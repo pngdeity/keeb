@@ -29,14 +29,15 @@ The files in this repository are licensed under the Apache License, Version
     under the GNU General Public License v2.0 or later. Its own `LICENSE` and
     per-file headers govern.
 
-*   Firmware sources derived from QMK under
-    `qmk_firmware/keyboards/epomaker/epomaker_split65/` — including
-    `wls/wls.c`, `wls/wls.h`, `wls/wls_battery.c` and the keymaps — carry
-    `SPDX-License-Identifier: GPL-2.0-or-later` headers in the files
+*   Firmware sources under `qmk_firmware/keyboards/epomaker/epomaker_split65/`
+    that derive from QMK — the board sources and the vendor `default` keymap —
+    carry `SPDX-License-Identifier: GPL-2.0-or-later` headers in the files
     themselves. They are GPL-2.0-or-later because they link against and derive
-    from GPL-licensed QMK code.
+    from GPL-licensed QMK code. (The battery work `wls/wls_battery.c`, written by
+    this project for the same board, is **not** in the current tree; it is
+    GPL-2.0-or-later for the same reason and lives in the old inner repo.)
 
 Everything else authored for this project — the host scripts (`host/`,
-`split65.py`), the VIA definition (`EPOMAKER Split65.json`), and the
-documentation (`README.md`, `PROTOCOL.md`, `DEPENDENCIES.md`, `FINDINGS.md`,
-`TODO.md`, `CHANGELOG.md`, `CONTRIBUTING.md`) — is Apache-2.0.
+`split65.py`), the VIA definition (`host/epomaker-split65-via.json`), and the
+documentation (`README.md`, `AGENTS.md`, `TODO.md`, `CHANGELOG.md`,
+`CONTRIBUTING.md`, and everything under `docs/`) — is Apache-2.0.
