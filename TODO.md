@@ -32,6 +32,16 @@
   a submodule again (the earlier flatten/prune/`layouts`+`lib/lufa` casualties are
   resolved by P0). Both repos are pushed and CI is green. Device context and
   vocabulary: `docs/DEVICE.md`.
+- **The ownerless-shared-state defect class is partly closed** (submodule commit
+  `d68e3152c3`). Two contained fixes, board-local, no shared-stack file touched:
+  `hs_transport_arbitrate_cable()` is now the single owner of the cable
+  insert/remove transport policy (`housekeeping_task_user` and
+  `lpwr_wakeup_hook` both route through it), and `kb_battery_snapshot_t` +
+  `kb_battery_snapshot()` make the battery read atomic, so change detection and
+  report assembly see one sample. Both keymaps build clean; CI green. The larger
+  board-API layering (replace the `lower_sleep`/`charging_state`/`bat_full_flag`
+  externs) is deliberately deferred — it is upstream-sized and waits on the U1
+  RFC.
 
 ## Priority order
 

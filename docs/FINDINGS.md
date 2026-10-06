@@ -250,6 +250,36 @@ entering its DFU bootloader (physical BOOT pads, same as the keyboard); the
 optional command is
 `wb32-dfu-updater_cli -t -s 0x08000000 -U dongle.bin`. Not done, not required.
 
+## FINDING — shared state has no owner; two contained fixes
+
+The board and the wireless stack communicate through **shared mutable globals**
+(`lower_sleep`, `charging_state`, `bat_full_flag` externed in `wls.h`;
+`wireless_get_current_devs()`; the `confinfo` EEPROM mirror) rather than a
+board-facing API. Nothing enforces who may change what, so correctness depends on
+each caller "knowing" not to fire a transition at the wrong moment. That property
+produced three separate hardware defects (battery `100` on USB, the unwakeable
+slave, the wrong interface pick) — one root cause wearing three hats.
+
+Two of those are addressable *within our files*, without touching the shared
+vendor stack (so upstream divergence stays a one-file diff):
+
+- **Transport arbiter.** `hs_transport_arbitrate_cable()` is the single owner of
+  the cable insert/remove policy (switch to USB on insert; restore
+  `confinfo.last_wireless_devs` on remove). Both `housekeeping_task_user` and
+  `lpwr_wakeup_hook` now call it instead of mutating `confinfo` and
+  `wireless_devs_change()` themselves, so the two paths can no longer interleave.
+- **Atomic battery snapshot.** `kb_battery_snapshot_t` + `kb_battery_snapshot()`
+  sample `percent`/`charge`/`transport` **once**; the change check
+  (`kb_battery_changed()`) and the report assembly (pull and push) are both built
+  from that one sample, so they cannot observe a torn state.
+
+The **general** fix — a real board-facing API replacing the externed globals — is
+deliberately **not** done. It is upstream-sized (it would touch the shared stack
+and ~20 boards) and belongs in the U1 RFC's scope, not a local cleanup. The two
+contained fixes capture most of the benefit at a fraction of the blast radius,
+since verifying a board rearchitecture requires physical reflashing of both
+halves with a hardware-only recovery path.
+
 ## Open questions tied to these findings
 
 - **Is byte 1 ever real?** See `TODO.md` defect 1. Until the module answers the
