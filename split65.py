@@ -24,7 +24,8 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parent
 QMK_DIR = PROJECT_DIR / "qmk_firmware"
 KEYMAP = "nathan"
-FIRMWARE_BIN = QMK_DIR / f"epomaker_epomaker_split65_{KEYMAP}.bin"
+BUILD_DIR = QMK_DIR / ".build"
+FIRMWARE_BIN = BUILD_DIR / f"epomaker_epomaker_split65_{KEYMAP}.bin"
 VIA_JSON = PROJECT_DIR / "host" / "epomaker-split65-via.json"
 VIA_APPIMAGE = PROJECT_DIR / "via-3.0.0-linux.AppImage"
 UDEV_RULE = Path("/etc/udev/rules.d/50-epomaker-split65.rules")
@@ -149,7 +150,7 @@ def setup() -> None:
 
     if missing_pacman:
         print(f"\n  Install missing packages:")
-        print(f"    sudo pacman -S {' '.join(missing_pacman)}")
+        print(f"    doas pacman -S {' '.join(missing_pacman)}")
     if not has_cmd("wb32-dfu-updater_cli"):
         print(f"  Install AUR packages:")
         print(f"    yay -S {' '.join(AUR_PKGS)}")
@@ -230,8 +231,11 @@ def build() -> None:
         print(f"  Rebuilding...")
 
     result = subprocess.run(
-        ["make", f"epomaker/epomaker_split65:{KEYMAP}"],
-        cwd=str(QMK_DIR),
+        [
+            str(PROJECT_DIR / "bin" / "make"),
+            f"epomaker/epomaker_split65:{KEYMAP}",
+        ],
+        cwd=str(PROJECT_DIR),
     )
 
     if result.returncode != 0:
@@ -282,7 +286,7 @@ def flash() -> None:
     else:
         err(
             f"No EPOMAKER device found (looked for {KEYBOARD_VID}:{KEYBOARD_DFU_PID} "
-            "and {KEYBOARD_VID}:{KEYBOARD_PID})"
+            f"and {KEYBOARD_VID}:{KEYBOARD_PID})"
         )
 
     # Flash
