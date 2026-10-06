@@ -5,23 +5,25 @@
 - **The tree holds our battery firmware, committed inside the `qmk_firmware`
   submodule.** `qmk_firmware/` is a **pinned submodule** of
   `pngdeity/cleave-keeb` branch `split65-overlay` (pinned at vendor revision
-  `580665f777` plus our commits `e8f49af339` "feat: battery over raw HID",
-  `641fd27392` "correct bootmagic matrix and readme", `01528d1c5d` "add info.json
-  url and readme hardware link", and `059cd8bdf1` "math.py Python 3.12+"). The
-  board source therefore **contains the battery responder** (`wls/wls_battery.c`)
-  and the corrected `bootmagic.matrix [1,0]`.
+  `580665f777` plus our commits, the battery responder `e8f49af339` being the
+  first). The board source therefore **contains the battery responder**
+  (`wls/wls_battery.c`), the corrected `bootmagic.matrix [1,0]`, and the
+  board-local deep-sleep fix (`wireless/`; see the plan's 3.1).
 - The personal `nathan` keymap is **not** in the tree: it lives in the sibling
   userspace repo `../keeb-userspace/`. Build with `./bin/make ...:nathan`
   (`bin/make` supplies `QMK_USERSPACE`).
-- **Current build artifacts** (host toolchain `arm-none-eabi-gcc` 16.2.0):
-  `nathan` = **64932 bytes (`fda4`), md5 `0e3f05d2cc2d9a398b3244222eb72e94`**;
-  `default` = **63160 bytes (`f6b8`), md5 `4f24953fa88acf14afe2107eb9ea9dba`**.
-  (CI builds with the container's gcc 15.2.0, so its bytes differ — CI asserts
-  "it builds", not a fixed md5.)
+- **Artifacts are not tracked here.** Build them and read the hash on demand;
+  do not copy a size/md5 into this file (it goes stale on every firmware edit
+  and only creates churn):
+  `./bin/make epomaker/epomaker_split65:all && md5sum qmk_firmware/.build/epomaker_epomaker_split65_*.bin`.
+  CI builds the same source with the container's `arm-none-eabi-gcc`, which can
+  differ from the host's, so bytes are not comparable across toolchains — CI
+  asserts "it builds", not a fixed md5.
 - Both halves enumerate as `342d:e4c6`, manufacturer `LEO` (stock is `MILE`).
-- **The halves have NOT been reflashed with the current build.** They run an
-  older `nathan` build (63168 bytes md5 `3d0d47d9737c4209d2a7000cb8909033`), so
-  the tree and the hardware disagree. Reflashing is Tier 1 item 3.
+- **The halves have NOT been reflashed with the current tree.** They run an
+  older `nathan` build, so the tree and the hardware disagree (state which is
+  which by the build it was flashed from, not by a hash). Reflashing is Tier 1
+  item 3.
 - Right-half DFU entry uses the R_Shift toggle + spacebar-pin short (see
   `docs/HARDWARE.md`). Key-based DFU is still future work (a section below).
 - **The prune was discarded and the canonical tree restored.** `qmk_firmware/` is
@@ -108,13 +110,16 @@ The host can read a report, but **no real battery percentage has ever been
 observed**. Until the items below are done, treat every displayed value as
 unverified.
 
-- [ ] **Fix defect 3** (`find_raw_hid_interface()` picks the wrong interface) and
-      cover it in `split65.py check`. **Do this before measuring** — it is the
-      read path, and with keyboard and dongle both attached the probe would
-      otherwise read the keyboard's USB interface.
-- [ ] **Flash both halves with the current build** and confirm the manufacturer
-      string is `LEO` and the `0xA4` responder answers. Left via Esc-hold, right
-      via the toggle + spacebar-pin short; see `docs/HARDWARE.md`.
+- [x] ~~**Fix defect 3** (`find_raw_hid_interface()` picks the wrong interface) and
+      cover it in `split65.py check`~~ **DONE** (committed). A confirmation run
+      with the dongle attached is still outstanding.
+- [ ] **Flash both halves with the current build** (battery responder + the
+      board-local deep-sleep fix) and confirm the manufacturer string is `LEO`
+      and the `0xA4` responder answers. Left via Esc-hold, right via the toggle +
+      spacebar-pin short; see `docs/HARDWARE.md`.
+- [ ] **Right-half keypress wake:** with the deep-sleep fix flashed, confirm a key
+      on the right half wakes it (defect 2). Record the result in
+      `docs/FINDINGS.md`; if it still fails, the cause is not the pin arrays.
 - [ ] **2.4 GHz: capture a real percentage.** Every `100` seen so far is the
       module's compile-time init constant (defect 1). The radio path is the only
       transport known to populate `md_info.bat`, so this is where the first real
@@ -172,23 +177,32 @@ and/or retry `md_inquire_bat()` more aggressively.
 
 ### 2. The right (slave) half cannot be woken by its own keys
 
-Documented vendor behaviour, confirmed in source:
+**Addressed in the board-local deep-sleep fix** (plan 3.1;
+`keyboards/epomaker/epomaker_split65/wireless/lpwr_wb32.c`). The original defects,
+for the record:
 
-- `lpwr_exti_init()` (`keyboards/linker/wireless/lpwr_wb32.c:68-112`) arms the
-  matrix row/col lines as edge events before `WB32_STOP_MODE`, and the callback
-  (`lpwr_wb32.c:34-56`) maps them to `LPWR_WAKEUP_MATRIX`.
-- The board's `lpwr_stop_hook_pre()` (`wls.c:191-201`) arms the wake cause as
-  `LPWR_WAKEUP_UART`, and `lpwr_stop_hook_post()` (`wls.c:204-216`) only accepts
-  `LPWR_WAKEUP_USB` and `LPWR_WAKEUP_CABLE`. Any other cause (including
-  `MATRIX` from a keypress) falls to `default:` and returns straight to
-  `LPWR_STOP`.
-- The mode-switch and cable events that *are* accepted are set in
-  `palcallback_cb()` (`wls.c:168-185`), and the switch lines are only armed on
-  the master (`if (is_keyboard_master())`, `wls.c:112/:124/:134`).
+- `lpwr_exti_init()` sized its `row_pins[MATRIX_ROWS]` / `col_pins[MATRIX_COLS]`
+  arrays from the **full** split matrix while initializing from the per-half
+  `MATRIX_*_PINS`, so the tail slots were `0` (`PAL_LINE(0)`, which is **not**
+  `NO_PIN`) and EXTIs were armed on garbage lines.
+- Only the left/`MATRIX_*_PINS` geometry was ever used, so the **slave never
+  armed its own matrix** and a right-half keypress could not wake it.
+- The board's `lpwr_stop_hook_post()` (`wls.c`) only accepted
+  `LPWR_WAKEUP_USB`/`LPWR_WAKEUP_CABLE`, so a `MATRIX` cause fell to `default:`
+  and returned straight to `LPWR_STOP`.
 
-**Wake the right half by:** toggling its 2.4 GHz/BT mode switch, or unplugging and
-replugging its USB cable. Keys will not do it; that is by design (the master
-wakes the slave over the inter-half UART).
+**Fix:** a board-local copy of the wireless stack (carlosedp's port) sizes the
+arrays to `MATRIX_ROWS / 2`, selects `row_pins_r`/`col_pins_r` from
+`MATRIX_*_PINS_RIGHT` via `is_keyboard_master()`, uses
+`PAL_EVENT_MODE_FALLING_EDGE` (consistent with `ROW2COL`), stops arming the
+UART-RX line (the wireless module's own traffic was waking the device and
+defeating the 30-minute deep sleep), and `lpwr_stop_hook_post()` now accepts
+`SWITCH` and `MATRIX` causes as well. The changes are scoped entirely to
+`keyboards/epomaker/epomaker_split65/`; no shared file is touched.
+
+**Not yet verified on hardware** — this needs a flash and a keypress-wake test
+(Tier 1). Until then, waking the right half still relies on toggling its 2.4 GHz/BT
+mode switch or replugging its USB cable.
 
 ### 3. Host tooling picks the wrong raw HID interface
 

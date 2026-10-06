@@ -60,8 +60,9 @@ Only the build-required libs are initialized inside it
 - The tree **holds the battery feature**: `wls/wls_battery.c` (raw HID `0xA4`),
   committed inside the `qmk_firmware` submodule, and the `nathan` keymap lives in
   the sibling userspace repo `../keeb-userspace/`.
-- The `nathan` build is 64,932 bytes (`fda4`), md5
-  `0e3f05d2cc2d9a398b3244222eb72e94`; `default` is 63,160 bytes (`f6b8`).
+- The `nathan` keymap and the board source (battery responder, board-local
+  deep-sleep fix) are committed in the submodule/userspace; build them with
+  `./bin/make epomaker/epomaker_split65:all` and read the hash on demand.
 - Both halves enumerate as `342d:e4c6`, manufacturer `LEO` (stock firmware was
   `MILE`).
 - The 2.4 GHz round-trip works; a real percentage has never been observed.

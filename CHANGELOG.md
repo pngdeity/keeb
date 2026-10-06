@@ -24,6 +24,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI (`.github/workflows/build.yml`) building `epomaker/epomaker_split65:all` in
   QMK's official container, plus whitespace and canonical-`keyboard.json` checks.
 
+### Fixed
+
+- **Deep sleep on the split.** A board-local copy of the wireless stack
+  (`keyboards/epomaker/epomaker_split65/wireless/`, ported from carlosedp's fix)
+  sizes the wake pin arrays to the per-half matrix, arms the right half's own
+  matrix pins, uses falling-edge events (matching `ROW2COL`), stops arming the
+  UART-RX wake (the module's own traffic was defeating the 30-minute sleep), and
+  accepts `SWITCH`/`MATRIX` wake causes. Scoped to this board; no shared file is
+  touched. Awaiting a hardware keypress-wake test.
+- Host tool now prefers the 2.4 GHz dongle's raw HID interface (interface 2) and
+  exposes `--transport usb`, so a 2.4 GHz read is no longer silently the
+  keyboard's USB interface.
+
 ### Changed
 
 - **`qmk_firmware/` is a pinned git submodule** (`pngdeity/cleave-keeb`, branch
