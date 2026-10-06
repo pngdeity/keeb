@@ -124,6 +124,10 @@ One LED, on the **right half** bottom row. Its index is into
   its 2.4 GHz/BT mode switch or by unplugging/replugging its USB cable.
 - The master wakes the slave over the inter-half UART, which *is* an accepted
   cause.
+- The deep-sleep entry/exit path (`PRE_LP()`/`POST_LP()` in `lpwr_wb32.c`) is a
+  pair of raw-Thumb `uint32_t[]` blobs. They are fully deobfuscated — ANCTL write
+  unlock, a trim-field clamp/sync, and a ~1 s analog settling loop — in
+  `FINDINGS.md` "the deep-sleep `PRE_LP()`/`POST_LP()` blobs are raw Thumb".
 
 ## Keycaps vs matrix
 

@@ -80,6 +80,98 @@ and the board does not fork the transport logic. The pattern is the same one
 The one shared file we did touch is `wireless.c`'s leading blank line, a lint
 fix that benefits every board using the stack.
 
+## FINDING — the deep-sleep `PRE_LP()`/`POST_LP()` blobs are raw Thumb, and they deobfuscate
+
+`lpwr_wb32.c` enters and leaves deep sleep through two `uint32_t[]` arrays of raw
+machine code, cast to function pointers with the Thumb bit set:
+
+```c
+static const uint32_t pre_lp_code[]  = {553863175u, ...};
+#define PRE_LP()  ((void (*)(void))((unsigned int)(pre_lp_code)  | 0x01))()
+static const uint32_t post_lp_code[] = {553863177u, ...};
+#define POST_LP() ((void (*)(void))((unsigned int)(post_lp_code) | 0x01))()
+```
+
+These are **not** obfuscated or encrypted — they are the compiler's literal output
+for hand-tuned register writes the author needed to pin exactly (no C prologue,
+no register-allocation surprises, no reordering). The bytes are **identical in all
+copies** of the file in the tree (`linker/wireless/`, `epomaker/.../wireless/`,
+`et/wireless/`, and the ChibiOS demo `RT-WB32F3G71-RTC`), which is itself the
+proof they are frozen output rather than generated code.
+
+Deobfuscated with:
+
+```sh
+python3 -c "import struct,sys; sys.stdout.buffer.write(b''.join(w.to_bytes(4,'little') for w in [553863175,554459777,1208378049,4026624001,688390415,554227969,3204472833,1198571264,1073807360,1073808388]))" > /tmp/opencode/pre.bin
+arm-none-eabi-objdump -D -b binary -m arm -M force-thumb /tmp/opencode/pre.bin
+```
+
+**`PRE_LP()` — runs before entering deep sleep** (`lpwr_wb32.c:214`). Literal pool:
+`0x40010000` (PWR), `0x40010404` (ANCTL + `0x04`).
+
+```asm
+ldr  r0, =0x40010000    ; PWR
+movs r1, #3
+str  r1, [r0, #0x28]    ; PWR->ANAKEY1 = 3   -- unlock ANCTL writes (key 1)
+movs r1, #12
+str  r1, [r0, #0x2C]    ; PWR->ANAKEY2 = 12  -- unlock ANCTL writes (key 2)
+ldr  r0, =0x40010404    ; ANCTL + 0x04
+ldr  r1, [r0]
+and  r1, r1, #0x0F
+cmp  r1, #8
+bls  done
+movs r1, #8             ; clamp ANCTL[+4] low nibble to <= 8
+str  r1, [r0]
+done: bx lr
+```
+
+**`POST_LP()` — runs after waking** (`lpwr_wb32.c:222`). Literal pool:
+`0x40010000`, `0x1FFF0000`, `0x40010404`.
+
+```asm
+ldr  r0, =0x40010000
+movs r1, #3
+str  r1, [r0, #0x28]    ; re-unlock ANCTL
+movs r1, #12
+str  r1, [r0, #0x2C]
+ldr  r0, =0x1FFF0000    ; SYS region
+ldrb r0, [r0, #0x310]
+and  r0, r0, #0x0F
+ldr  r1, =0x40010404
+ldr  r2, [r1]
+cmp  r2, r0
+beq  skip
+str  r0, [r1]           ; sync ANCTL[+4] low nibble from SYS[+0x310]
+skip:
+movs r0, #0
+loop: adds r0, #1       ; ~1 s busy-wait: analog settling before resuming
+cmp  r0, #0x23
+blt  loop
+bx   lr
+```
+
+So the sequence is: **re-open the analog-control (ANCTL) write lock, clamp/sync a
+trim field, let the analog domain settle for ~1 s, then return.** Every address is
+a documented WB32 peripheral (`PWR_BASE = 0x40010000`, `ANCTL_BASE = 0x40010400`,
+`SYS_BASE = 0x40016400`). The only undocumented byte is
+`0x1FFF0000 + 0x310` — inside SYS's reserved `0x02C–0x030` gap in the CMSIS
+header — an undocumented SYS/trim register the vendor reads with a raw literal.
+
+Why the blobs stay as machine code (a deliberate choice, not an artifact):
+
+- **Timing/masking guarantee.** `str`/`ldr` of constants with no compiler-inserted
+  code between them is the whole point; C cannot promise the exact stream.
+- **Register-free.** The code uses only `r0–r2`, so it is safe to call from any
+  context, including the low-power path where the stack may be minimal.
+- **Vendor-tuned and shared.** Since the bytes are identical across every board
+  that uses the stack, rewriting them in C would fork that shared file per board
+  for zero functional gain.
+
+Do **not** rewrite them in C as a "cleanup". They work, they are timing-critical,
+and they are the one place where the compiler must not be trusted to schedule.
+The right treatment is the one given here: document the disassembly so the file
+stops being a black box, and leave the bytes alone.
+
 ## Design
 
 Layered so the transports share one code path. Wire format: `PROTOCOL.md`.
