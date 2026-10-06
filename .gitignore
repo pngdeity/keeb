@@ -58,4 +58,4 @@ qmk_firmware/.cache/
 *.map
 
 # Archived vendor artifacts (reference only; never commit)
-refs/
+vendor/

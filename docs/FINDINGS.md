@@ -171,7 +171,7 @@ Why the blobs stay as machine code (a deliberate choice, not an artifact):
   that uses the stack, rewriting them in C would fork that shared file per board
   for zero functional gain.
 - **Corroborated by the factory images.** The two vendor release binaries
-  (`refs/factory-firmware/`, v7 Nov 2024 and v10 Dec 2025) each contain the
+  (`vendor/factory-firmware/`, v7 Nov 2024 and v10 Dec 2025) each contain the
   `PRE_LP`/`POST_LP` byte sequences **exactly once, byte-identical** to ours — as
   does our own built `.bin`. So this is the vendor's own construction on the same
   hardware, not something our tree introduced.
