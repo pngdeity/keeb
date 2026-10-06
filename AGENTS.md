@@ -150,3 +150,37 @@ OpenCode V2 has no built-in LSP. Use the `serena` MCP server for symbol
 navigation, refactoring and per-file diagnostics; `cclsp` is the fallback for
 file types Serena cannot serve. After editing source, run diagnostics and fix
 reported errors. Do not guess with grep/read when a symbol tool applies.
+
+**C/C++ (the firmware tree) needs a compile database.** Without one, clangd
+reports bogus errors on every C file (`unknown type name 'bool'`, undeclared
+`MATRIX_*` macros). Generate it with the project wrapper:
+
+```sh
+./bin/compiledb nathan     # or: ./bin/compiledb default
+```
+
+This emits `qmk_firmware/compile_commands.json` (and a copy at the userspace
+root), then does a real build so the *generated* headers (`info_config.h`)
+exist at rest — QMK's own `generate-compilation-database` does a `make clean`
+first, which removes them and defeats clangd. Both the DB and clangd's cache
+are gitignored; re-run after a clean checkout or a build-config change.
+
+Which tool serves what here:
+
+- **Serena** (`cpp` language server, bundled clangd 19) is rooted at this repo
+  and serves the **in-tree firmware** under `qmk_firmware/`. It is the tool for
+  symbol navigation there — `get_symbols_overview`, `find_symbol`,
+  `find_referencing_symbols` all work on the C tree.
+- **cclsp** (system clangd 23) serves C **and** the userspace keymap under
+  `../keeb-userspace/`, which is *outside* Serena's workspace (a sibling repo,
+  not a child). Prefer cclsp for the `nathan` keymap; prefer Serena for the
+  firmware.
+- `~/.config/clangd/config.yaml` force-includes a tiny `bool`/`true`/`false`
+  shim so clangd parses ChibiOS's `chtime.h`. This is user-level and touches no
+  repo file.
+
+**Known cclsp limitation:** `find_workspace_symbols` queries only the *first*
+running language server regardless of the query's language, so it returns
+nothing in a multi-language project. Use Serena's `find_symbol` or cclsp's
+per-file tools (`get_diagnostics`, `find_definition`) instead. cclsp's `hover`
+also times out (>30 s) on cold firmware files; Serena's symbol tools do not.

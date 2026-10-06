@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Project-local compile-database generator for clangd / code intelligence.
+#
+# clangd needs a compile_commands.json to resolve the QMK/ChibiOS include tree;
+# without it every C file reports bogus errors ("unknown type name 'bool'",
+# undeclared MATRIX_* macros). QMK can emit one, but the command does a
+# `make clean` first, so the *generated* headers (info_config.h etc.) are
+# absent afterwards and clangd still fails to parse. This wrapper runs a real
+# build AFTER generating the database, leaving the generated headers on disk.
+#
+# Usage:  ./bin/compiledb [keymap]      (default: nathan)
+#
+# Output: qmk_firmware/compile_commands.json, plus a copy at the userspace root
+# so clangd finds it when opened on a file under keeb-userspace/. Both are
+# untracked build artifacts (gitignored).
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"
+TREE="$ROOT/qmk_firmware"
+KEYMAP="${1:-nathan}"
+USERSPACE="${QMK_USERSPACE:-$(dirname "$ROOT")/keeb-userspace}"
+
+if [ ! -d "$USERSPACE" ]; then
+    echo "userspace repo not found at $USERSPACE" >&2
+    exit 1
+fi
+
+export QMK_USERSPACE="$USERSPACE"
+
+echo "==> generating compile_commands.json for epomaker/epomaker_split65:$KEYMAP"
+"$HERE/qmk" generate-compilation-database -kb epomaker/epomaker_split65 -km "$KEYMAP"
+
+echo "==> real build so the generated headers exist for clangd"
+"$HERE/make" "epomaker/epomaker_split65:$KEYMAP"
+
+echo "==> copying the database to the userspace root"
+cp -f "$TREE/compile_commands.json" "$USERSPACE/compile_commands.json"
+
+echo "==> done:"
+ls -l "$TREE/compile_commands.json" "$USERSPACE/compile_commands.json"

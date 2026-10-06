@@ -43,6 +43,11 @@ venv/
 qmk_firmware/.build/
 .build/
 
+# clangd / code intelligence artifacts (regenerate with ./bin/compiledb)
+qmk_firmware/compile_commands.json
+qmk_firmware/.cache/
+.cache/clangd/
+
 # Serena (local agent tooling; never commit)
 .serena/
 
