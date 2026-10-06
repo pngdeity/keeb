@@ -126,7 +126,7 @@ One LED, on the **right half** bottom row. Its index is into
   cause.
 - The deep-sleep entry/exit path (`PRE_LP()`/`POST_LP()` in `lpwr_wb32.c`) is a
   pair of raw-Thumb `uint32_t[]` blobs. They are fully deobfuscated — ANCTL write
-  unlock, a trim-field clamp/sync, and a ~1 s analog settling loop — in
+  unlock, a trim-field clamp/sync, and a short analog-settling loop — in
   `FINDINGS.md` "the deep-sleep `PRE_LP()`/`POST_LP()` blobs are raw Thumb".
 
 ## Keycaps vs matrix

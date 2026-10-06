@@ -106,7 +106,7 @@ python3 -c "import struct,sys; sys.stdout.buffer.write(b''.join(w.to_bytes(4,'li
 arm-none-eabi-objdump -D -b binary -m arm -M force-thumb /tmp/opencode/pre.bin
 ```
 
-**`PRE_LP()` — runs before entering deep sleep** (`lpwr_wb32.c:214`). Literal pool:
+**`PRE_LP()` — runs before entering deep sleep** (`lpwr_wb32.c:285`). Literal pool:
 `0x40010000` (PWR), `0x40010404` (ANCTL + `0x04`).
 
 ```asm
@@ -125,7 +125,7 @@ str  r1, [r0]
 done: bx lr
 ```
 
-**`POST_LP()` — runs after waking** (`lpwr_wb32.c:222`). Literal pool:
+**`POST_LP()` — runs after waking** (`lpwr_wb32.c:293`). Literal pool:
 `0x40010000`, `0x1FFF0000`, `0x40010404`.
 
 ```asm
@@ -134,7 +134,7 @@ movs r1, #3
 str  r1, [r0, #0x28]    ; re-unlock ANCTL
 movs r1, #12
 str  r1, [r0, #0x2C]
-ldr  r0, =0x1FFF0000    ; SYS region
+ldr  r0, =0x1FFF0000    ; undocumented factory/trim mirror region
 ldrb r0, [r0, #0x310]
 and  r0, r0, #0x0F
 ldr  r1, =0x40010404
@@ -144,18 +144,22 @@ beq  skip
 str  r0, [r1]           ; sync ANCTL[+4] low nibble from SYS[+0x310]
 skip:
 movs r0, #0
-loop: adds r0, #1       ; ~1 s busy-wait: analog settling before resuming
-cmp  r0, #0x23
+loop: adds r0, #1       ; short analog-settling delay before resuming
+cmp  r0, #0x23          ; 0x23 = 35 iterations
 blt  loop
 bx   lr
 ```
 
+At the board's 96 MHz sysclk (`mcuconf.h`: `WB32_PLLDIV_VALUE 2`,
+`WB32_PLLMUL_VALUE 16`) the loop is only ~100–200 ns — a settling margin, not a
+noticeable delay.
+
 So the sequence is: **re-open the analog-control (ANCTL) write lock, clamp/sync a
-trim field, let the analog domain settle for ~1 s, then return.** Every address is
+trim field, let the analog domain settle briefly, then return.** Every address is
 a documented WB32 peripheral (`PWR_BASE = 0x40010000`, `ANCTL_BASE = 0x40010400`,
-`SYS_BASE = 0x40016400`). The only undocumented byte is
-`0x1FFF0000 + 0x310` — inside SYS's reserved `0x02C–0x030` gap in the CMSIS
-header — an undocumented SYS/trim register the vendor reads with a raw literal.
+`SYS_BASE = 0x40016400`) with one exception: `0x1FFF0000 + 0x310`, which is not
+`SYS_BASE` and sits in an undocumented address region (a factory/trim mirror the
+vendor reads by raw literal). Its source register has no name in the CMSIS header.
 
 Why the blobs stay as machine code (a deliberate choice, not an artifact):
 
@@ -166,6 +170,11 @@ Why the blobs stay as machine code (a deliberate choice, not an artifact):
 - **Vendor-tuned and shared.** Since the bytes are identical across every board
   that uses the stack, rewriting them in C would fork that shared file per board
   for zero functional gain.
+- **Corroborated by the factory images.** The two vendor release binaries
+  (`refs/factory-firmware/`, v7 Nov 2024 and v10 Dec 2025) each contain the
+  `PRE_LP`/`POST_LP` byte sequences **exactly once, byte-identical** to ours — as
+  does our own built `.bin`. So this is the vendor's own construction on the same
+  hardware, not something our tree introduced.
 
 Do **not** rewrite them in C as a "cleanup". They work, they are timing-critical,
 and they are the one place where the compiler must not be trusted to schedule.
@@ -180,8 +189,9 @@ Layered so the transports share one code path. Wire format: `PROTOCOL.md`.
    `*md_getp_bat()` to 0-100), `kb_battery_charge()` (0/1/2 from
    `charging_state` / `bat_full_flag`), `kb_battery_transport()` (from
    `wireless_get_current_devs()`), `kb_battery_changed()` (change detection for
-   push), and `kb_battery_report_fill()` (assembles the 32-byte reply from the
-   named `KB_BATTERY_IDX_*` / `KB_BATTERY_*` constants in `wls.h`).
+   push), and `kb_battery_snapshot()` (samples transport/percent/charge **once**
+   into a `kb_battery_snapshot_t`, so detection and report assembly see the same
+   sample).
 2. **Raw HID responder** (`wls/wls_battery.c`): a strong `raw_hid_receive()`
    override (`#ifndef VIA_ENABLE`) that replies to `0xA4` and stays silent for
    any other command — an unsolicited reply would collide with other raw HID

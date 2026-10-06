@@ -56,3 +56,6 @@ qmk_firmware/.cache/
 *.hex
 *.elf
 *.map
+
+# Archived vendor artifacts (reference only; never commit)
+refs/
