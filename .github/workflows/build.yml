@@ -55,6 +55,26 @@ jobs:
           ./bin/qmk format-json -i qmk_firmware/keyboards/epomaker/epomaker_split65/keyboard.json
           diff -u /tmp/before.json qmk_firmware/keyboards/epomaker/epomaker_split65/keyboard.json \
             || { echo "keyboard.json is not canonically formatted; run 'qmk format-json -i' on it"; exit 1; }
+      - name: Guard the raw-HID tunneling line coupling
+        # The vendor wireless stack tunnels raw HID by #define-ing raw_hid_send
+        # to replaced_hid_send at two hardcoded __LINE__ values (see
+        # keyboards/linker/wireless/md_raw.h). Those line numbers are the
+        # declaration in quantum/raw_hid.h and the call site in quantum/via.c.
+        # A submodule bump that shifts either line silently breaks tunneling
+        # (raw HID replies then go to the wrong transport), so fail loudly here.
+        run: |
+          check() {
+            file=$1; line=$2; want=$3
+            got=$(sed -n "${line}p" "qmk_firmware/${file}")
+            case "$got" in
+              *"$want"*) echo "OK  ${file}:${line}" ;;
+              *) echo "FAIL ${file}:${line} no longer contains '$want' (got: $got)"; \
+                 echo "     md_raw.h's line-keyed raw_hid_send remap is broken; update"; \
+                 echo "     keyboards/linker/wireless/md_raw.h and this guard."; exit 1 ;;
+            esac
+          }
+          check quantum/raw_hid.h 29 'void raw_hid_send(uint8_t *data, uint8_t length);'
+          check quantum/via.c     461 'raw_hid_send(data, length);'
       - name: Build every keymap for the board
         # QMK's bar for a keyboard change is `make keyboard:all`. QMK's build
         # container presets QMK_USERSPACE=/qmk_userspace; there is no userspace

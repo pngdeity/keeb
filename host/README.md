@@ -63,6 +63,7 @@ format-foreground = ${colors.foreground}
 For the 2.4 GHz dongle, `--pull` and `--listen` both work: the dongle relays the
 request to the keyboard and the reply comes back. Use `--pull` for a
 request/response value or `--listen` to passively accept the keyboard's push.
-The keyboard pushes every `WLS_BATTERY_PUSH_INTERVAL` (2000 ms), but `--listen`
-only waits for one report per invocation, so any `interval` of a few seconds
-works. `interval = 5` matches the module's own 5 s cadence.
+The keyboard pushes on change with a `WLS_BATTERY_PUSH_INTERVAL` (10000 ms)
+keepalive, but `--listen` only waits for one report per invocation, so any
+`interval` of a few seconds works. `interval = 5` matches the module's own 5 s
+cadence.

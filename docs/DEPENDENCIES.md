@@ -200,6 +200,9 @@ re-applied if the tree is ever reset to pristine upstream:
   (Python 3.12+).
 - `keyboards/epomaker/epomaker_split65/post_rules.mk`: include paths
   `keyboards/leo/...` → `keyboards/epomaker/...`.
+- `keyboards/linker/wireless/wireless.c`: drop the leading blank line before the
+  license header (QMK's lint reads line 1 literally). Shared file, benefits every
+  board that uses the stack.
 
 If you reset the tree to pristine upstream and find the build broken, this is the
 first thing to check.

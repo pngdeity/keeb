@@ -62,24 +62,43 @@ paths are in `qmk_firmware/keyboards/linker/wireless/`:
 This matters because it is why no custom transport code was needed: the vendor
 stack already forwards raw HID both ways.
 
+## FINDING — the wireless stack is shared; keep the divergence to one file
+
+`keyboards/linker/wireless/` is a **de-facto shared library**: ~20 boards include
+its `wireless.mk`. Split65 therefore does **not** carry a copy of the whole
+stack. Its `wireless/wireless.mk` sources the six shared files
+(`wireless.c`, `transport.c`, `lowpower.c`, `md_raw.c`, `smsg.c`, `module.c`)
+from `keyboards/linker/wireless` and keeps only `lpwr_wb32.c` board-local — the
+one file the deep-sleep fix actually changes. `VPATH` lists the board dir first
+so `lpwr_wb32.c` resolves locally and everything else falls through to the
+shared dir.
+
+Consequences: the divergence from vendor is a **one-file diff** (drift is
+visible, and vendor fixes to the shared stack reach this board automatically),
+and the board does not fork the transport logic. The pattern is the same one
+`keyboards/cannonkeys/satisfaction75` uses (`VPATH += keyboards/cannonkeys/lib/...`).
+The one shared file we did touch is `wireless.c`'s leading blank line, a lint
+fix that benefits every board using the stack.
+
 ## Design
 
 Layered so the transports share one code path. Wire format: `PROTOCOL.md`.
 
 1. **Battery source abstraction** (`wls/wls.c`): `kb_battery_percent()` (clamps
-   `*md_getp_bat()` to 0-100), `kb_charging_state()` (0/1/2 from
-   `charging_state` / `bat_full_flag`), `kb_transport_byte()` (from
-   `wireless_get_current_devs()`), and `kb_battery_report_fill()` (assembles the
-   32-byte reply).
+   `*md_getp_bat()` to 0-100), `kb_battery_charge()` (0/1/2 from
+   `charging_state` / `bat_full_flag`), `kb_battery_transport()` (from
+   `wireless_get_current_devs()`), `kb_battery_changed()` (change detection for
+   push), and `kb_battery_report_fill()` (assembles the 32-byte reply from the
+   named `KB_BATTERY_IDX_*` / `KB_BATTERY_*` constants in `wls.h`).
 2. **Raw HID responder** (`wls/wls_battery.c`): a strong `raw_hid_receive()`
    override (`#ifndef VIA_ENABLE`) that replies to `0xA4` and stays silent for
    any other command — an unsolicited reply would collide with other raw HID
    clients. Master half only.
 3. **Transport tagging**: `0x01` USB / `0x02` BT / `0x04` 2.4 GHz.
 4. **Push fallback**: `kb_battery_push_task()` is called from the existing
-   `wireless_post_task()` and emits the reply every
-   `WLS_BATTERY_PUSH_INTERVAL` (2000 ms) when non-USB, connected, and master.
-   Gated by `WLS_BATTERY_PUSH_ENABLE`.
+   `wireless_post_task()`. It sends on **change** (level/charge/transport), with
+   `WLS_BATTERY_PUSH_INTERVAL` (10 s) as a slow keepalive bound on staleness,
+   when non-USB, connected, and master. Gated by `WLS_BATTERY_PUSH_ENABLE`.
 5. **Host side** (`host/battery_polybar.py`): enumerates by usage page `0xFF60` /
    usage `0x61`; supports `--pull`, `--listen` and `--bluetooth` (BLE Battery
    Service `0x180F`/`0x2A19` fallback), prints `BAT <n>%` / `CHG <n>%`, and
@@ -96,13 +115,28 @@ Layered so the transports share one code path. Wire format: `PROTOCOL.md`.
   them as a freshness check, not a constant.
 - `raw_hid_receive` links as a strong `T`, overriding the weak default at
   `tmk_core/protocol/chibios/usb_main.c:539`.
+- **EEPROM is versioned.** `confinfo_t` (`epomaker_split65.c`) is a 32-bit union
+  persisted via `eeconfig_kb`; adding/altering a field changes its layout.
+  `CONFINFO_VERSION` must be bumped whenever it does, and
+  `eeconfig_confinfo_init()` re-defaults (once) when the stored `version`
+  differs, rather than guessing per-field. The struct is exactly 32 bits — a new
+  field must fit or the union must be widened.
 - **VIA is not enabled** (`VIA_ENABLE` unset), so the hook is the strong
   `raw_hid_receive()` override, not `via_command_kb()`. The VIA definition
   (`host/epomaker-split65-via.json`) is for external VIA tooling and keymap
   import; it is
   not a claim that the firmware speaks VIA.
-- `raw_hid_send`'s macro remap in `md_raw.h` is **line-specific**, so new code
-  must call `replaced_hid_send()` directly.
+- `raw_hid_send`'s macro remap in `md_raw.h` is **line-specific**: it renames
+  `raw_hid_send` to `replaced_hid_send` only where `__LINE__` matches a fixed
+  number, by defining `_temp_rhs_<n>`. It currently keys on exactly two lines:
+  `quantum/raw_hid.h:29` (the declaration; inert) and `quantum/via.c:461` (the
+  live call QMK core makes). Consequence: a QMK/submodule bump that shifts
+  either line **silently** breaks the tunnel — raw HID replies would go to the
+  wrong transport with no compile error. New code must never rely on the macro;
+  call `replaced_hid_send()` directly (as `wls_battery.c` does). CI's
+  "Guard the raw-HID tunneling line coupling" step asserts both lines still
+  hold the expected text and fails loudly otherwise; if it fires, update
+  `keyboards/linker/wireless/md_raw.h` and that guard together.
 
 ## Dongle recon
 

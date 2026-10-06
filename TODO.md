@@ -8,7 +8,9 @@
   `580665f777` plus our commits, the battery responder `e8f49af339` being the
   first). The board source therefore **contains the battery responder**
   (`wls/wls_battery.c`), the corrected `bootmagic.matrix [1,0]`, and the
-  board-local deep-sleep fix (`wireless/`; see the plan's 3.1).
+  deep-sleep fix (`wireless/lpwr_wb32.c`; see the plan's 3.1). The rest of the
+  wireless stack is sourced from the shared `keyboards/linker/wireless/` via
+  `VPATH`, so the board's divergence from vendor is a one-file diff.
 - The personal `nathan` keymap is **not** in the tree: it lives in the sibling
   userspace repo `../keeb-userspace/`. Build with `./bin/make ...:nathan`
   (`bin/make` supplies `QMK_USERSPACE`).
@@ -191,14 +193,13 @@ for the record:
   `LPWR_WAKEUP_USB`/`LPWR_WAKEUP_CABLE`, so a `MATRIX` cause fell to `default:`
   and returned straight to `LPWR_STOP`.
 
-**Fix:** a board-local copy of the wireless stack (carlosedp's port) sizes the
-arrays to `MATRIX_ROWS / 2`, selects `row_pins_r`/`col_pins_r` from
-`MATRIX_*_PINS_RIGHT` via `is_keyboard_master()`, uses
-`PAL_EVENT_MODE_FALLING_EDGE` (consistent with `ROW2COL`), stops arming the
+**Fix:** `wireless/lpwr_wb32.c` (carlosedp's port; the only board-local file —
+the rest of the stack is shared) sizes the arrays to `MATRIX_ROWS / 2`, selects
+`row_pins_r`/`col_pins_r` from `MATRIX_*_PINS_RIGHT` via `is_keyboard_master()`,
+uses `PAL_EVENT_MODE_FALLING_EDGE` (consistent with `ROW2COL`), stops arming the
 UART-RX line (the wireless module's own traffic was waking the device and
 defeating the 30-minute deep sleep), and `lpwr_stop_hook_post()` now accepts
-`SWITCH` and `MATRIX` causes as well. The changes are scoped entirely to
-`keyboards/epomaker/epomaker_split65/`; no shared file is touched.
+`SWITCH` and `MATRIX` causes as well.
 
 **Not yet verified on hardware** — this needs a flash and a keypress-wake test
 (Tier 1). Until then, waking the right half still relies on toggling its 2.4 GHz/BT
@@ -340,7 +341,8 @@ from the vendor default. Record findings here and in `docs/FINDINGS.md`.
   in a wireless position. Document the verdict in `docs/HARDWARE.md`.
 
 - Firmware unit tests for the pure battery helpers (`kb_battery_percent`,
-  `kb_charging_state`, `kb_transport_byte`) — deferred pending the hardware probe.
+  `kb_battery_charge`, `kb_battery_transport`, `kb_battery_changed`) — deferred
+  pending the hardware probe.
 - Bluetooth transport: confirm whether the BT link exposes the raw HID
   collection (`0xFF60`/`0x61`) and whether `*md_getp_bat()` is populated over BT;
   BLE Battery Service `0x180F`/`0x2A19` is the host fallback.

@@ -98,9 +98,10 @@ Hosts must treat byte 1 as the authoritative value and ignore bytes 2-3.
 ## Push mode (2.4 GHz)
 
 When running over a non-USB transport while connected, the keyboard emits the
-same reply report unprompted every `WLS_BATTERY_PUSH_INTERVAL` (default
-`2000 ms`). This path needs no host request, so it is robust against a missed
-pull. Push is:
+same reply report unprompted when a value changes (level, charge, or transport),
+with `WLS_BATTERY_PUSH_INTERVAL` (default `10000 ms`) as a slow keepalive bound
+on how stale an unchanged host view may become. This path needs no host request,
+so it is robust against a missed pull. Push is:
 
 - enabled by `WLS_BATTERY_PUSH_ENABLE` (a `config.h` knob in the battery-feature
   build),

@@ -26,16 +26,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Deep sleep on the split.** A board-local copy of the wireless stack
-  (`keyboards/epomaker/epomaker_split65/wireless/`, ported from carlosedp's fix)
-  sizes the wake pin arrays to the per-half matrix, arms the right half's own
-  matrix pins, uses falling-edge events (matching `ROW2COL`), stops arming the
-  UART-RX wake (the module's own traffic was defeating the 30-minute sleep), and
-  accepts `SWITCH`/`MATRIX` wake causes. Scoped to this board; no shared file is
-  touched. Awaiting a hardware keypress-wake test.
+- **Deep sleep on the split.** The one file that needs changing
+  (`keyboards/epomaker/epomaker_split65/wireless/lpwr_wb32.c`, ported from
+  carlosedp's fix) sizes the wake pin arrays to the per-half matrix, arms the
+  right half's own matrix pins, uses falling-edge events (matching `ROW2COL`),
+  stops arming the UART-RX wake (the module's own traffic was defeating the
+  30-minute sleep), and accepts `SWITCH`/`MATRIX` wake causes. The rest of the
+  stack is sourced from the shared `keyboards/linker/wireless/` via `VPATH`, so
+  board divergence is a one-file diff. Awaiting a hardware keypress-wake test.
+- **EEPROM schema is versioned.** `confinfo_t` gained a `version` field; a
+  stored block from an older layout is re-defaulted once instead of being
+  patched per-field heuristically.
+- **A CI guard for the raw-HID line coupling**: the vendor stack remaps
+  `raw_hid_send` by hardcoded line number, so CI now asserts those two lines
+  still hold the expected code and fails loudly if a submodule bump moves them.
 - Host tool now prefers the 2.4 GHz dongle's raw HID interface (interface 2) and
   exposes `--transport usb`, so a 2.4 GHz read is no longer silently the
   keyboard's USB interface.
+- Battery push now sends on change (level/charge/transport) with a slow
+  keepalive, instead of an unconditional 2-second heartbeat.
 
 ### Changed
 
