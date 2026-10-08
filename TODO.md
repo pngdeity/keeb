@@ -187,6 +187,25 @@ unverified.
       `docs/FINDINGS.md`.
 - [ ] **2.4 GHz: confirm the value changes while charging.** Re-run the probe with
       a cable in and watch `chg` go `1` -> `2` (full).
+- [ ] **2.4 GHz dongle is not enumerating on the host — unresolved, blocked on
+      hardware.** After the reflash the dongle produces **zero USB events**: no
+      `342d` device in `lsusb`/sysfs, no hidraw node, and no kernel log line at
+      all on a clean boot — not even a `-71` enumeration error. Tested on **both
+      USB-A ports** of the T480 (different root hubs); the keyboard itself
+      enumerates fine on those ports, so the host USB subsystem is not at fault.
+      The keyboard's own mode state is correct (`0xA4` byte5 = `0x04`, 2.4 GHz).
+      A keyboard firmware change cannot stop a separately-plugged dongle from
+      enumerating (see below), so this is believed host/dongle-side, **not a
+      regression from our change set** — but it was reported working beforehand,
+      so it is not closed. **Cannot test the dongle on another computer** (no
+      second machine available, per the operator). Next probes when a dongle is
+      in hand: does the original dongle enumerate on any host; does a second
+      dongle exist. Until then, the 2.4 GHz transport items above cannot be run.
+      This also blocks the `docs/PROTOCOL.md` dongle-interface confirmation
+      (`host/battery_polybar.py` prefers interface 2, but the live keyboard
+      composite's interface 2 is its own mouse/system/consumer block — the two
+      devices share VID:PID `342d:e4c6` and were likely conflated; see the
+      accuracy defect note below).
 - [ ] **USB: decide and implement the honesty fix for the fake 100** (defect 1).
       The report must not claim `100%` when the value was never refreshed.
 - [ ] **Bluetooth: probe the transport at all.** Unknown whether the BT link
@@ -288,6 +307,17 @@ keyboard's own collection. `split65.py check` gained a "Raw HID interface
 selection" step that lists the collections found and warns when more than one is
 present. Remaining: a hardware run with the dongle attached to confirm the
 2.4 GHz read is not silently satisfied by USB.
+
+**Documentation accuracy defect (not yet fixed).** `docs/PROTOCOL.md` states as
+**verified** that the 2.4 GHz dongle is a separate USB device exposing its own
+`0xFF60`/`0x61` collection which lands on **interface 2**. The live hardware run
+showed the keyboard's *own* composite is also three interfaces, with interface 2
+being its mouse/system/consumer/keyboard block — so the doc's interface-2 claim
+was never actually observed for a dongle. Because the dongle shares the
+keyboard's VID:PID (`342d:e4c6`), the two cannot be told apart by a `342d` grep;
+the doc appears to have conflated them. Do not rewrite `PROTOCOL.md` on a guess —
+correct it only once a dongle is confirmed present on the bus. This is why the
+interface-2 preference in defect 3 above is still unconfirmed.
 
 ## Right-half DFU without hardware shorting
 
