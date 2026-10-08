@@ -127,8 +127,14 @@ One LED, on the **right half** bottom row. Its index is into
 
 ## DFU entry
 
-- **Left half (master):** hold **Esc** while plugging in USB (bootmagic; this also
-  erases EEPROM settings, which is expected). The physical reset switch also works.
+- **LEFT half — use the spacebar-hole short, not Esc-hold.** Esc-hold bootmagic
+  works on stock firmware but is **broken on any non-OEM build** (a reported
+  failure, not one we introduced; see below). The left half has **no reset
+  switch** — that earlier claim was unverified and wrong. The real route is
+  the same as the right half minus the toggle: remove the spacebar, **short the
+  two metal-plated holes** the spacebar switch's feet sit in, and plug in USB-C
+  **while still shorting**. Every key has such holes; only the spacebar's are
+  metal-plated, which is how you tell them apart.
 - **RIGHT half — the case must be opened.** Esc-hold does **not** work, and there
   is no keymap route into the right half's own bootloader (the `nathan` Fn-layer
   `QK_BOOT` at `[10,4]` is on the Fn layer; the WB32 bootloader samples the boot

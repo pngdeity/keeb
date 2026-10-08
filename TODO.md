@@ -174,8 +174,9 @@ unverified.
       with the dongle attached is still outstanding.
 - [ ] **Flash both halves with the current build** (battery responder + the
       board-local deep-sleep fix) and confirm the manufacturer string is `LEO`
-      and the `0xA4` responder answers. Left via Esc-hold, right via the toggle +
-      spacebar-pin short; see `docs/HARDWARE.md`.
+      and the `0xA4` responder answers. Both halves enter DFU by the spacebar
+      **metal-plated-hole short** while plugging in USB-C (the right half also
+      needs the `R_Shift` toggle flipped first); see `docs/HARDWARE.md`.
 - [ ] **Right-half keypress wake:** with the deep-sleep fix flashed, confirm a key
       on the right half wakes it (defect 2). Record the result in
       `docs/FINDINGS.md`; if it still fails, the cause is not the pin arrays.
@@ -304,10 +305,13 @@ Rationale / evidence:
   `is_keyboard_master()`, so a `QK_BOOT` key pressed on the right half should jump
   *that half* into its own bootloader.
 - Both halves run identical firmware, so adding `QK_BOOT` to the keymap adds it
-  to both. The keymap maps `QK_BOOT` on the **base** layer at the left half's
-  `Esc` position (matrix `[1,0]`).
-- Esc-hold (bootmagic) does **not** work on the right half today; that asymmetry
-  is why the physical short is currently required.
+  to both. The `nathan` keymap maps `QK_BOOT` on the base layer at the right
+  half's matrix `[10,4]`; the left half has **no** keymap route into its own
+  bootloader (its rows are 1–5, so a left-half key cannot fire `[10,4]`).
+- Esc-hold (bootmagic) is **broken on our build on both halves** (it works on
+  stock). On the left half it is no longer even the documented route — the
+  spacebar-hole short is. That asymmetry is why the physical short is currently
+  required for both halves.
 
 Plan:
 

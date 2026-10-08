@@ -87,9 +87,11 @@ Use the project-local wrappers — no system install is needed.
   (`split.handedness.pin`, read by `is_keyboard_master()`), not EEPROM-based, so
   there are no `-split-left`/`-split-right` variants. Each half is flashed
   separately, and they enter DFU by **different** means:
-  - **Left (master):** hold **Esc** while plugging in USB (this also erases
-    settings), or tap the `QK_BOOT` key (Fn row 1 col 0), or the physical reset
-    switch on the PCB underside.
+  - **Left (master):** remove the spacebar, **short the two metal-plated holes**
+    the spacebar switch's feet sit in, and plug in USB-C **while still shorting**.
+    Esc-hold (bootmagic) works on stock firmware but is **broken on our build**;
+    there is also no reset switch on this half (an earlier claim to the contrary
+    was unverified and wrong).
   - **Right (slave):** Esc-hold does **not** work. Remove the `R_Shift` keycap,
     flip the hidden toggle switch to the bottom, then short the two holes under
     the spacebar switch with tweezers while plugging in the right half's USB-C
@@ -106,8 +108,8 @@ legend** and the **Fn-layer legend** are listed separately; they differ.
 
 | Method | How | Effect |
 |---|---|---|
-| Hardware DFU | Hold reset button (PCB underside) + plug USB | Always works |
-| Bootmagic DFU | Hold Escape + plug USB (left half only) | Bootloader, clears EEPROM |
+| Hardware DFU | Short the two metal-plated spacebar holes + plug USB | Always works (both halves) |
+| Bootmagic DFU | Hold Escape + plug USB (left half only) | Broken on non-OEM firmware |
 | Right-half DFU | R_Shift toggle + spacebar-pin short + plug USB | Bootloader (see Flashing) |
 | Software DFU | `QK_BOOT` — base layer at left half, matrix `[1,0]` (the left `Esc` position) | Bootloader |
 | Factory reset | `EE_CLR` — hold-only `_RST` layer at right half, matrix `[11,7]` (the bottom-right corner key) | Clears EEPROM settings |
