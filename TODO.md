@@ -84,13 +84,18 @@ sections below.
 6. **Decide and implement the honesty fix for the fake 100** (defect 1).
    Depends on 4 — you need to know what a real reading looks like before choosing
    how to represent "unknown".
+7. **Wireless while charging (requirement 2).** Disable the cable-insert
+   auto-switch in `housekeeping_task_user()` so mode selection belongs to the
+   physical switch, then verify on hardware that a cable with the switch on
+   2.4 GHz leaves the keyboard wireless and the level still updates. The policy
+   change is sanctioned (`docs/FINDINGS.md` "Functional requirements"); the
+   hardware behaviour (VBUS vs module UART/radio) is unverified. Needs the user
+   at the keyboard.
 
 **Tier 2 — feature completeness (in scope, not yet probed):**
 
-7. **Probe Bluetooth at all**, then update `docs/PROTOCOL.md` and `README.md`.
+8. **Probe Bluetooth at all**, then update `docs/PROTOCOL.md` and `README.md`.
    Independent of Tier 1 except that it wants a fixed host tool (1).
-8. **Wireless-while-charging investigation** (`## Other`). Independent; needs
-   hardware and the user.
 
 **Tier 3 — quality / ergonomics (valuable, not blocking):**
 
@@ -110,10 +115,12 @@ sections below.
 
 **Dependency notes (why the order is not free):**
 
-- 1 blocks 4/5/7 (interface selection is the read path).
+- 1 blocks 4/5/8 (interface selection is the read path).
 - 3 must come after 2 so the flash is done once, and before 4 so a mid-measurement
   reflash cannot invalidate the result.
 - 2 must precede 3: every one of those decisions changes bytes that get flashed.
+- 7 changes `housekeeping_task_user()`, so it should land before 3 as well, or it
+  forces a second flash.
 - 12 invalidates 4–6, so it must come last or not at all.
 
 ## Outstanding verification (the deliverable is not yet proven)
@@ -334,21 +341,9 @@ from the vendor default. Record findings here and in `docs/FINDINGS.md`.
 
 ## Other
 
-- **Wireless while charging: can the two coexist?** Source reading is
-  inconclusive. The physical three-position switch appears authoritative
-  (`hs_modeio_detection()` in `wls/wls.c` reads it every scan and forces
-  `DEVS_USB` when in the USB position; `wls_process_long_press()` makes the
-  `KC_BT*`/`KC_2G4` keycodes no-ops unless the switch already reports
-  BT/wireless). Nothing found gates wireless operation on `charging_state`, so
-  plugging a cable with the switch on BT/2.4 GHz *should* leave the keyboard
-  wireless while charging — but this is unverified on hardware, and the
-  cable-insert auto-switch in `housekeeping_task_user()` (a policy choice, not a
-  hardware limit) deliberately moves to USB on cable insert, which would defeat
-  it. Also unknown whether VBUS presence disturbs the module UART or the radio
-  link. Investigate: with the switch on 2.4 GHz, plug a charging cable and
-  confirm the keyboard stays wireless and the level still updates; decide
-  whether the cable-insert auto-switch should be suppressed while the switch is
-  in a wireless position. Document the verdict in `docs/HARDWARE.md`.
+- **Wireless while charging (requirement 2)** — now first-class, see `## Priority
+  order` item 7 and `docs/FINDINGS.md` "Functional requirements". Verdict to be
+  recorded in `docs/HARDWARE.md`.
 
 - Firmware unit tests for the pure battery helpers (`kb_battery_percent`,
   `kb_battery_charge`, `kb_battery_transport`, `kb_battery_changed`) — deferred

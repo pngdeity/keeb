@@ -2,13 +2,21 @@
 
 EPOMAKER Split65 wireless (tri-mode) keyboard firmware and host tooling.
 
-Adds host-visible battery reporting via a vendor Raw HID command (`0xA4`), so a
-polybar module can display the keyboard's battery level. The transport and wire
-format are implemented and verified over USB and 2.4 GHz, but **the reported
-percentage is not yet trustworthy** — the keyboard's wireless module does not
-answer the level inquiry on USB, so the value stays at its compile-time default
-(see `TODO.md` defect 1). Bluetooth is implemented on the host side but not yet
-probed on hardware.
+The firmware must support three usage modes, in priority order: both halves
+wireless while discharging; both halves wireless while charging (an external PSU
+charges them while a separate, power-limited host uses them for input); and both
+halves wired over USB while charging. See `docs/FINDINGS.md` "Functional
+requirements" for the rationale and the accepted tradeoffs. Mode 2 currently
+conflicts with a cable-insert auto-switch in the firmware; that is `TODO.md`
+Tier 1 item 7.
+
+To serve those modes, the firmware adds host-visible battery reporting via a
+vendor Raw HID command (`0xA4`), so a polybar module can display the keyboard's
+battery level. The transport and wire format are implemented and verified over
+USB and 2.4 GHz, but **the reported percentage is not yet trustworthy** — the
+keyboard's wireless module does not answer the level inquiry on USB, so the
+value stays at its compile-time default (see `TODO.md` defect 1). Bluetooth is
+implemented on the host side but not yet probed on hardware.
 
 The `nathan` battery firmware is committed in the `qmk_firmware` submodule; the
 halves still run an older build of it (see Status).

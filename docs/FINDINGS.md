@@ -10,7 +10,37 @@ change depends on. What the device is is in `DEVICE.md`; measured hardware facts
 live in `HARDWARE.md`; the wire format is `PROTOCOL.md`; live status and open
 work are in `TODO.md`.
 
-## Goal
+## Functional requirements
+
+The user-facing requirements, in priority order. These are the end; the battery
+reporting described below is a means to them.
+
+1. **Wireless while discharging.** Both halves operate on a wireless transport
+   (2.4 GHz or Bluetooth) with no cable attached.
+2. **Wireless while charging.** Both halves operate on a wireless transport
+   while a cable supplies charge.
+3. **USB while charging.** Both halves operate over USB-C with a cable attached.
+
+**Why requirement 2 exists.** The operator may charge the halves from an
+external PSU while connecting them to a *different, power-limited host* (e.g. a
+phone or tablet that cannot supply charging current) purely for input. In that
+arrangement the keyboard must keep typing over its wireless link while the
+charge comes from elsewhere — so "a cable is present" must not by itself mean
+"switch to USB".
+
+**Accepted tradeoff.** The firmware's cable-insert auto-switch (in
+`housekeeping_task_user()`) forces `DEVS_USB` when a cable appears, which would
+defeat requirement 2. Removing it is sanctioned: the left half has a physical
+mode switch, so mode selection can belong to the switch alone. `hs_modeio_detection()`
+already forces `DEVS_USB` when the switch is in the USB position, and
+`wls_process_long_press()` already makes `KC_BT*`/`KC_2G4` no-ops unless the
+switch reports BT/wireless — so the switch becomes the single, coherent control.
+
+**Unverified.** Whether VBUS presence disturbs the module UART or the radio link
+is unknown; nothing in the firmware gates wireless on `charging_state`. That is
+evidence to gather (`TODO.md`), not established fact.
+
+## Goal (reporting mechanism)
 
 Expose the keyboard battery to the host over all three transports (2.4 GHz
 dongle, Bluetooth, USB-C) via the `0xA4` raw HID command, so a polybar module
