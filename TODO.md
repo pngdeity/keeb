@@ -434,6 +434,7 @@ additive vendor boards plus the shared wireless stack. WB32 platform support
   keep it a parallel branch until the port is fully settled.
 - **`libmodule.a`** — the vendor's prebuilt blob (kept only by the `.gitignore`
   edit). Keep it as a binary dependency, or treat it as the thing to replace.
+  **Hard merge blocker** — see the alignment plan below item 4.
 - **Legacy `keyboards/wireless/` copy** carried in the spike — possibly
   removable in favour of the hoisted `keyboards/linker/wireless/`.
 - **Upstream battery + connection APIs — ADOPTED (on the spike branch).**
@@ -447,3 +448,35 @@ additive vendor boards plus the shared wireless stack. WB32 platform support
 **Cost note.** A re-base invalidates any hardware verification done on the vendor
 tree, which is exactly why it is now first: do the Tier 1 flash and measurements
 on the final base, once.
+
+**Upstream-alignment plan (in anticipation of the eventual merge).** Merging the
+wireless/tri-mode stack upstream requires conforming to QMK's contributor
+conventions (`docs/contributing.md`), not just building. The work is sequenced
+cheapest-first, and **all of it happens on the spike branch** — formatting churn
+on 44 vendor-derived files would wreck cherry-pickability against the vendor
+overlay, and the spike is already a from-scratch replay. Rationale and the
+bespoke-vs-superseded audit are in `docs/FINDINGS.md`, "what stays bespoke, and
+why it is not superseded".
+
+1. **Formatting + licensing pass (cheap, do first).** Run `qmk format-c` on our
+   authored `.c`/`.h`, `qmk format-json -i` on `keyboard.json`, `qmk format-text`
+   on `readme.md`. Add GPL-2.0-or-later SPDX headers to every authored source
+   file (a common review-blocker; upstream requires them). Turn mechanical review
+   into a no-op.
+2. **Naming / hook-convention pass (moderate).** Rename the vendor's
+   `wls_*`/`kb_*`/`hs_*` prefixes toward upstream idioms; use the `_kb`/`_user`
+   hook suffixes and `xxx_init`/`xxx_task` pairs where core calls them. The
+   adopted battery driver (`wls_battery_driver.c`) already conforms — that is why
+   it dropped in cleanly; treat it as the template.
+3. **Layering decision (the real gate).** Decide whether the wireless stack
+   becomes an upstream-shaped feature — a `drivers/wireless/` + `quantum/wireless/`
+   pair with a driver contract, mirroring `quantum/battery`/`drivers/battery` —
+   or stays board/shared-local. Upstream has **no precedent for a shared dir
+   under `keyboards/`** (our `keyboards/linker/wireless/`). This also resolves the
+   flagged `host_driver_t` alignment: present the module as one more
+   `host_driver_t` beside upstream's `bt_driver` in `tmk_core/protocol/host.c`,
+   rather than a parallel swap mechanism.
+4. **`libmodule.a` resolution (hard blocker).** Vendored prebuilt binaries are
+   rejected upstream. Either the module traffic moves behind a documented UART
+   protocol with no prebuilt blob, or the merge is blocked. This is a design
+   question, so answer it before building more on top.

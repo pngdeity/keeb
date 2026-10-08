@@ -390,6 +390,66 @@ responder, not the internal value source. This is the ownerless-shared-state
 cleanup arriving for free: the value's owner is now upstream core, and only the
 wire stays board-local.
 
+## FINDING — what stays bespoke, and why it is not superseded
+
+After the re-base, the question "are we maintaining code upstream has
+superseded?" has a precise answer: **no, with one deliberate exception that is a
+superset, not a duplicate.** The re-base already retired the two genuine cases
+(battery, connection). What remains is the wireless/tri-mode layer, which
+upstream does not implement at all.
+
+**Already upstream (adopted or stock, not ours to maintain):** the battery value
+(`quantum/battery`, via our `custom` driver — see above), the connection
+selection (`quantum/connection`, with our `connection_host_changed_kb()` as a
+deliberate adapter), the split transport and RPC (`quantum/split_common`,
+`transaction_rpc_*`), and core keyboard/RGB/encoder/raw-HID/EEPROM/bootmagic/NKRO.
+`SPLIT_WATCHDOG_ENABLE` / `SPLIT_ACTIVITY_ENABLE` are upstream options we have
+not switched on — unused features, not bespoke code.
+
+**Genuinely bespoke, and upstream has no equivalent (this is the contribution,
+not a leftover):**
+
+- **The wireless stack** (`keyboards/linker/wireless/`): module UART protocol,
+  the module state machine, the WB32 deep-sleep `PRE_LP()`/`POST_LP()` blobs.
+  Upstream's wireless is **AVR-only** — RN-42 and Bluefruit LE SPI Friend only
+  (`drivers/bluetooth/`, `docs/features/wireless.md`) — and it documents 2.4 GHz
+  and most wireless keycodes as **"(not yet implemented)"**. Upstream has no
+  module-UART protocol for our class of board.
+- **The `0xA4` battery responder** (`wls/wls_battery.c`): upstream exposes a
+  battery *value* but has no host-visible battery command. The wire stays ours.
+- **`rgb_record`**: a small board-local RGB persistence shim with no upstream
+  equivalent.
+
+**The one uncomfortable spot (parallel mechanism, not duplication):** our
+`host_driver_t wireless_driver` plus `set_transport()` sits beside upstream's
+`bt_driver` in `tmk_core/protocol/host.c` — two implementations of the same
+"swappable `host_driver_t`" idea, for different transports. Ours must exist
+(upstream has no driver for our module), but the **shape** should align: present
+the module as one more `host_driver_t` alongside `bt_driver`, rather than a
+parallel swap path. This is the single consolidation candidate.
+
+**Alignment plan (for the eventual upstream merge).** QMK review is mechanical,
+and most of it is already satisfied (`qmk lint` is clean on the spike). The
+remaining work is sequenced cheapest-first and happens **on the spike branch**,
+because formatting churn on 44 vendor-derived files would wreck cherry-pickability
+against the vendor overlay:
+
+1. **Formatting + licensing** — `qmk format-c` / `format-json -i` / `format-text`,
+   plus GPL-2.0-or-later SPDX headers on every authored source (a common
+   review-blocker).
+2. **Naming / hook conventions** — move the vendor's `wls_*`/`kb_*`/`hs_*` prefixes
+   toward upstream idioms, with `_kb`/`_user` hook suffixes and `xxx_init`/`xxx_task`
+   pairs where core calls them. The adopted battery driver is the template.
+3. **Layering decision (the real gate)** — whether the wireless stack becomes a
+   `drivers/wireless/` + `quantum/wireless/` feature with a driver contract,
+   mirroring `quantum/battery`/`drivers/battery`. Upstream has no precedent for a
+   shared dir under `keyboards/` (our `keyboards/linker/wireless/`). Resolves the
+   `host_driver_t` alignment above.
+4. **`libmodule.a` resolution (hard blocker)** — vendored prebuilt binaries are
+   rejected upstream. Either the module traffic moves behind a documented UART
+   protocol with no prebuilt blob, or the merge is blocked. A design question, so
+   answer it before building more on top — see `TODO.md`, Re-base.
+
 ## FINDING — shared state has no owner; two contained fixes
 
 The board and the wireless stack communicate through **shared mutable globals**
