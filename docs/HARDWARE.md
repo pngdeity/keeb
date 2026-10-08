@@ -129,10 +129,10 @@ One LED, on the **right half** bottom row. Its index is into
 
 - **Left half (master):** hold **Esc** while plugging in USB (bootmagic; this also
   erases EEPROM settings, which is expected). The physical reset switch also works.
-- **Right half (slave):** Esc-hold does **not** work (bootmagic's `[1,0]` is a
-  left-half matrix position). The `nathan` keymap binds `QK_BOOT` on its Fn layer
-  (right half, matrix `[10,4]`), which is a local jump — but the WB32 bootloader
-  samples the boot pin only at reset, so a warm keypress may not enumerate. The
+- **RIGHT half — the case must be opened.** Esc-hold does **not** work, and there
+  is no keymap route into the right half's own bootloader (the `nathan` Fn-layer
+  `QK_BOOT` at `[10,4]` is on the Fn layer; the WB32 bootloader samples the boot
+  pin only at reset, so a warm keypress may not enumerate). Use the
   firmware-independent route: open the case, remove `R_Shift`, flip the hidden
   toggle switch, remove the spacebar, short the two holes where the spacebar
   switch's plastic feet insert, then plug in USB-C **while still shorting**.

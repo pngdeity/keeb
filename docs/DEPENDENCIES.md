@@ -110,12 +110,15 @@ legend** and the **Fn-layer legend** are listed separately; they differ.
 | Bootmagic DFU | Hold Escape + plug USB (left half only) | Bootloader, clears EEPROM |
 | Right-half DFU | R_Shift toggle + spacebar-pin short + plug USB | Bootloader (see Flashing) |
 | Software DFU | `QK_BOOT` — base layer at left half, matrix `[1,0]` (the left `Esc` position) | Bootloader |
-| Factory reset | `EE_CLR` — Fn layer at right half, matrix `[7,7]` (the `Bksp` position) | Clears EEPROM settings |
+| Factory reset | `EE_CLR` — hold-only `_RST` layer at right half, matrix `[11,7]` (the bottom-right corner key) | Clears EEPROM settings |
 
 > `QK_BOOT` sits on the **base** layer at the left half's `Esc` position, where it
-> is trivially hit — an accidental tap drops the left half into the bootloader.
-> `EE_CLR` sits on the Fn layer over the `Bksp` position. Both are footguns; see
-> `TODO.md` Tier 0.
+> is trivially hit — an accidental tap drops the left half into the bootloader
+> (accepted; it is the intended software DFU route). `EE_CLR` was moved off the
+> Fn-layer `Bksp` position to the far corner of a hold-only layer: `_RST` is
+> armed only by `LT(_RST, KC_NO)` on the **Fn-layer top-right corner** key, so a
+> wipe needs a held Fn chord plus a press on the opposite half's bottom-right
+> corner. It is no longer reachable by a single stray hold.
 
 ### Wireless modes
 
