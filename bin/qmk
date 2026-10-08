@@ -14,6 +14,11 @@
 # from argv[0]. Without this it would look for "-c.ini" and never read the
 # project's user.overlay_dir.
 #
+# QMK subcommands return False on failure and True/None on success, so the exit
+# code must be derived from that convention (NOT sys.exit(cli()), which would
+# turn a successful True into exit 1). milc itself already sys.exit(255)s on an
+# uncaught exception.
+#
 # Usage:  PATH="$PWD/bin:$PATH" make epomaker/epomaker_split65:nathan
 #   or:   ./bin/qmk compile -kb epomaker/epomaker_split65 -km nathan
 set -euo pipefail
@@ -28,7 +33,7 @@ export PYTHONPATH="$TREE/lib/python${PYTHONPATH:+:$PYTHONPATH}"
 # The tree's CLI resolves requirements.txt and keyboards/ relative to CWD.
 cd "$TREE"
 
-RUNNER='import sys; sys.argv[0] = "qmk"; from qmk.cli import *; from milc import cli; cli()'
+RUNNER='import sys; sys.argv[0] = "qmk"; from qmk.cli import *; from milc import cli; sys.exit(0 if cli() is not False else 1)'
 
 if [ -x "$VENV/bin/python" ]; then
     exec "$VENV/bin/python" -c "$RUNNER" "$@"

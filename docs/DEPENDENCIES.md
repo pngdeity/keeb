@@ -30,9 +30,9 @@
   `make ...:nathan` resolves only `default` and fails with `No rule to make
   target 'nathan'`. `bin/make` supplies it.
 - Or use the project helper: `./split65.py build` / `./split65.py flash` /
-  `./split65.py check` / `./split65.py setup` (see `--help`). Note: `split65.py`
-  targets the `nathan` keymap (`KEYMAP` at the top) and runs `make` directly, so
-  it does not supply `QMK_USERSPACE`; prefer `./bin/make`.
+  `./split65.py check` / `./split65.py setup` (see `--help`). `split65.py`
+  targets the `nathan` keymap (`KEYMAP` at the top) and builds via `bin/make`, so
+  `QMK_USERSPACE` is supplied exactly as above.
 - **`split65.py flash` and the raw `wb32-dfu-updater_cli` are for a human to
   run.** `flash` calls `doas` and prompts with `input()`, so it must not be
   launched by an agent or any non-interactive context: an unanswered `doas`

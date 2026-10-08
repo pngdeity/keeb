@@ -12,8 +12,10 @@ Usage:
     battery_polybar.py --listen   # passively read push reports (2.4 GHz)
 
 When both the keyboard's USB collection (interface 1) and the 2.4 GHz dongle's
-(interface 2) are attached, the dongle is preferred by default; pass
---transport usb to read the keyboard's own collection instead (see PROTOCOL.md).
+(interface 2) are attached, interface 2 is preferred by default; pass
+--transport usb to read interface 1 instead. NOTE: the interface-2 = dongle
+mapping is UNVERIFIED -- the dongle shares VID:PID 342d:e4c6 with the keyboard,
+and only interface 1 has ever been observed live (see PROTOCOL.md/TODO.md).
 
 Exits non-zero with no output when the keyboard is absent, so polybar hides
 the module.
@@ -40,9 +42,10 @@ CMD_GET_BATTERY = 0xA4
 TRANSPORT_NAMES = {0x01: "USB", 0x02: "BT", 0x04: "2.4G"}
 
 # Raw HID collection interface numbers (see PROTOCOL.md). The keyboard's own
-# collection is interface 1; the 2.4 GHz dongle exposes a second one on
-# interface 2. Both are present whenever the keyboard is plugged in *and* the
-# dongle is attached, so "first match" is ambiguous.
+# collection has been observed on interface 1. A second collection on interface
+# 2 is *assumed* to be the 2.4 GHz dongle, but that is UNVERIFIED: the dongle
+# shares VID:PID 342d:e4c6 with the keyboard, so it cannot be disambiguated by a
+# VID filter, and only interface 1 has been seen live. See TODO.md defect 3.
 INTERFACE_KEYBOARD = 1
 INTERFACE_DONGLE = 2
 
@@ -59,10 +62,11 @@ def enumerate_raw_hid_interfaces():
 def find_raw_hid_interface(prefer=None):
     """Pick the raw HID interface to use.
 
-    Several can match at once (keyboard interface 1 and, when the dongle is
-    attached, dongle interface 2). Default to the dongle so a read over 2.4 GHz
-    is not silently satisfied by the keyboard's USB collection; prefer="usb"
-    selects the keyboard instead.
+    Several can match at once (the keyboard's collection on interface 1 and,
+    if present, a second collection on interface 2 assumed -- UNVERIFIED -- to
+    be the 2.4 GHz dongle). Default to interface 2 so a read over 2.4 GHz is not
+    silently satisfied by the keyboard's USB collection; prefer="usb" selects
+    interface 1 instead. See TODO.md defect 3 for the open verification.
     """
     candidates = enumerate_raw_hid_interfaces()
     if not candidates:
@@ -82,7 +86,11 @@ def read_battery_pull(prefer=None):
     if info is None:
         return None
 
-    device = hid.Device(path=info["path"])
+    try:
+        device = hid.Device(path=info["path"])
+    except Exception:
+        # Device vanished between enumerate() and open().
+        return None
     try:
         # The first byte is the HID Report ID.
         request = bytes([0x00, CMD_GET_BATTERY] + [0x00] * (REPORT_LENGTH - 1))
@@ -102,7 +110,11 @@ def read_battery_listen(timeout_ms=6000, prefer=None):
     if info is None:
         return None
 
-    device = hid.Device(path=info["path"])
+    try:
+        device = hid.Device(path=info["path"])
+    except Exception:
+        # Device vanished between enumerate() and open().
+        return None
     try:
         while True:
             report = device.read(REPORT_LENGTH, timeout=timeout_ms)

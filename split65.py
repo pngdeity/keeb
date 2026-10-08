@@ -325,7 +325,7 @@ def flash() -> None:
 # ── Check ─────────────────────────────────────────────────────────────
 
 
-def check() -> None:
+def check() -> int:
     """Full system diagnostics."""
     print("==============================")
     print("  EPOMAKER Split65 -- Check")
@@ -406,7 +406,7 @@ def check() -> None:
         issues += 1
     else:
         for info in ifaces:
-            which = {1: "keyboard", 2: "2.4G dongle"}.get(
+            which = {1: "keyboard", 2: "assumed dongle"}.get(
                 info.get("interface_number"), "unknown"
             )
             ok(
@@ -417,7 +417,9 @@ def check() -> None:
         if len(ifaces) > 1:
             warn(
                 "Multiple raw HID collections present; the host tooling prefers "
-                "interface 2 (dongle) -- use '--transport usb' to read the "
+                "interface 2 (assumed dongle, UNVERIFIED -- dongle and keyboard "
+                "share VID:PID 342d:e4c6). Run "
+                "'host/battery_polybar.py --pull --transport usb' to read the "
                 "keyboard's own collection"
             )
         elif picks and picks[0] == 1:
@@ -430,6 +432,7 @@ def check() -> None:
     else:
         print(f"  {issues} issue(s) found -- run './split65.py setup' for details")
     print("==============================\n")
+    return issues
 
 
 # ── Main ──────────────────────────────────────────────────────────────
@@ -456,7 +459,9 @@ def main() -> None:
     }
 
     if args.command in commands:
-        commands[args.command]()
+        result = commands[args.command]()
+        if isinstance(result, int) and result != 0:
+            sys.exit(1)
     else:
         parser.print_help()
 

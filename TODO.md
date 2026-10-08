@@ -364,6 +364,113 @@ for?". `SPLIT_WATCHDOG_ENABLE` and `SPLIT_ACTIVITY_ENABLE` were noted in
 any base or feature change, enumerate newly-eligible upstream mechanisms, not just
 the compile breaks.
 
+## Code audit — bespoke payload correctness and upstream-idiom review
+
+A full read-only audit (three passes: shared wireless stack, board files, host
+tooling/CI) of the ~5,460-line payload we carry. Findings below are **verified by
+reading the source**, not inferred. Ordered by severity. Nothing here is fixed
+yet unless marked DONE.
+
+### High — memory safety / races
+
+- **`md_send_devinfo()` pushes a frame whose checksum is not last.**
+  `keyboards/linker/wireless/module.c:370-384` does
+  `md_calc_check_sum(sdata, infolen + 2)` then `smsg_push(sdata, sizeof(sdata))`
+  (the full 21 bytes). Every sibling sender (`md_send_manufacturer`/`product`,
+  `:395-421`) pushes `len + 3` so the checksum is the final byte, which is where
+  the receiver's `md_check_sum` looks. For any device name shorter than
+  `MD_SND_CMD_DEVINFO_LEN` (18) the BT-name frame is non-conformant. **Fix:**
+  `smsg_push(sdata, infolen + 3)`.
+- **Send-buffer overrun.** `md_pkt_payload` is `MD_SEND_PKT_PAYLOAD_MAX` = 36 B
+  (`module.c:22,68`), but `md_send_manufacturer`/`md_send_product` can push up to
+  `MD_SND_CMD_MANUFACTURER_LEN + 3` = 49 B (`module.h:33-34`), and `smsg_peek`
+  (`smsg.c:85-90`) copies `tail - head` with **no capacity argument**. Up to 13
+  bytes are written past a static buffer before `uart_transmit` sends them. The
+  dongle/name RPCs reach this. **Fix:** size the payload to the true max frame,
+  or give `smsg_peek` a capacity and clamp.
+- **UART RX framing writes past `md_rev_payload[36]`.**
+  `module.c:163-176`: the `MD_REV_CMD_RAW` arm sets `data_remain = data + 1` from
+  the **received length byte** with no bound, then `default:` does
+  `md_rev_payload[data_count++]` unchecked. A declared length ≥ 33 overruns; a
+  length of `0xFF` wraps `uint8_t` and overruns by ~256. The only later guard
+  (`len == sizeof(md_raw_payload)`, `:194`) is far too late. **Fix:** reject
+  `data > MD_RAW_SIZE` at case 2 and clamp the write.
+- **ISR-shared sleep flag is not `volatile`.** `lpwr_wakeupcd` is written from the
+  PAL EXTI callback (ISR context, `wireless/lpwr_wb32.c:37-55` →
+  `lowpower.c:74-76`) and read in the main loop after `__WFI()`
+  (`lowpower.c:241,246`) without `volatile` or a barrier. **Fix:** mark it
+  `volatile`; take `osalSysLockFromISR` if a multi-byte update.
+
+### Medium — link integrity and drift
+
+- **`smsg_push` return value discarded everywhere.** All ~12 callers
+  (`module.c:322-447`) ignore the `bool`, so a full ring silently drops a report
+  (lost key release) or a reset RPC. **Fix:** check it and flag/retry.
+- **`md_send_vpid` signed-shift UB.** `module.c:427` `pid << 16` on a `uint16_t`
+  promoted to signed `int` is UB for `pid ≥ 0x8000`; the following `memcpy`
+  also assumes host endianness. **Fix:** cast to `uint32_t`; encode explicitly.
+- **Framing state can desync permanently.** `module.c:122-123` `static
+  data_count/data_remain` have no inter-byte timeout, so a stall mid-frame
+  mis-parses all subsequent bytes (compounds the RX overrun above). **Fix:** idle
+  timeout that resets both counters.
+- **`WEAR_LEVELING_BACKING_SIZE` defined in both places, board wins silently.**
+  `config.h:104` = 8192 vs `keyboard.json` `eeprom.wear_leveling.backing_size` =
+  4096. Board `config.h` is force-included before the generated `info_config.h`
+  (whose value is `#ifndef`-wrapped), so the 8192 wins and keyboard.json is
+  ignored — the opposite of upstream's "keyboard.json is source of truth".
+  Vendor-inherited, but exactly the rebase-drift class. **Fix:** keep the value in
+  one place.
+- **`rgb_record` duplicate buffer definition.** `rgb_record/rgb_record.c:24` and
+  `:44` both define `static uint8_t rgbrec_buffer[...]` (legal tentative
+  redefinition; the second is dead). Remove one.
+
+### Low — idiom, dead code, rebase fragility
+
+- **`record_color_hsv` reads `rgb_hsvs` out of bounds** (`rgb_hsvs[RGB_HSV_MAX]`
+  and `rgb_hsvs[0xFF]`; array is `[7][2]`, `rgb_record.c:279-304`). **Unreachable
+  dead code** — its only caller `record_rgbmatrix_increase` (`:256`) has no
+  callers — but it is exported. Fix or delete with the function.
+- **Board file occupies the `_user` hook namespace:** `process_record_user`,
+  `suspend_wakeup_init_user`, `suspend_power_down_user`, `hs_reset_settings_user`
+  are defined in `epomaker_split65.c` (a keyboard file). Works today, but any
+  keymap that also defines them will collide. Move bodies to the `_kb` variants
+  and call `_user` from there.
+- **`rgbrec_set_close_all()` index arithmetic** (`rgb_record.c:181-182`) uses
+  `row * MATRIX_COLS * col * 2` instead of `((row * MATRIX_COLS) + col) * 2`.
+  Unreachable (no caller) but exported.
+- **`bin/compiledb` is silently broken.** It calls the deprecated
+  `qmk generate-compilation-database` (now a stub that returns `False` without a
+  non-zero exit); `bin/qmk` does not propagate the CLI return value, so `set -e`
+  does not trip and a **stale** `compile_commands.json` is reported as success.
+  **Fix:** use `qmk compile --compiledb`; make `bin/qmk` `sys.exit(cli())`.
+- **`split65.py` `check`/`setup` always exit 0** and `check`'s warning cites a
+  `--transport` flag that belongs to `battery_polybar.py`, not `split65.py`.
+- **`battery_polybar.py`** can raise an unhandled `HIDException` if the device
+  vanishes between `enumerate()` and `open()` (breaks the "exit non-zero, no
+  output" contract) and keys its selection on the **unverified** `interface 2 =
+  dongle` assumption (same accuracy defect already flagged at defect 3 above).
+- **Rebase fragility:** `md_raw.h` remaps `raw_hid_send` by `__LINE__`
+  (`_temp_rhs_29`/`_temp_rhs_489`) — any upstream line shift breaks it (the CI
+  guard exists precisely for this); `transport.c:49` reaches into the core
+  file-local `last_suspend_state` via an inline `extern`.
+- **Dead/unused:** `SERIAL_DEBUG` (`config.h:85`, referenced nowhere),
+  `test_white_light_flag`, `hs_ct_time`, unused `rgbrec` colour defines, and a
+  stray `if (s2m.resp == 0x00);` no-op (semantic: `epomaker_split65.c:142` and
+  three more).
+
+### Confirmed clean
+
+- `wls/wls_battery.c` raw-HID receive path: checks length and command byte, only
+  touches indices 0-6 of a 32-byte buffer — no OOB.
+- All RGB/matrix LED indices used are < `RGB_MATRIX_LED_COUNT` (68); `rgbrec`
+  buffer/view dimensions match `MATRIX_ROWS`×`MATRIX_COLS`.
+- `rgbrec` EEPROM addressing and region sizes are consistent.
+- `halconf.h`/`mcuconf.h` match current WB32 ChibiOS expectations.
+- `bin/make`, `bin/qmk` (except return-value propagation), `.gitignore` and the
+  userspace `.gitignore` are correct; no tracked build artifacts or secrets.
+- All shared-stack and board files carry `SPDX-License-Identifier:
+  GPL-2.0-or-later` **except** `rgb_record/rgb_record.h` (legacy prose header).
+
 ## Right-half DFU without hardware shorting
 
 Goal: let the right half enter the WB32 DFU bootloader by holding a key, like the

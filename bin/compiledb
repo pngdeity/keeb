@@ -29,7 +29,7 @@ fi
 export QMK_USERSPACE="$USERSPACE"
 
 echo "==> generating compile_commands.json for epomaker/epomaker_split65:$KEYMAP"
-"$HERE/qmk" generate-compilation-database -kb epomaker/epomaker_split65 -km "$KEYMAP"
+"$HERE/qmk" compile --compiledb -kb epomaker/epomaker_split65 -km "$KEYMAP"
 
 echo "==> real build so the generated headers exist for clangd"
 "$HERE/make" "epomaker/epomaker_split65:$KEYMAP"
