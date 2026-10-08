@@ -55,7 +55,8 @@ path.
   contains `keyboards/epomaker/epomaker_split65/` and the wireless stack at
   `keyboards/linker/wireless/` (pulled in by the board's `post_rules.mk`). There
   is **no** `keyboards/wireless/` in the pinned tree (the legacy copy exists only
-  in the vendor's own history).
+  in the vendor's own history, and is deleted in the spike — see "the vendor fork
+  is shallow" below).
 - The board source is a sibling port of the same EPOMAKER board found in
   `qmk/qmk_firmware`; that upstream tree is newer but lacks the wireless stack.
   Re-basing is now the organizing priority (Tier 0) — see "the vendor fork is
@@ -75,7 +76,8 @@ Of the entire 677-file / 81,873-line divergence from `92afc8198a`, only two
 non-board files differ:
 
 - `.gitignore` — removes `*.a` (one line) so the prebuilt `libmodule.a` can be
-  tracked;
+  tracked (that archive lived only in the obsolete `keyboards/wireless/` copy —
+  see below);
 - a stray `.txt`.
 
 Plus three submodule bumps (`lib/chibios`, `lib/chibios-contrib`, `lib/pico-sdk`).
@@ -95,9 +97,12 @@ platform fork, and neither do we.
 master," not a fork re-import. It was proven tractable by the spike (branch
 `split65-rebase-spike`): both keymaps build green on master (`7a1bbf37c5`,
 2026-10-02, 1,695 commits ahead of base) after six mechanical upstream-breakage
-fixes. The one genuine red flag is `libmodule.a`, the vendor's prebuilt binary —
-a vendored `.a` is not upstreamable as-is and needs a keep-or-replace decision.
-Details in `TODO.md` "## Re-base".
+fixes. The `libmodule.a` "red flag" turned out to be a **non-issue**: the
+prebuilt archive lived only in the obsolete `keyboards/wireless/` copy, which no
+board linked and nothing referenced, and it held nothing but `module.o`,
+`smsg.o` and `assert.o` compiled from source we already hold. That directory is
+deleted in the spike (commit `f1ee1f3`); both keymaps rebuild byte-identical, so
+no vendored binary remains in the build path. Details in `TODO.md` "## Re-base".
 
 ## KEY FINDING — the battery value already exists in firmware
 
@@ -445,10 +450,11 @@ against the vendor overlay:
    mirroring `quantum/battery`/`drivers/battery`. Upstream has no precedent for a
    shared dir under `keyboards/` (our `keyboards/linker/wireless/`). Resolves the
    `host_driver_t` alignment above.
-4. **`libmodule.a` resolution (hard blocker)** — vendored prebuilt binaries are
-   rejected upstream. Either the module traffic moves behind a documented UART
-   protocol with no prebuilt blob, or the merge is blocked. A design question, so
-   answer it before building more on top — see `TODO.md`, Re-base.
+4. **`libmodule.a` — RESOLVED (not a blocker).** The archive lived only in the
+   obsolete `keyboards/wireless/` directory, which no board linked (no
+   `-lmodule` in any build); the live stack is `keyboards/linker/wireless/` with
+   `module.c`/`smsg.c` as source. The legacy directory is deleted in the spike
+   (commit `f1ee1f3`), so no vendored binary remains. See `TODO.md`, Re-base.
 
 ## FINDING — shared state has no owner; two contained fixes
 

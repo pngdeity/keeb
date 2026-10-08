@@ -63,9 +63,10 @@ sections below.
      `keyboard_protocol` global, `SD1_*`→`UART_*`, RGB keycodes, keymap-config
      struct); `default` and `nathan` both build; `qmk lint` clean.
    - **Remaining:** decide the spike's fate — merge the branch into the vendor
-     overlay line, or keep it as a parallel branch; settle `libmodule.a` and the
-     legacy `keyboards/wireless/` copy; then the hardware verification in Tier 1
-     runs on the new base, so it is done once.
+     overlay line, or keep it as a parallel branch; then the hardware
+     verification in Tier 1 runs on the new base, so it is done once.
+     (`libmodule.a` and the legacy `keyboards/wireless/` copy are resolved:
+     the directory was deleted in the spike — see `## Re-base`.)
 2. ~~**Fix defect 3** (`find_raw_hid_interface()` picks the wrong interface) and
    **contain it in `split65.py check`.**~~ **DONE** — `find_raw_hid_interface()`
    now prefers the dongle (interface 2) and accepts `--transport usb`;
@@ -432,11 +433,13 @@ additive vendor boards plus the shared wireless stack. WB32 platform support
 
 - **How the spike lands.** Merge `split65-rebase-spike` into the overlay line, or
   keep it a parallel branch until the port is fully settled.
-- **`libmodule.a`** — the vendor's prebuilt blob (kept only by the `.gitignore`
-  edit). Keep it as a binary dependency, or treat it as the thing to replace.
-  **Hard merge blocker** — see the alignment plan below item 4.
-- **Legacy `keyboards/wireless/` copy** carried in the spike — possibly
-  removable in favour of the hoisted `keyboards/linker/wireless/`.
+- **`libmodule.a` / legacy `keyboards/wireless/` — RESOLVED (deleted in the
+  spike).** The legacy directory was a pre-hoist duplicate of
+  `keyboards/linker/wireless/`: no board included its `wireless.mk`, nothing
+  referenced it, and no `-lmodule` appeared in any link. It was the only
+  carrier of `libmodule.a` — a stale `ar` archive of `module.o`, `smsg.o`,
+  `assert.o` compiled from source we already hold. **Not a blocker:** nothing we
+  build ever linked it. Commit `f1ee1f3`; both keymaps rebuild byte-identical.
 - **Upstream battery + connection APIs — ADOPTED (on the spike branch).**
   Master's `quantum/battery/` + `drivers/battery/` now back the battery value
   via a `custom` driver (`wls/wls_battery_driver.c`), and `quantum/connection/`
@@ -476,7 +479,9 @@ why it is not superseded".
    flagged `host_driver_t` alignment: present the module as one more
    `host_driver_t` beside upstream's `bt_driver` in `tmk_core/protocol/host.c`,
    rather than a parallel swap mechanism.
-4. **`libmodule.a` resolution (hard blocker).** Vendored prebuilt binaries are
-   rejected upstream. Either the module traffic moves behind a documented UART
-   protocol with no prebuilt blob, or the merge is blocked. This is a design
-   question, so answer it before building more on top.
+4. **`libmodule.a` — RESOLVED, not a blocker.** The prebuilt archive lived only
+   in the obsolete `keyboards/wireless/` copy, which no board linked (no
+   `-lmodule` in any build); the live stack is `keyboards/linker/wireless/` with
+   `module.c`/`smsg.c` as source. The legacy directory is deleted in the spike
+   (commit `f1ee1f3`), so no vendored binary remains in the tree. No design work
+   is needed; the module protocol was always open source.
