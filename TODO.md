@@ -241,7 +241,7 @@ spacebar switch feet insert, plug USB-C).
 Rationale / evidence:
 
 - `QK_BOOT` is handled in the application firmware at
-  `qmk_firmware/keyboards/epomaker/epomaker_split65/epomaker_split65.c:1059`:
+  `qmk_firmware/keyboards/epomaker/epomaker_split65/epomaker_split65.c:1071`:
   it calls `eeconfig_disable()` then `bootloader_jump()`. `bootloader_jump()` is
   a **local MCU operation** and the handler is **not** gated on
   `is_keyboard_master()`, so a `QK_BOOT` key pressed on the right half should jump

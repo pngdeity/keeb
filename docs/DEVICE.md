@@ -48,9 +48,10 @@ Unambiguous vocabulary for referring to the hardware. Use these terms exactly.
 - **`master half`** / **`slave half`** — **firmware role**, assigned at runtime.
   The master owns the USB HID device, runs the battery raw HID responder, and
   forwards the slave's matrix; the slave forwards its matrix to the master.
-  Role is determined by the handedness pin (`split.handedness.pin` = B9, read by
-  `is_keyboard_master()`), so it is set by hardware/jumper, not by which side is
-  which in principle.
+  Role is determined by the handedness pin (`split.handedness.pin` = B9). On this
+  board the firmware **overrides `is_keyboard_master()`** to read that pin, so it
+  is set by hardware/jumper; QMK core instead derives the role from the USB cable
+  (`usb_bus_detected()`), so removing the override would change the semantics.
 
 **Rule: use the side for location, the role for behaviour.** Never write "master"
 to mean "left" or vice versa.

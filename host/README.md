@@ -21,10 +21,12 @@ currently run an older build of it). On **stock/vendor** firmware with no
 responder, the raw HID interface answers with an unhandled `FF` sentinel
 instead, so `--pull` returns nothing useful.
 
-**Interface selection is currently naive** (`find_raw_hid_interface()` takes the
-first `0xFF60`/`0x61` match). With both the keyboard and the dongle attached it
-picks the keyboard's USB interface, so a "2.4 GHz" reading may actually be USB.
-See `../TODO.md` defect 3 before trusting a transport label.
+**Interface selection prefers the dongle.** `find_raw_hid_interface()` enumerates
+every `0xFF60`/`0x61` collection and returns the dongle (interface 2) by default,
+so a `--pull` without a flag reads the 2.4 GHz path when the dongle is present;
+`--transport usb` selects the keyboard's own collection. With only one collection
+attached it uses that one. `split65.py check` lists the collections found and
+warns when more than one is present.
 
 ## Requirements
 

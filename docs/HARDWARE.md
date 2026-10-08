@@ -87,8 +87,11 @@ One LED, on the **right half** bottom row. Its index is into
 ## Halves and handedness
 
 - Both halves run **identical firmware**; there is no left/right build variant.
-  Handedness is a physical pin (`split.handedness.pin` = B9) read by
-  `is_keyboard_master()`.
+  Handedness is a physical pin (`split.handedness.pin` = B9). QMK **core** derives
+  the master from the USB role (`usb_bus_detected()`), but this board **overrides
+  `is_keyboard_master()`** to `readPin(SPLIT_HAND_PIN)` — so on this firmware the
+  pin determines the role too, and the two questions coincide. Removing that
+  override would restore the core USB-role semantics.
 - The **left half is currently the master** and the **right half the slave**,
   joined by the link cable. Role is pin-determined, not positional; see
   `DEVICE.md` "Nomenclature".
@@ -98,12 +101,15 @@ One LED, on the **right half** bottom row. Its index is into
 ## DFU entry
 
 - **Left half (master):** hold **Esc** while plugging in USB (bootmagic; this also
-  erases EEPROM settings, which is expected). The `QK_BOOT` key and the physical
-  reset switch also work.
-- **Right half (slave):** Esc-hold does **not** work. Open the case: remove `R_Shift`,
-  flip the hidden toggle switch, remove the spacebar, short the two holes where
-  the spacebar switch's plastic feet insert, then plug in USB-C **while still
-  shorting**. Restore the toggle and keycaps afterwards.
+  erases EEPROM settings, which is expected). The physical reset switch also works.
+- **Right half (slave):** Esc-hold does **not** work (bootmagic's `[1,0]` is a
+  left-half matrix position). The `nathan` keymap binds `QK_BOOT` on its Fn layer
+  (right half, matrix `[10,4]`), which is a local jump — but the WB32 bootloader
+  samples the boot pin only at reset, so a warm keypress may not enumerate. The
+  firmware-independent route: open the case, remove `R_Shift`, flip the hidden
+  toggle switch, remove the spacebar, short the two holes where the spacebar
+  switch's plastic feet insert, then plug in USB-C **while still shorting**.
+  Restore the toggle and keycaps afterwards.
 - The WB32 bootloader samples the boot pin **only at reset**, and powering the
   board *is* the reset. Short first, plug second, hold the short until
   enumeration completes. Bridging an already-powered board does nothing.
@@ -119,9 +125,12 @@ One LED, on the **right half** bottom row. Its index is into
 
 ## Sleep and wake
 
-- The right (slave) half **cannot be woken by its own keys**; keypresses raise
-  `LPWR_WAKEUP_MATRIX`, which is not an accepted wake cause. Wake it by toggling
-  its 2.4 GHz/BT mode switch or by unplugging/replugging its USB cable.
+- The right (slave) half **is woken by its own keys in the current tree**: the
+  board-local `wireless/lpwr_wb32.c` arms the right half's `MATRIX_ROW_PINS_RIGHT`
+  and `lpwr_stop_hook_post()` accepts `LPWR_WAKEUP_MATRIX` and `LPWR_WAKEUP_SWITCH`.
+  **Not yet verified on hardware** — the halves have not been reflashed with this
+  build (see `TODO.md` defect 2). Until a flash confirms it, waking the right half
+  still relies on toggling its 2.4 GHz/BT mode switch or replugging its USB cable.
 - The master wakes the slave over the inter-half UART, which *is* an accepted
   cause.
 - The deep-sleep entry/exit path (`PRE_LP()`/`POST_LP()` in `lpwr_wb32.c`) is a

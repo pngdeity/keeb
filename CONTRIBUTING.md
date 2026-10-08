@@ -113,7 +113,9 @@ Verified gotchas that cost time if rediscovered. Check here before debugging.
 - **`RGB_MATRIX_DEFAULT_*` does not apply to a used keyboard.** It is only
   consumed when the RGB EEPROM is blank. Both halves carry vendor-persisted RGB
   state, so the defaults are inert unless the keymap also calls
-  `rgb_matrix_mode()` / `rgb_matrix_sethsv()` at init (which it does).
+  `rgb_matrix_mode()` / `rgb_matrix_sethsv()` at init. The board
+  `keymaps/default/keymap.c` does; the `nathan` keymap uses the `*_noeeprom()`
+  variants instead (a boot-time override, not a stored value).
 - **A raw HID write through hidapi must be 33 bytes** (Report ID `0x00` + the
   32-byte report). A bare 32-byte write is accepted and silently never answered.
   See `docs/HARDWARE.md`.
