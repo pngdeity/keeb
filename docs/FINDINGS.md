@@ -94,8 +94,9 @@ platform fork, and neither do we.
 4-line `lib/python/qmk/math.py` fix. No core edits we authored.
 
 **Consequence:** re-basing is "replay our ~10 commits onto `qmk/qmk_firmware`
-master," not a fork re-import. It was proven tractable by the spike (branch
-`split65-rebase-spike`): both keymaps build green on master (`7a1bbf37c5`,
+master," not a fork re-import. It was proven tractable by the spike, which has
+now landed (branch `split65-overlay`, renamed from `split65-rebase-spike`; the
+root gitlink points at it): both keymaps build green on master (`7a1bbf37c5`,
 2026-10-02, 1,695 commits ahead of base) after six mechanical upstream-breakage
 fixes. The `libmodule.a` "red flag" turned out to be a **non-issue**: the
 prebuilt archive lived only in the obsolete `keyboards/wireless/` copy, which no

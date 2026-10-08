@@ -190,11 +190,14 @@ diagnostics (toolchain, udev rules, device presence).
 
 ## Local patches to the QMK tree
 
-The `qmk_firmware/` submodule carries our commits on top of the vendored upstream
-snapshot. They are **pushed** to the submodule's remote (`pngdeity/cleave-keeb`,
-branch `split65-overlay`), so `git submodule update --init --recursive` restores
-them. The list is kept here so the intent is discoverable and so they can be
-re-applied if the tree is ever reset to pristine upstream:
+The `qmk_firmware/` submodule carries our commits on top of the rebased base
+(`qmk/qmk_firmware` master). They are pushed to the submodule's remote
+(`pngdeity/cleave-keeb`, branch `split65-overlay`), so `git submodule update
+--init --recursive` restores them. **Until the rebased branch is pushed, the
+remote's `split65-overlay` still holds the old vendor line** (preserved locally
+as `split65-vendor-overlay`); a fresh `submodule update` before the push would
+restore the pre-rebase tree. The list is kept here so the intent is discoverable
+and so they can be re-applied if the tree is ever reset to pristine upstream:
 
 - `lib/python/qmk/math.py`: replace the removed `ast.Num` with `ast.Constant`
   (Python 3.12+).

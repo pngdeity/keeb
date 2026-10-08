@@ -50,8 +50,11 @@ halves still run an older build of it (see Status).
 - **`pngdeity/keeb`** (this project) — the docs, host tooling, build wrappers and
   the submodule pin.
 - **`pngdeity/cleave-keeb`** — the QMK fork the firmware builds from (branch
-  `split65-overlay`). It is the `qmk_firmware/` submodule's remote. Upstream is
-  `hangshengkeji/qmk_firmware` (`tri-mode`).
+  `split65-overlay`, now rebased onto `qmk/qmk_firmware` master; the old vendor
+  line is preserved as the local branch `split65-vendor-overlay`). It is the
+  `qmk_firmware/` submodule's remote. Upstream is `hangshengkeji/qmk_firmware`
+  (`tri-mode`). **The rebased branch is local-only until pushed** — the remote's
+  `split65-overlay` still holds the old vendor line.
 
 `qmk_firmware/` is a **pinned git submodule**, not plain files. A fresh clone
 needs `git clone --recurse-submodules` (or `git submodule update --init

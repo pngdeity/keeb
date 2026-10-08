@@ -3,13 +3,16 @@
 ## Status
 
 - **The tree holds our battery firmware, committed inside the `qmk_firmware`
-  submodule.** `qmk_firmware/` is a **pinned submodule** of
-  `pngdeity/cleave-keeb` branch `split65-overlay` (pinned at vendor revision
-  `580665f777` plus our commits, the battery responder `e8f49af339` being the
-  first). The board source therefore **contains the battery responder**
-  (`wls/wls_battery.c`), the corrected `bootmagic.matrix [1,0]`, and the
-  deep-sleep fix (`wireless/lpwr_wb32.c`; see the plan's 3.1). The rest of the
-  wireless stack is sourced from the shared `keyboards/linker/wireless/` via
+  submodule.** `qmk_firmware/` is a **pinned submodule** of `pngdeity/cleave-keeb`
+  branch `split65-overlay`, which now sits on **`qmk/qmk_firmware` master**
+  (`7a1bbf37c5`, 2026-10-02) — not the vendor's Oct-2024 core. The board source
+  therefore **contains the battery responder** (`wls/wls_battery.c`), the
+  corrected `bootmagic.matrix [1,0]`, and the deep-sleep fix
+  (`wireless/lpwr_wb32.c`; see the plan's 3.1). The battery *value* is upstream's
+  (`quantum/battery`, via `wls/wls_battery_driver.c`) and host selection is
+  upstream's (`quantum/connection`, bridged by `connection_host_changed_kb()`).
+  The rest of the wireless stack is sourced from the shared
+  `keyboards/linker/wireless/` via
   `VPATH`, so the board's divergence from vendor is a one-file diff.
 - The personal `nathan` keymap is **not** in the tree: it lives in the sibling
   userspace repo `../keeb-userspace/`. Build with `./bin/make ...:nathan`
@@ -51,9 +54,10 @@ sections below.
 **Tier 0 — blockers / one-way doors (do first, cheap, affect everything after):**
 
 1. **Re-base onto current upstream QMK (`qmk/qmk_firmware` master).** Promoted
-   from Tier 4 on the strength of the completed spike (branch
-   `split65-rebase-spike`): the port is proven tractable — both keymaps build
-   green on master. This is now the organizing priority, because it decides the
+   from Tier 4 on the strength of the completed spike: the port is proven
+   tractable — both keymaps build green on master. **The spike has landed:** the
+   branch was renamed `split65-overlay` (the old vendor line is preserved as
+   `split65-vendor-overlay`), and the root gitlink now points at it. This is now the organizing priority, because it decides the
    base every later item lands on: once the hardware work in Tier 1 is done on
    the vendor tree, doing it again after a re-base would waste the measurement
    and the flash. Do it **before** flashing, not after. See
@@ -410,8 +414,15 @@ additive vendor boards plus the shared wireless stack. WB32 platform support
 **already upstream**, so no platform fork is needed. Our own authored payload is
 9 commits, all in the board + wireless stack + a 4-line `math.py` fix.
 
-**Spike result (branch `split65-rebase-spike`, off `qmk/master` `7a1bbf37c5`,
-2026-10-02 — 1,695 commits ahead of base):**
+**Spike result (branch `split65-overlay` — renamed from `split65-rebase-spike`
+when it landed; off `qmk/master` `7a1bbf37c5`, 2026-10-02 — 1,695 commits ahead
+of base). The root gitlink points at it. The old vendor line is preserved as
+`split65-vendor-overlay` (= `d68e3152c3`, still on `origin/split65-overlay`);
+the two lines are not mergeable — they diverge from the upstream base
+`92afc8198a` with 1,695 upstream commits on the new side — so the spike
+**replaces** the payload rather than merging with it. Our nine vendor-line
+authored commits remain on `split65-vendor-overlay`; their end-state is already
+in the landed branch.**
 
 - Two commits: `11d0bc8` (port the 44 board/shared files) and `35de42afe0`
   (the port fixes). Both signed.
@@ -431,8 +442,10 @@ additive vendor boards plus the shared wireless stack. WB32 platform support
 
 **Open decisions before this lands:**
 
-- **How the spike lands.** Merge `split65-rebase-spike` into the overlay line, or
-  keep it a parallel branch until the port is fully settled.
+- **How the spike lands — DECIDED.** It replaces the vendor payload: the branch
+  was renamed `split65-overlay` and the root gitlink now points at it (the old
+  line is `split65-vendor-overlay`). Not a merge — the lines share only the
+  upstream base.
 - **`libmodule.a` / legacy `keyboards/wireless/` — RESOLVED (deleted in the
   spike).** The legacy directory was a pre-hoist duplicate of
   `keyboards/linker/wireless/`: no board included its `wireless.mk`, nothing
