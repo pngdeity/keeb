@@ -131,19 +131,21 @@ One LED, on the **right half** bottom row. Its index is into
 - **LEFT half — use the spacebar-hole short, not Esc-hold.** Esc-hold bootmagic
   works on stock firmware but is **broken on any non-OEM build** (a reported
   failure, not one we introduced; see below). The left half has **no reset
-  switch** — that earlier claim was unverified and wrong. The real route is
-  the same as the right half minus the toggle: remove the spacebar, **short the
-  two metal-plated holes** the spacebar switch's feet sit in, and plug in USB-C
-  **while still shorting**. Every key has such holes; only the spacebar's are
-  metal-plated, which is how you tell them apart.
-- **RIGHT half — the case must be opened.** Esc-hold does **not** work, and there
-  is no keymap route into the right half's own bootloader (the `nathan` Fn-layer
-  `QK_BOOT` at `[10,4]` is on the Fn layer; the WB32 bootloader samples the boot
-  pin only at reset, so a warm keypress may not enumerate). Use the
-  firmware-independent route: open the case, remove `R_Shift`, flip the hidden
-  toggle switch, remove the spacebar, short the two holes where the spacebar
-  switch's plastic feet insert, then plug in USB-C **while still shorting**.
-  Restore the toggle and keycaps afterwards.
+  switch** — that earlier claim was unverified and wrong. The real route is the
+  spacebar-hole short: remove the spacebar, **short the two metal-plated holes**
+  the spacebar switch's feet sit in, and plug in USB-C **while still shorting**.
+  Every key has such holes; only the spacebar's are metal-plated, which is how
+  you tell them apart.
+- **RIGHT half — needs the toggle, but no case opening.** The case never needs
+  to be opened to flash either half. Esc-hold does **not** work on the right
+  half, and there is no keymap route into its own bootloader (the `nathan`
+  Fn-layer `QK_BOOT` is on the Fn layer; the WB32 bootloader samples the boot pin
+  only at reset, so a warm keypress may not enumerate). The right half has a
+  hidden **toggle switch** — found by removing the `R_Shift` **keycap** (not the
+  case), it is exposed underneath. Flip that toggle to the flashing position,
+  then remove the spacebar, short the two metal-plated holes the spacebar
+  switch's feet sit in, and plug in USB-C **while still shorting**. Restore the
+  toggle and keycaps afterwards.
 - The WB32 bootloader samples the boot pin **only at reset**, and powering the
   board *is* the reset. Short first, plug second, hold the short until
   enumeration completes. Bridging an already-powered board does nothing.

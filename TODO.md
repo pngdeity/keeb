@@ -28,8 +28,11 @@
 - **Both halves run the current tree's `nathan` build** (watchdog off, module
   UART on SD3). The hardware and the tree now agree: the slave types, and the
   backlight is stable. Re-verify after any further firmware change and reflash.
-- Right-half DFU entry uses the R_Shift toggle + spacebar-pin short (see
-  `docs/HARDWARE.md`). Key-based DFU is still future work (a section below).
+- Both halves enter DFU by the spacebar metal-plated-hole short while plugging
+  in USB-C (no case opening needed on either half; the right half first needs the
+  hidden toggle flipped, exposed by removing the `R_Shift` keycap); see
+  `docs/HARDWARE.md`.
+  Key-based DFU is still future work (a section below).
 - **The prune was discarded and the canonical tree restored.** `qmk_firmware/` is
   a submodule again (the earlier flatten/prune/`layouts`+`lib/lufa` casualties are
   resolved by P0). Both repos are pushed and CI is green. Device context and
@@ -133,8 +136,8 @@ sections below.
     tests encode settled semantics, not the current fake-100 behaviour.
 11. **Key-based right-half DFU (low priority).** Both halves run identical
     firmware and the right half is link/bus-powered (no cell), so its own
-    recovery path is less pressing than it first appeared. The physical short
-    (R_Shift toggle + spacebar-pin; `docs/HARDWARE.md`) stays the recovery path.
+    recovery path is less pressing than it first appeared. The spacebar-hole
+    short (no case opening; `docs/HARDWARE.md`) stays the recovery path.
 12. **The rest of the UX / usability review** (whole section below) — layer
     ergonomics, held-modifier comfort, mode-switch discoverability, legends.
     Largest, most subjective; depends on 7 and 10 for what is even possible.
@@ -174,8 +177,9 @@ unverified.
 - [ ] **Flash both halves with the current build** (battery responder + the
       board-local deep-sleep fix) and confirm the manufacturer string is `LEO`
       and the `0xA4` responder answers. Both halves enter DFU by the spacebar
-      **metal-plated-hole short** while plugging in USB-C (the right half also
-      needs the `R_Shift` toggle flipped first); see `docs/HARDWARE.md`.
+      **metal-plated-hole short** while plugging in USB-C (no case opening needed
+      on either half; the right half first needs the hidden toggle flipped,
+      exposed by removing the `R_Shift` keycap); see `docs/HARDWARE.md`.
 - [ ] **Right-half keypress wake:** with the deep-sleep fix flashed, confirm a key
       on the right half wakes it (defect 2). Record the result in
       `docs/FINDINGS.md`; if it still fails, the cause is not the pin arrays.
@@ -507,9 +511,8 @@ yet unless marked DONE.
 ## Right-half DFU without hardware shorting
 
 Goal: let the right half enter the WB32 DFU bootloader by holding a key, like the
-left half, instead of opening the case and shorting the spacebar switch pins
-(remove `R_Shift`, toggle the hidden switch, short the two holes where the
-spacebar switch feet insert, plug USB-C).
+left half, instead of shorting the spacebar switch pins (remove the spacebar,
+short the two metal-plated holes where the switch feet insert, plug USB-C).
 
 Rationale / evidence:
 

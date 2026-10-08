@@ -94,10 +94,11 @@ Use the project-local wrappers — no system install is needed.
     Esc-hold (bootmagic) works on stock firmware but is **broken on our build**;
     there is also no reset switch on this half (an earlier claim to the contrary
     was unverified and wrong).
-  - **Right (slave):** Esc-hold does **not** work. Remove the `R_Shift` keycap,
-    flip the hidden toggle switch to the bottom, then short the two holes under
-    the spacebar switch with tweezers while plugging in the right half's USB-C
-    cable. Toggle the switch back afterwards.
+  - **Right (slave):** Esc-hold does **not** work. Remove the `R_Shift` **keycap**
+    (not the case) to expose the hidden toggle switch underneath and flip it to
+    the flashing position, then remove the spacebar and short the two metal-plated
+    holes with tweezers while plugging in the right half's USB-C cable. Restore
+    the toggle and keycaps afterwards.
 
 ## Keyboard reference
 
@@ -112,7 +113,7 @@ legend** and the **Fn-layer legend** are listed separately; they differ.
 |---|---|---|
 | Hardware DFU | Short the two metal-plated spacebar holes + plug USB | Always works (both halves) |
 | Bootmagic DFU | Hold Escape + plug USB (left half only) | Broken on non-OEM firmware |
-| Right-half DFU | R_Shift toggle + spacebar-pin short + plug USB | Bootloader (see Flashing) |
+| Right-half DFU | Remove the `R_Shift` keycap, flip the exposed toggle, then spacebar-pin short + plug USB | Bootloader (see Flashing) |
 | Software DFU | `QK_BOOT` — base layer at left half, matrix `[1,0]` (the left `Esc` position) | Bootloader |
 | Factory reset | `EE_CLR` — hold-only `_RST` layer at right half, matrix `[11,7]` (the bottom-right corner key) | Clears EEPROM settings |
 
