@@ -76,23 +76,30 @@ sections below.
    now prefers the dongle (interface 2) and accepts `--transport usb`;
    `split65.py check` reports the collections present. A confirmation run with
    the dongle attached remains (it needs the dongle and the user).
-3. **Decide and apply the critical ergonomics changes** (a pull-forward from
-   Tier 3, abbreviated to only the items that are cheap and that a flash would
-   otherwise force you to repeat):
-  - **`QK_BOOT` / `EE_CLR` placement.** `EE_CLR` sitting at the Backspace
-    position on the Fn layer is a genuine footgun (an accidental hold wipes
-    settings). Move it somewhere deliberate. One-line change, and it must be in
-    the same flash as everything else.
-   - **Decide the battery-indicator question.** With a uniform white fill the
-     indicator is the only LED that differs; decide whether that single-LED
-     exception stays, is made more prominent (it is the only charge readout), or
-     is disabled — and do it now, because it is the same
-     `config.h`/keymap edit and the same flash.
-   - **Decide whether to trim the compiled-in animation list**
-     (`keyboard.json` `rgb_matrix.animations`, ~44 entries, still reachable via
-     `RGB_MOD`). If trimming, it must be before the flash.
-   The rest of the UX audit (layer ergonomics, mode-switch discoverability,
-   legends) stays in Tier 3 — it needs thought, not a flash.
+3. ~~**Decide and apply the critical ergonomics changes**~~ **DONE** (on the
+   landed re-base; must be flashed with the Tier 1 batch):
+  - **`QK_BOOT` / `EE_CLR` placement.** `QK_BOOT` stays on the **base** layer at
+    the left half's `Esc` (`[1,0]`); `EE_CLR` moved off Backspace to the
+    hold-only `_RST` layer's right-half **bottom-right corner** (`[11,7]`). The
+    `_RST` layer is armed only by holding Fn + the top-right corner key, so the
+    reset needs a held chord plus a press on the opposite half's far corner —
+    no single stray keypress reaches it. `nathan` `keymap.md` corrected to match
+    (it had described an older layout).
+  - **Battery indicator made prominent.** The soft indicator now spans **two**
+    adjacent right-half bottom-row LEDs (`HS_MATRIX_BAT_SOFT_INDEX` 64 and new
+    `HS_MATRIX_BAT_SOFT_INDEX2` 65) at full channel intensity, instead of one
+    dim LED — legible at a glance. Colours: green ≥50, amber ≥30, red ≤low,
+    green while charging-full, blue while charging.
+  - **Animation list trimmed** from 44 to 10 (`keyboard.json`
+    `rgb_matrix.animations`), keeping `solid_color` (the boot default),
+    `breathing`, `cycle_left_right`, `cycle_up_down`,
+    `rainbow_moving_chevron`, `raindrops`, `solid_reactive`,
+    `solid_reactive_wide`, `typing_heatmap`, `digital_rain`.
+  - **Cable auto-switch disabled (Tier 1 item 8, done in the same pass).**
+    `hs_transport_arbitrate_cable()` is now a no-op: "a cable is present" no
+    longer means "switch to USB". Mode selection belongs solely to the physical
+    mode switch (`hs_modeio_detection()` already owns it). This implements
+    requirement 2 in source; hardware behaviour is still unverified.
 
 **Tier 1 — the deliverable (the project exists for this):**
 
@@ -105,13 +112,13 @@ sections below.
 7. **Decide and implement the honesty fix for the fake 100** (defect 1).
    Depends on 5 — you need to know what a real reading looks like before choosing
    how to represent "unknown".
-8. **Wireless while charging (requirement 2).** Disable the cable-insert
-   auto-switch in `housekeeping_task_user()` so mode selection belongs to the
-   physical switch, then verify on hardware that a cable with the switch on
-   2.4 GHz leaves the keyboard wireless and the level still updates. The policy
-   change is sanctioned (`docs/FINDINGS.md` "Functional requirements"); the
-   hardware behaviour (VBUS vs module UART/radio) is unverified. Needs the user
-   at the keyboard.
+8. **Wireless while charging (requirement 2).** ~~Disable the cable-insert
+   auto-switch in `housekeeping_task_user()`~~ **SOURCE DONE** — the
+   cable-insert auto-switch (`hs_transport_arbitrate_cable()`) is now a no-op
+   (Tier 0 item 3 pass); mode selection belongs to the physical switch. **Still
+   to verify on hardware:** a cable with the switch on 2.4 GHz must leave the
+   keyboard wireless and the level still updating. The hardware behaviour (VBUS
+   vs module UART/radio) is unverified. Needs the user at the keyboard.
 
 **Tier 2 — feature completeness (in scope, not yet probed):**
 
