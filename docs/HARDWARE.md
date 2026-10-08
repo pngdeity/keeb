@@ -36,13 +36,14 @@ One LED, on the **right half** bottom row. Its index is into
 
 | Constant | Index | Matrix | Position | Role |
 |---|---|---|---|---|
-| `HS_MATRIX_BLINK_INDEX_BAT` | 63 | `[11,4]` | 4th from the right | Charging/full colour, and periodic blink at level `<= 15` |
+| `HS_MATRIX_BLINK_INDEX_BAT` | 63 | `[11,4]` | 5th from the right | Charging/full colour, and periodic blink at level `<= 15` |
 
 - Drawn by `bat_indicators()` on the **master half only**, even though the LED is
   physically on the right half.
-- Behaviour (vendor `default`): while charging, red; while charging *and* full,
-  green; while discharging at `<= BATTERY_CAPACITY_LOW` (15), a red blink every
-  `250 ms`; at `<= BATTERY_CAPACITY_STOP` (0) it also lowers the sleep timeout.
+- Behaviour (vendor `default`): while charging *and* full, red; while charging
+  (not full), green; while discharging at `<= BATTERY_CAPACITY_LOW` (15), a red
+  blink every `250 ms`; at `<= BATTERY_CAPACITY_STOP` (0) it also lowers the
+  sleep timeout.
 - The red/green charging colours are drawn only while a battery query is active
   (`im_bat_req_charging_flag`, set by `KC_BATQ`); they are not continuously
   shown.
@@ -51,9 +52,9 @@ One LED, on the **right half** bottom row. Its index is into
   adjacent right-half bottom-row LEDs at indices 64 and 65 (`[11,5]`/`[11,6]`,
   `HS_MATRIX_BAT_SOFT_INDEX`/`HS_MATRIX_BAT_SOFT_INDEX2`) drawn at full channel
   intensity, alongside the vendor `bat_indicators()` behaviour above. Colours:
-  green ≥50 %, amber ≥30 %, red ≤15 %, green while charging-to-full, blue while
-  charging. It is part of the battery work committed in the submodule (see
-  `TODO.md`).
+  green ≥50 %, amber ≥30 %, red below 30 % (the vendor's separate `<= 15` blink
+  is a different indicator), green while charging-to-full, blue while charging.
+  It is part of the battery work committed in the submodule (see `TODO.md`).
 
 ## Raw HID interfaces
 
@@ -115,8 +116,8 @@ One LED, on the **right half** bottom row. Its index is into
 
 - Both halves run **identical firmware**; there is no left/right build variant.
   Handedness is a physical pin (`split.handedness.pin` = B9). QMK **core** derives
-  the master from the USB role (`usb_bus_detected()`), but this board **overrides
-  `is_keyboard_master()`** to `readPin(SPLIT_HAND_PIN)` — so on this firmware the
+  the master from the USB role (`usb_bus_detected()`), but each **keymap**
+  overrides `is_keyboard_master()` to `gpio_read_pin(SPLIT_HAND_PIN)` — so on this firmware the
   pin determines the role too, and the two questions coincide. Removing that
   override would restore the core USB-role semantics.
 - The **left half is currently the master** and the **right half the slave**,
@@ -160,10 +161,9 @@ One LED, on the **right half** bottom row. Its index is into
 
 - The right (slave) half **is woken by its own keys in the current tree**: the
   board-local `wireless/lpwr_wb32.c` arms the right half's `MATRIX_ROW_PINS_RIGHT`
-  and `lpwr_stop_hook_post()` accepts `LPWR_WAKEUP_MATRIX` and `LPWR_WAKEUP_SWITCH`.
-  **Not yet verified on hardware** — the halves have not been reflashed with this
-  build (see `TODO.md` defect 2). Until a flash confirms it, waking the right half
-  still relies on toggling its 2.4 GHz/BT mode switch or replugging its USB cable.
+  and `lpwr_stop_hook_post()` (in `wls/wls.c`) accepts `LPWR_WAKEUP_MATRIX` and
+  `LPWR_WAKEUP_SWITCH`. **Verified on hardware**: with both halves cabled the
+  slave types and its backlight is stable; a keypress on the right half wakes it.
 - The master wakes the slave over the inter-half UART, which *is* an accepted
   cause.
 - The deep-sleep entry/exit path (`PRE_LP()`/`POST_LP()` in `lpwr_wb32.c`) is a

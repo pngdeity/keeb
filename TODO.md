@@ -25,10 +25,9 @@
   differ from the host's, so bytes are not comparable across toolchains — CI
   asserts "it builds", not a fixed md5.
 - Both halves enumerate as `342d:e4c6`, manufacturer `LEO` (stock is `MILE`).
-- **The halves have NOT been reflashed with the current tree.** They run an
-  older `nathan` build, so the tree and the hardware disagree (state which is
-  which by the build it was flashed from, not by a hash). Reflashing is Tier 1
-  item 4.
+- **Both halves run the current tree's `nathan` build** (watchdog off, module
+  UART on SD3). The hardware and the tree now agree: the slave types, and the
+  backlight is stable. Re-verify after any further firmware change and reflash.
 - Right-half DFU entry uses the R_Shift toggle + spacebar-pin short (see
   `docs/HARDWARE.md`). Key-based DFU is still future work (a section below).
 - **The prune was discarded and the canonical tree restored.** `qmk_firmware/` is
@@ -37,14 +36,14 @@
   vocabulary: `docs/DEVICE.md`.
 - **The ownerless-shared-state defect class is partly closed** (submodule commit
   `d68e3152c3`). Two contained fixes, board-local, no shared-stack file touched:
-  `hs_transport_arbitrate_cable()` is now the single owner of the cable
-  insert/remove transport policy (`housekeeping_task_user` and
-  `lpwr_wakeup_hook` both route through it), and `kb_battery_snapshot_t` +
-  `kb_battery_snapshot()` make the battery read atomic, so change detection and
-  report assembly see one sample. Both keymaps build clean; CI green. The larger
-  board-API layering (replace the `lower_sleep`/`charging_state`/`bat_full_flag`
-  externs) is deliberately deferred — it is upstream-sized and waits on the U1
-  RFC.
+  `kb_battery_snapshot_t` + `kb_battery_snapshot()` make the battery read atomic,
+  so change detection and report assembly see one sample (the value itself now
+  comes from upstream `quantum/battery`). The cable-transport arbiter
+  `hs_transport_arbitrate_cable()` was later gutted to a no-op for functional
+  requirement 2 (see the Regressions section). Both keymaps build clean; CI
+  green. The larger board-API layering (replace the
+  `lower_sleep`/`charging_state`/`bat_full_flag` externs) is deliberately
+  deferred — it is upstream-sized and waits on the U1 RFC.
 
 ## Priority order
 
@@ -260,9 +259,10 @@ frames every second, so the queue is frequently busy and `INQVOL` is dropped.
 Result: the report shows the never-updated init `100`, and the vendor's own soft
 indicator also shows a full-looking colour while on USB regardless of true level.
 
-Fix options (not yet chosen): have `kb_battery_percent()` return a sentinel
-meaning "unknown" instead of a fake 100 when the value has never been refreshed,
-and/or retry `md_inquire_bat()` more aggressively.
+Fix options (not yet chosen): report "unknown" instead of a fake 100 when the
+value has never been refreshed (the pre-rebase `kb_battery_percent()` that the
+old plan named for the sentinel no longer exists; the value is now upstream
+`battery_get_percent()`), and/or retry `md_inquire_bat()` more aggressively.
 
 ### 2. The right (slave) half cannot be woken by its own keys
 
@@ -301,11 +301,12 @@ are attached, it grabbed the keyboard's USB interface, so the module reported US
 while the user was on 2.4 GHz.
 
 **Fixed.** `find_raw_hid_interface(prefer=...)` now enumerates all matching
-collections and prefers interface 2 (the dongle) by default, falling back to the
+collections and prefers interface 2 (assumed to be the dongle — **unverified**;
+see the accuracy defect above) by default, falling back to the
 only collection present when just one exists; `--transport usb` selects the
 keyboard's own collection. `split65.py check` gained a "Raw HID interface
 selection" step that lists the collections found and warns when more than one is
-present. Remaining: a hardware run with the dongle attached to confirm the
+present. Remaining: a hardware run with a working dongle attached to confirm the
 2.4 GHz read is not silently satisfied by USB.
 
 **Documentation accuracy defect (not yet fixed).** `docs/PROTOCOL.md` states as
@@ -614,9 +615,10 @@ from the vendor default. Record findings here and in `docs/FINDINGS.md`.
   order` item 8 and `docs/FINDINGS.md` "Functional requirements". Verdict to be
   recorded in `docs/HARDWARE.md`.
 
-- Firmware unit tests for the pure battery helpers (`kb_battery_percent`,
-  `kb_battery_charge`, `kb_battery_transport`, `kb_battery_changed`) — deferred
-  pending the hardware probe.
+- Firmware unit tests for the board-local pure helpers (`kb_battery_charge`,
+  `kb_battery_transport`, `kb_battery_changed`, `kb_battery_snapshot`) — deferred
+  pending the hardware probe. (`kb_battery_percent` no longer exists; the value is
+  upstream `battery_get_percent()`.)
 - Bluetooth transport: confirm whether the BT link exposes the raw HID
   collection (`0xFF60`/`0x61`) and whether `*md_getp_bat()` is populated over BT;
   BLE Battery Service `0x180F`/`0x2A19` is the host fallback.

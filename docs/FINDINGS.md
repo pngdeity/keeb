@@ -90,8 +90,10 @@ wireless stack.
 platform fork, and neither do we.
 
 **Our own authored payload is 9 commits**, confined to
-`keyboards/epomaker/epomaker_split65/`, `keyboards/linker/wireless/`, and a
-4-line `lib/python/qmk/math.py` fix. No core edits we authored.
+`keyboards/epomaker/epomaker_split65/` and `keyboards/linker/wireless/`. No core
+edits we authored. (The vendor overlay line also carried a `lib/python/qmk/math.py`
+Python-3.12 fix, but that is the *vendor's* history, not part of the rebase
+payload — and upstream deleted `math.py` before our base.)
 
 **Consequence:** re-basing is "replay our ~10 commits onto `qmk/qmk_firmware`
 master," not a fork re-import. It was proven tractable by the spike, which has
@@ -141,8 +143,9 @@ stack already forwards raw HID both ways.
 
 ## FINDING — the wireless stack is shared; keep the divergence to one file
 
-`keyboards/linker/wireless/` is a **de-facto shared library**: ~20 boards include
-its `wireless.mk`. Split65 therefore does **not** carry a copy of the whole
+`keyboards/linker/wireless/` is the vendor's **shared wireless stack** (other
+boards in the vendor's own tree include its `wireless.mk`; in the pinned tree only
+Split65 does). Split65 therefore does **not** carry a copy of the whole
 stack. Its `wireless/wireless.mk` sources the six shared files
 (`wireless.c`, `transport.c`, `lowpower.c`, `md_raw.c`, `smsg.c`, `module.c`)
 from `keyboards/linker/wireless` and keeps only `lpwr_wb32.c` board-local — the
@@ -154,8 +157,10 @@ Consequences: the divergence from vendor is a **one-file diff** (drift is
 visible, and vendor fixes to the shared stack reach this board automatically),
 and the board does not fork the transport logic. The pattern is the same one
 `keyboards/cannonkeys/satisfaction75` uses (`VPATH += keyboards/cannonkeys/lib/...`).
-The one shared file we did touch is `wireless.c`'s leading blank line, a lint
-fix that benefits every board using the stack.
+The board does not fork the transport logic at all: in the landed tree, no
+shared-stack file except `lpwr_wb32.c` differs from the vendor overlay (the
+promised one-file divergence), so every board using the stack keeps its own copy
+untouched.
 
 ## FINDING — the deep-sleep `PRE_LP()`/`POST_LP()` blobs are raw Thumb, and they deobfuscate
 
@@ -173,7 +178,8 @@ These are **not** obfuscated or encrypted — they are the compiler's literal ou
 for hand-tuned register writes the author needed to pin exactly (no C prologue,
 no register-allocation surprises, no reordering). The bytes are **identical in all
 copies** of the file in the tree (`linker/wireless/`, `epomaker/.../wireless/`,
-`et/wireless/`, and the ChibiOS demo `RT-WB32F3G71-RTC`), which is itself the
+`keyboards/epomaker/epomaker_split65/wireless/`, and the ChibiOS demo
+`RT-WB32F3G71-RTC`), which is itself the
 proof they are frozen output rather than generated code.
 
 Deobfuscated with:
@@ -183,7 +189,7 @@ python3 -c "import struct,sys; sys.stdout.buffer.write(b''.join(w.to_bytes(4,'li
 arm-none-eabi-objdump -D -b binary -m arm -M force-thumb /tmp/opencode/pre.bin
 ```
 
-**`PRE_LP()` — runs before entering deep sleep** (`lpwr_wb32.c:285`). Literal pool:
+**`PRE_LP()` — runs before entering deep sleep** (`lpwr_wb32.c:178`). Literal pool:
 `0x40010000` (PWR), `0x40010404` (ANCTL + `0x04`).
 
 ```asm
@@ -202,7 +208,7 @@ str  r1, [r0]
 done: bx lr
 ```
 
-**`POST_LP()` — runs after waking** (`lpwr_wb32.c:293`). Literal pool:
+**`POST_LP()` — runs after waking** (`lpwr_wb32.c:186`). Literal pool:
 `0x40010000`, `0x1FFF0000`, `0x40010404`.
 
 ```asm
@@ -262,8 +268,11 @@ stops being a black box, and leave the bytes alone.
 
 Layered so the transports share one code path. Wire format: `PROTOCOL.md`.
 
-1. **Battery source abstraction** (`wls/wls.c`): `kb_battery_percent()` (clamps
-   `*md_getp_bat()` to 0-100), `kb_battery_charge()` (0/1/2 from
+1. **Battery source abstraction** (`wls/wls.c`): `kb_battery_snapshot()` exposes
+   `percent`/`charge`/`transport` in one struct. The *value* is upstream's —
+   `percent` comes from `battery_get_percent()` (`quantum/battery`, fed by the
+   `custom` driver `wls/wls_battery_driver.c`), not a board-local function.
+   Board-local helpers remain for `charge` (0/1/2 from
    `charging_state` / `bat_full_flag`), `kb_battery_transport()` (from
    `wireless_get_current_devs()`), `kb_battery_changed()` (change detection for
    push), and `kb_battery_snapshot()` (samples transport/percent/charge **once**
@@ -293,7 +302,7 @@ Layered so the transports share one code path. Wire format: `PROTOCOL.md`.
   recorded in `TODO.md` Status — they change with every keymap edit, so treat
   them as a freshness check, not a constant.
 - `raw_hid_receive` links as a strong `T`, overriding the weak default at
-  `tmk_core/protocol/chibios/usb_main.c:539`.
+  `quantum/raw_hid.c:11`.
 - **EEPROM is versioned.** `confinfo_t` (`epomaker_split65.c`) is a 32-bit union
   persisted via `eeconfig_kb`; adding/altering a field changes its layout.
   `CONFINFO_VERSION` must be bumped whenever it does, and
@@ -308,7 +317,7 @@ Layered so the transports share one code path. Wire format: `PROTOCOL.md`.
 - `raw_hid_send`'s macro remap in `md_raw.h` is **line-specific**: it renames
   `raw_hid_send` to `replaced_hid_send` only where `__LINE__` matches a fixed
   number, by defining `_temp_rhs_<n>`. It currently keys on exactly two lines:
-  `quantum/raw_hid.h:29` (the declaration; inert) and `quantum/via.c:461` (the
+  `quantum/raw_hid.h:29` (the declaration; inert) and `quantum/via.c:489` (the
   live call QMK core makes). Consequence: a QMK/submodule bump that shifts
   either line **silently** breaks the tunnel — raw HID replies would go to the
   wrong transport with no compile error. New code must never rely on the macro;
@@ -389,9 +398,10 @@ of `BLUETOOTH_ENABLE` and has no block of its own. Note `quantum/quantum.h`
 auto-includes `battery.h` but **not** `connection.h`, so the board `.c` includes
 it explicitly.
 
-**Consequence.** Adopting the upstream battery API retires the
-`kb_battery_snapshot_t`/`kb_battery_percent()` naming that
-`docs/PROTOCOL.md` described — that doc now scopes to the wire format and the
+**Consequence.** Adopting the upstream battery API retired the
+`kb_battery_snapshot_t`/`kb_battery_percent()` naming from the pre-rebase design
+(`kb_battery_percent()` no longer exists; the clamp now lives in
+`wls_battery_driver.c`). `docs/PROTOCOL.md` scopes to the wire format and the
 responder, not the internal value source. This is the ownerless-shared-state
 cleanup arriving for free: the value's owner is now upstream core, and only the
 wire stays board-local.
@@ -526,11 +536,13 @@ slave, the wrong interface pick) — one root cause wearing three hats.
 Two of those are addressable *within our files*, without touching the shared
 vendor stack (so upstream divergence stays a one-file diff):
 
-- **Transport arbiter.** `hs_transport_arbitrate_cable()` is the single owner of
-  the cable insert/remove policy (switch to USB on insert; restore
-  `confinfo.last_wireless_devs` on remove). Both `housekeeping_task_user` and
-  `lpwr_wakeup_hook` now call it instead of mutating `confinfo` and
-  `wireless_devs_change()` themselves, so the two paths can no longer interleave.
+- **Transport arbiter is now a no-op.** `hs_transport_arbitrate_cable()` used to
+  own the cable insert/remove policy (switch to USB on insert; restore
+  `confinfo.last_wireless_devs` on remove). It was deliberately gutted to a
+  `return false;` stub so a cable no longer forces USB, which is what functional
+  requirement 2 needs: mode selection now belongs solely to the physical switch
+  (`hs_modeio_detection()` in `wls/wls.c`). Both `housekeeping_task_user` and
+  `lpwr_wakeup_hook` still call it, so the two paths stay in one place.
 - **Atomic battery snapshot.** `kb_battery_snapshot_t` + `kb_battery_snapshot()`
   sample `percent`/`charge`/`transport` **once**; the change check
   (`kb_battery_changed()`) and the report assembly (pull and push) are both built
@@ -538,7 +550,7 @@ vendor stack (so upstream divergence stays a one-file diff):
 
 The **general** fix — a real board-facing API replacing the externed globals — is
 deliberately **not** done. It is upstream-sized (it would touch the shared stack
-and ~20 boards) and belongs in the U1 RFC's scope, not a local cleanup. The two
+and every board that uses it) and belongs in the U1 RFC's scope, not a local cleanup. The two
 contained fixes capture most of the benefit at a fraction of the blast radius,
 since verifying a board rearchitecture requires physical reflashing of both
 halves with a hardware-only recovery path.
@@ -561,9 +573,9 @@ port should **extend** them, not reinvent them.
 **Verified against the tree (not assumed from the doc):**
 
 - **Upstream's transaction API is already in use.** The board declares
-  `#define SPLIT_TRANSACTION_IDS_USER USER_SYNC_MMS` (`config.h:79`), registers a
+  `#define SPLIT_TRANSACTION_IDS_USER USER_SYNC_MMS` (`config.h:90`), registers a
   slave handler with `transaction_register_rpc(USER_SYNC_MMS, ...)`
-  (`epomaker_split65.c:215`), and drives it with `transaction_rpc_exec(...)` in
+  (`epomaker_split65.c:216`), and drives it with `transaction_rpc_exec(...)` in
   five places (the mode-sync 0x55 / 0xCC / 0xAA paths). This is exactly QMK's
   documented "custom data sync between sides" mechanism. *(An earlier note in
   this project called the m2s/s2m link "hand-rolled" — that was wrong; it is
@@ -571,16 +583,23 @@ port should **extend** them, not reinvent them.
 - **Handedness is upstream's hand-by-pin.** `keyboard.json` sets
   `split.handedness.pin B9`, generating `SPLIT_HAND_PIN B9` — the doc's
   "Handedness by Pin" method, with high = left.
-- **`SPLIT_USB_DETECT` is forced on for this board.** `platforms/chibios/chibios_config.h:18-20`
+- **`SPLIT_USB_DETECT` is forced on for this board.** `platforms/chibios/chibios_config.h:20-22`
   defines it whenever `USB_VBUS_PIN` is **not** defined, and this board does not
   define that pin. So core would delegate master by USB communication — which is
-  why the board's `is_keyboard_master()` override (to `readPin(SPLIT_HAND_PIN)`)
-  matters: it **supersedes** the core USB-role decision, pinning the role to
-  handedness. The doc's own warning that `SPLIT_USB_DETECT` "will stop the
-  ability to demo using battery packs" is precisely the reason a battery board
+  why the board's `is_keyboard_master()` override (to `gpio_read_pin(SPLIT_HAND_PIN)`,
+  in each **keymap**) matters: it **supersedes** the core USB-role decision, pinning
+  the role to handedness. The doc's own warning that `SPLIT_USB_DETECT` "will stop
+  the ability to demo using battery packs" is precisely the reason a battery board
   prefers a pinned handedness — that is what this board does.
 - **Supported transport.** ARM split with the `serial` / `serial_usart` driver is
   upstream-supported; the board uses `SERIAL_USART` (SD1 A9/A10).
+- **The module UART must stay on SD3.** The board sets `UART_DRIVER SD3` (module,
+  `C10`/`C11`) alongside `SERIAL_USART_DRIVER SD1` (split link, `A9`/`A10`). The
+  old vendor alias layer that mapped `SERIAL_DRIVER`/`SD1_*` onto `UART_*` was
+  removed upstream; without an explicit `UART_DRIVER` the module UART silently
+  defaults to `SD1` and collides with the split link. Symptom: the slave's matrix
+  rows never reach the master (master types, slave does not). See `TODO.md`
+  "Regressions introduced by our own change set" §3.
 
 **What upstream offers that the vendor does not yet use** (candidates for the U1
 port, not defects today):

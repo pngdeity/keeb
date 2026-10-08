@@ -9,9 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Battery reporting over Raw HID command `0xA4` (`KC_GET_BATTERY_LEVEL`),
-  returning percentage, charging state, and active transport; documented in
-  `docs/PROTOCOL.md`.
+- Battery reporting over Raw HID command `0xA4` (the `KC_GET_BATTERY_LEVEL`
+  convention), returning percentage, charging state, and active transport;
+  documented in `docs/PROTOCOL.md`. The percentage value is upstream's
+  (`quantum/battery`, via the `custom` driver `wls/wls_battery_driver.c`).
 - Firmware responder `wls/wls_battery.c` implementing a strong
   `raw_hid_receive()` override, master-half only.
 - 2.4 GHz push mode (`kb_battery_push_task()`) as a fallback to host pull.
@@ -40,9 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A CI guard for the raw-HID line coupling**: the vendor stack remaps
   `raw_hid_send` by hardcoded line number, so CI now asserts those two lines
   still hold the expected code and fails loudly if a submodule bump moves them.
-- Host tool now prefers the 2.4 GHz dongle's raw HID interface (interface 2) and
-  exposes `--transport usb`, so a 2.4 GHz read is no longer silently the
-  keyboard's USB interface.
+- Host tool prefers the collection with `interface_number == 2` (assumed to be the
+  2.4 GHz dongle; unverified — the dongle shares the keyboard's VID:PID) and
+  exposes `--transport usb`, so a 2.4 GHz read is attempted rather than silently
+  using the keyboard's USB interface.
 - Battery push now sends on change (level/charge/transport) with a slow
   keepalive, instead of an unconditional 2-second heartbeat.
 

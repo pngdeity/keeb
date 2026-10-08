@@ -135,6 +135,17 @@ keymap is **not** in the tree — it lives in the sibling userspace repo
   tool rewrites every `rgb_matrix.layout` and `rotary` entry (hundreds of lines
   of churn for a one-value change). Use `qmk format-json -i` for structural edits
   and a line-targeted edit (e.g. `perl -i -pe`) for single values.
+- **A board `config.h` edit does not regenerate `.build/obj_<target>/src/info_config.h`.**
+  The stale generated header keeps the old `#define` and yields a binary that does
+  not match the source. Delete that header (or clean) after a `config.h` change,
+  then verify with `nm` on the ELF.
+- **The module UART must stay on SD3; the split link is on SD1.** `UART_DRIVER SD3`
+  (module, `C10`/`C11`) vs `SERIAL_USART_DRIVER SD1` (split link, `A9`/`A10`). The
+  upstream alias layer that mapped `SERIAL_DRIVER`/`SD1_*` onto `UART_*` is gone;
+  without `UART_DRIVER` the module UART defaults back to `SD1` and collides with the
+  split link (symptom: master types, slave does not).
+- **Bootmagic / Esc-hold wipes EEPROM** (default layer, `confinfo`, RGB state) —
+  the intended recovery route, but it resets persisted state on every such flash.
 
 ## Where to write what
 

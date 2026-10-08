@@ -76,8 +76,10 @@ Use the project-local wrappers — no system install is needed.
   Bluetooth cannot flash.
 - **Prerequisite:** the wb32-dfu udev rule must be installed or the updater
   cannot claim the device as a normal user. `qmk doctor` reports this as
-  "Missing or outdated udev rules for 'wb32-dfu' boards". The rule (from
-  `qmk_firmware/util/udev/50-qmk.rules`) is:
+  "Missing or outdated udev rules for 'wb32-dfu' boards". QMK's own rule set is
+  distributed with the QMK CLI (installed to `/etc/udev/rules.d/50-qmk.rules`
+  by `util/install_udev.sh`; it is **not** vendored in this tree). The board
+  additionally needs a `uaccess` rule for its VID:PID:
 
   ```
   SUBSYSTEMS=="usb", ATTRS{idVendor}=="342d", ATTRS{idProduct}=="dfa0", TAG+="uaccess"

@@ -98,7 +98,7 @@ printed beneath each:
 Refer to it as "the mode switch, set to the 2.4 GHz position". It is photographed
 in the middle (`2.4 GHz`) position. Firmware reads it via
 `hs_modeio_detection()` → `modeio_mode { hs_none, hs_usb, hs_bt, hs_2g4,
-hs_wireless }` (`keyboards/linker/wireless/wls/wls.h`).
+hs_wireless }` (`keyboards/epomaker/epomaker_split65/wls/wls.h`).
 
 ### Switches and keys
 
@@ -129,7 +129,7 @@ Common reference points:
 | `[11,6]` | right | `KC_LEFT` | 4th key right of the right spacebar |
 | `[11,7]` | right | `KC_DOWN` | 5th key right of the right spacebar |
 | `[11,8]` | right | `KC_RGHT` | 6th key right of the right spacebar |
-| `[3,1]` | left | `KC_A` | `Fn`+this = `TO(_MBL)`, switches the default layer to Mac |
+| `[3,2]` | left | `KC_S` | `Fn`+this = `TO(_MBL)`, switches the default layer to Mac |
 
 The full coordinate table is generated from `keyboard.json` (see "Physical
 layout").
@@ -251,7 +251,8 @@ unproven is marked, not guessed.
 |---|---|---|---|
 | Manufacturer string | `MILE` | `LEO` | Measured |
 | VID:PID | `342d:e4c6` | `342d:e4c6` | Measured |
-| Battery raw HID `0xA4` | absent | present (master only), committed in the tree | Source || Default lighting | vendor rainbow (`cycle_left_right`, speed 135, val 150) | solid white 0/0/128 (set in `keyboard.json`; re-applied in `keyboard_post_init_user()`) | Source (tree) |
+| Battery raw HID `0xA4` | absent | present (master only), committed in the tree | Source |
+| Default lighting | unknown | solid white 0/0/128 (set in `keyboard.json`; re-applied in `keyboard_post_init_user()`) | Source (tree) |
 | Default layer at first boot | unknown | unknown (persisted in EEPROM) | **Unverified** |
 | Keymap / layers as shipped | unknown | vendor `default` keymap in the tree; `nathan` in the userspace repo | **Unverified** for stock |
 
@@ -290,11 +291,11 @@ Notes:
 
 | Immutable (hardware / pin-defined) | Mutable (firmware / EEPROM) |
 |---|---|
-| 69 keys, 5 rows, physical row widths | Keymap: base, `_FL`, `_MBL`, `_MFL` layers |
-| Matrix pins and per-half column maps | Custom keycodes (`KC_BT1`..`KC_BATQ`; `MOR_1..MOR_5` are declared but unused) mapping |
+| 69 keys, 5 rows, physical row widths | Keymap: base, `_FL`, `_RST` (`nathan`); `_MBL`, `_MFL` (Mac variants) |
+| Matrix pins and per-half column maps | Custom keycodes (`KC_BT1`..`KC_BATQ`; `MOR_1..MOR_4` have handlers, `MOR_5` is declared but unused) mapping |
 | Handedness pin (`B9`) | Default layer selection (`set_single_persistent_default_layer`) |
 | `HS_BAT_CABLE_PIN` (`A7`), `BAT_FULL_PIN` (`A15`) | RGB default animation / brightness |
-| Encoder pins (`B7`,`B6`), WS2812 pin (`B15`) | `confinfo.filp` (Cmd/Alt swap) |
+| Encoder pins (`B7`,`B6`), WS2812 pin (`B15`) | `confinfo.filp` (Fn-row / number-row media-key swap) |
 | USB VID:PID `342d:e4c6` / bootloader `342d:dfa0` | EEPROM contents (wear-levelled, SPI flash) |
 | `mode switch` (physical position) | Runtime transport (`KC_BT1/2/3`, `KC_2G4`) |
 

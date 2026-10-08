@@ -122,6 +122,21 @@ Verified gotchas that cost time if rediscovered. Check here before debugging.
 - **`keyboard.json` is formatted by `qmk format-json`**, not by hand. Hand
   editing drifts from QMK's canonical `InfoJSONEncoder` output and creates a noisy
   diff.
+- **Editing a board `config.h` does not regenerate the build's `info_config.h`.**
+  A stale generated header keeps the old `#define` and silently delivers a binary
+  that does not match the source. Delete
+  `.build/obj_<target>/src/info_config.h` (or do a clean build) after any
+  `config.h` change, then verify with `nm` on the ELF — not by reading the source.
+- **The module UART must stay on SD3, the split link on SD1.** The board sets
+  `UART_DRIVER SD3` (module, `C10`/`C11`) while `SERIAL_USART_DRIVER` is `SD1`
+  (split link, `A9`/`A10`). The old vendor alias layer that mapped
+  `SERIAL_DRIVER`/`SD1_*` onto `UART_*` was removed upstream, so dropping
+  `UART_DRIVER` silently defaults the module UART back to `SD1` and collides with
+  the split link (symptom: master types, slave does not). See `config.h`.
+- **Bootmagic / Esc-hold wipes EEPROM** (default layer, `confinfo`, RGB state).
+  It is the intended recovery route, but it means a half's persisted state resets
+  on every flash done that way. `EE_CLR` is relocated to the hold-only `_RST`
+  layer to avoid accidental wipes.
 - **`qmk format-python` needs `yapf`, which is not installed here**, and
   `qmk format-text` has no `-n` check flag.
 - **Do not run `doas` from an agent context.** An unanswered prompt locks the
@@ -130,9 +145,8 @@ Verified gotchas that cost time if rediscovered. Check here before debugging.
 ## Tests
 
 Firmware unit tests use QMK's GoogleTest harness under `qmk_firmware/tests/` and
-run with `./bin/make test:<group>`. **This does not work in the current
-submodule**: `lib/googletest` is deliberately not initialized (the submodule is
-kept thin and upstream-dependent), so `make test` cannot compile. Initialize it
-with `git -C qmk_firmware submodule update --init lib/googletest` before relying
-on the harness. Host-side changes should be exercised against
+run with `./bin/make test:<group>`. `lib/googletest` is initialized in this
+checkout, so the harness can build; if it is ever missing, restore it with
+`git -C qmk_firmware submodule update --init lib/googletest`. Host-side changes
+should be exercised against
 `host/battery_polybar.py`'s pure functions before committing.

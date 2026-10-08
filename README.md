@@ -18,8 +18,8 @@ keyboard's wireless module does not answer the level inquiry on USB, so the
 value stays at its compile-time default (see `TODO.md` defect 1). Bluetooth is
 implemented on the host side but not yet probed on hardware.
 
-The `nathan` battery firmware is committed in the `qmk_firmware` submodule; the
-halves still run an older build of it (see Status).
+The `nathan` battery firmware is committed in the sibling userspace repo
+`../keeb-userspace/`; both halves now run the current build (see Status).
 
 ## Layout
 

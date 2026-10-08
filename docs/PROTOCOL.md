@@ -11,9 +11,9 @@
 > the battery and connection APIs".
 >
 > The responder is committed in the `qmk_firmware` submodule as
-> `wls/wls_battery.c` (on the re-base spike branch; the halves currently run an
-> older build). On a stock/vendor build with no responder, the raw HID interface
-> answers with an unhandled `FF` sentinel instead. See `TODO.md` Status.
+> `wls/wls_battery.c` (branch `split65-overlay`). On a stock/vendor build with no
+> responder, the raw HID interface answers with an unhandled `FF` sentinel
+> instead. See `TODO.md` Status for build/hardware state.
 
 Raw HID command used by the host to read the keyboard battery over all
 transports. The command id `0xA4` (`KC_GET_BATTERY_LEVEL`) follows the
@@ -26,25 +26,29 @@ a backwards-compatible extension; hosts must ignore bytes they do not know.
 - Raw HID interface: usage page `0xFF60`, usage `0x61`, report size `RAW_EPSIZE`
   = **32 bytes**, in both directions, always.
 - USB-wired: host **pulls** (sends the request; keyboard replies).
-- 2.4 GHz dongle: the dongle exposes a second raw HID collection with the same
-  `0xFF60`/`0x61` usage page and **32-byte IN and OUT reports** (interface 2, no
-  report ID; verified by reading its report descriptor, below). Host pull over
-  2.4 GHz **round-trips on real hardware**. Pull is the normal path; push is a
-  fallback (see Push mode).
+- 2.4 GHz dongle: the dongle **shares the keyboard's VID:PID** (`342d:e4c6`) and,
+  when seen, exposes a second raw HID collection with the same `0xFF60`/`0x61`
+  usage page and **32-byte IN and OUT reports** (no report ID). **Unverified:** a
+  dongle has never been confirmed on the bus in this project — its enumeration is
+  documented upstream but was not observed live, so the interface mapping below is
+  *assumed*, not measured (see `TODO.md` defect 3). Host pull over 2.4 GHz is
+  claimed by the vendor to round-trip; it is untested here. Pull is the normal
+  path; push is a fallback (see Push mode).
 - **Host-side interface selection matters.** The keyboard's own raw collection is
-  interface 1 and the dongle's is interface 2, and both are present whenever the
-  keyboard is plugged in *and* the dongle is attached. `host/battery_polybar.py`
-  enumerates every match and **prefers interface 2 (the dongle)** by default,
-  falling back to the only collection present; `--transport usb` reads the
-  keyboard's own collection instead. `split65.py check` reports which collections
-  are present. (This was `TODO.md` defect 3; the code is fixed, a confirmation run
-  with the dongle attached is still outstanding.)
+  **interface 1** (measured). Because the dongle shares the VID:PID, it cannot be
+  told apart from the keyboard by a simple match; `host/battery_polybar.py`
+  enumerates every match and prefers `interface_number == 2` by default as an
+  *assumed* dongle, falling back to the only collection present; `--transport usb`
+  selects interface 1. `split65.py check` reports which collections are present.
+  (This is `TODO.md` defect 3; the code is defensive, but the interface-2 = dongle
+  mapping remains unconfirmed and cannot be tested until a working dongle is
+  available.)
 - Bluetooth: in scope. Not yet probed on hardware — unknown whether the BT HID
   link exposes the raw HID collection (`0xFF60`/`0x61`) and whether
   `*md_getp_bat()` is populated over BT. The host falls back to the BLE Battery
   Service `0x180F` / Battery Level `0x2A19` (via `bluetoothctl`).
 
-### Dongle raw HID interface (verified)
+### Dongle raw HID interface (assumed, unverified)
 
 Report descriptor of the 2.4 GHz dongle (`342d:e4c6`) interface 2, obtained with
 `HIDIOCGRDESC` (34 bytes, no report ID):
@@ -59,7 +63,7 @@ c0
 ```
 
 Matches `tmk_core/protocol/usb_descriptor_common.h` (`RAW_USAGE_PAGE 0xFF60`,
-`RAW_USAGE_ID 0x61`) and `RAW_EPSIZE 32` exactly. Because the collection declares
+`RAW_USAGE_ID 0x61`) and `RAW_EPSIZE 32` (`tmk_core/protocol/usb_descriptor.h`). Because the collection declares
 no report ID, `data[0]` is the first data byte and the host's `0x00` report-ID
 prefix is the correct convention for an unnumbered collection.
 
@@ -87,7 +91,7 @@ convention, giving a 33-byte write.
 | 3 | reserved — `0x00` |
 | 4 | charging state: `0` discharging, `1` charging, `2` full |
 | 5 | transport: `0x01` USB, `0x02` Bluetooth, `0x04` 2.4 GHz |
-| 6 | model id (`KB_BATTERY_MODEL_ID`; `0` = unspecified) |
+| 6 | model id (`KB_BATTERY_MODEL_ID`; board sets `1` = Split65, `0` = unspecified) |
 | 7..31 | `0x00` |
 
 > **Byte 1 is not yet a measurement.** The keyboard has no ADC; the value only

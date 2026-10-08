@@ -10,23 +10,25 @@
 > Treat any output as a transport/plumbing check, not a charge reading, until
 > that defect is fixed.
 
-The dongle exposes the same raw HID interface (`0xFF60`/`0x61`) as the keyboard
-and **bridges host → keyboard**, so `--pull` works over 2.4 GHz as well as USB.
-The keyboard also pushes the value unprompted, so `--listen` remains a valid (and
+The dongle **shares the keyboard's VID:PID** (`342d:e4c6`). If a dongle is present
+it exposes the same raw HID interface (`0xFF60`/`0x61`) and **bridges host →
+keyboard**, so `--pull` should work over 2.4 GHz as well as USB. **Unverified:** no
+dongle has been confirmed on the bus in this project (see `TODO.md` defect 3). The
+keyboard also pushes the value unprompted, so `--listen` remains a valid (and
 more robust) mode.
 
-The `0xA4` command is answered by a **battery-feature build** (the responder
-`wls/wls_battery.c` committed in the `qmk_firmware` submodule; the halves
-currently run an older build of it). On **stock/vendor** firmware with no
-responder, the raw HID interface answers with an unhandled `FF` sentinel
-instead, so `--pull` returns nothing useful.
+The `0xA4` command is answered by **our firmware** (the responder
+`wls/wls_battery.c` in the `qmk_firmware` submodule; both halves now run the
+current build). On **stock/vendor** firmware with no responder, the raw HID
+interface answers with an unhandled `FF` sentinel instead, so `--pull` returns
+nothing useful.
 
-**Interface selection prefers the dongle.** `find_raw_hid_interface()` enumerates
-every `0xFF60`/`0x61` collection and returns the dongle (interface 2) by default,
-so a `--pull` without a flag reads the 2.4 GHz path when the dongle is present;
-`--transport usb` selects the keyboard's own collection. With only one collection
-attached it uses that one. `split65.py check` lists the collections found and
-warns when more than one is present.
+**Interface selection.** `find_raw_hid_interface()` enumerates every
+`0xFF60`/`0x61` collection and returns the one with `interface_number == 2` by
+default as an **assumed dongle** (unverified; the dongle shares the keyboard's
+VID:PID); `--transport usb` selects interface 1, the keyboard's own collection.
+With only one collection attached it uses that one. `split65.py check` lists the
+collections found and warns when more than one is present.
 
 ## Requirements
 
@@ -67,5 +69,6 @@ request to the keyboard and the reply comes back. Use `--pull` for a
 request/response value or `--listen` to passively accept the keyboard's push.
 The keyboard pushes on change with a `WLS_BATTERY_PUSH_INTERVAL` (10000 ms)
 keepalive, but `--listen` only waits for one report per invocation, so any
-`interval` of a few seconds works. `interval = 5` matches the module's own 5 s
-cadence.
+`interval` of a few seconds works. `interval = 5` is a reasonable polling
+cadence for polybar (the firmware's push keepalive is `WLS_BATTERY_PUSH_INTERVAL`,
+default 10000 ms).
