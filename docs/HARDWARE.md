@@ -73,6 +73,30 @@ One LED, on the **right half** bottom row. Its index is into
 - Consequence: `charging_state` is effectively a shared "power present" bit, not
   a per-half cable-detection bit.
 
+## Batteries
+
+- **Only one half carries a battery.** Observed directly with the right half's
+  backplate removed: the **right half has no battery**. The battery is therefore
+  in the **left half** (the half that is currently master). This supersedes the
+  earlier firmware-inferred guess that both halves had cells.
+- **Quirk, not a defect: the firmware models per-half charge state that the
+  right half cannot have.** Both halves run identical firmware, so the right
+  half still reads a local `BAT_FULL_PIN` (A15) and keeps a `bat_full_flag`
+  whose value is meaningless on a battery-less half. This is harmless: every
+  consumer is either master-gated (`bat_indicators()` returns early when not
+  master) or link-powered, and the `0xA4` report carries only the master's own
+  module value, so no phantom value can reach a host. Do **not** add a
+  right-half special case — the guard would be dead code over a value nothing
+  reads.
+- **Open:** whether the right half has any charging circuitry at all, or is
+  purely bus/link powered. Record it when known.
+- **The inter-half link carries power** (`## Split-link power` below), so a cable
+  into **either** half reaches both PCBs. That is a power distribution fact, not
+  evidence of two cells.
+- **Reporting is the battery half's level.** The master (currently the left /
+  battery-bearing half) answers `0xA4` with its own module's value. One battery,
+  one reported number; there is no second cell whose level could differ.
+
 ## Charging and battery sensing
 
 - There is **no ADC and no charge-controller telemetry**. The firmware cannot

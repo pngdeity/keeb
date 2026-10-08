@@ -2,10 +2,10 @@
 
 EPOMAKER Split65 wireless (tri-mode) keyboard firmware and host tooling.
 
-The firmware must support three usage modes, in priority order: both halves
-wireless while discharging; both halves wireless while charging (an external PSU
-charges them while a separate, power-limited host uses them for input); and both
-halves wired over USB while charging. See `docs/FINDINGS.md` "Functional
+The firmware must support three usage modes, in priority order: the whole
+keyboard wireless while discharging; wireless while charging (an external PSU
+charges it while a separate, power-limited host uses it for input); and wired
+over USB while charging. See `docs/FINDINGS.md` "Functional
 requirements" for the rationale and the accepted tradeoffs. Mode 2 currently
 conflicts with a cable-insert auto-switch in the firmware; that is `TODO.md`
 Tier 1 item 7.

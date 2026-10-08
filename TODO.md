@@ -50,12 +50,28 @@ sections below.
 
 **Tier 0 — blockers / one-way doors (do first, cheap, affect everything after):**
 
-1. ~~**Fix defect 3** (`find_raw_hid_interface()` picks the wrong interface) and
+1. **Re-base onto current upstream QMK (`qmk/qmk_firmware` master).** Promoted
+   from Tier 4 on the strength of the completed spike (branch
+   `split65-rebase-spike`): the port is proven tractable — both keymaps build
+   green on master. This is now the organizing priority, because it decides the
+   base every later item lands on: once the hardware work in Tier 1 is done on
+   the vendor tree, doing it again after a re-base would waste the measurement
+   and the flash. Do it **before** flashing, not after. See
+   `docs/FINDINGS.md` "the vendor fork is shallow" and `## Re-base` below.
+   - **Spike done:** ported the board + shared wireless stack onto master; six
+     mechanical upstream breakages fixed (internal eeconfig header, GPIO API,
+     `keyboard_protocol` global, `SD1_*`→`UART_*`, RGB keycodes, keymap-config
+     struct); `default` and `nathan` both build; `qmk lint` clean.
+   - **Remaining:** decide the spike's fate — merge the branch into the vendor
+     overlay line, or keep it as a parallel branch; settle `libmodule.a` and the
+     legacy `keyboards/wireless/` copy; then the hardware verification in Tier 1
+     runs on the new base, so it is done once.
+2. ~~**Fix defect 3** (`find_raw_hid_interface()` picks the wrong interface) and
    **contain it in `split65.py check`.**~~ **DONE** — `find_raw_hid_interface()`
    now prefers the dongle (interface 2) and accepts `--transport usb`;
    `split65.py check` reports the collections present. A confirmation run with
    the dongle attached remains (it needs the dongle and the user).
-2. **Decide and apply the critical ergonomics changes** (a pull-forward from
+3. **Decide and apply the critical ergonomics changes** (a pull-forward from
    Tier 3, abbreviated to only the items that are cheap and that a flash would
    otherwise force you to repeat):
   - **`QK_BOOT` / `EE_CLR` placement.** `EE_CLR` sitting at the Backspace
@@ -64,8 +80,8 @@ sections below.
     the same flash as everything else.
    - **Decide the battery-indicator question.** With a uniform white fill the
      indicator is the only LED that differs; decide whether that single-LED
-     exception stays, is made more prominent (it is the only per-half charge
-     readout), or is disabled — and do it now, because it is the same
+     exception stays, is made more prominent (it is the only charge readout), or
+     is disabled — and do it now, because it is the same
      `config.h`/keymap edit and the same flash.
    - **Decide whether to trim the compiled-in animation list**
      (`keyboard.json` `rgb_matrix.animations`, ~44 entries, still reachable via
@@ -75,16 +91,16 @@ sections below.
 
 **Tier 1 — the deliverable (the project exists for this):**
 
-3. **Reflash both halves** with the current build. Cheap, and it gives a clean
+4. **Reflash both halves** with the current build. Cheap, and it gives a clean
    baseline for the measurement below. Do it *after* all the cheap pre-flash
    decisions are in, so the flash is done once.
-4. **2.4 GHz: capture a real percentage** (the decisive test; needs the user at
-   the keyboard). Depends on 1 and 3.
-5. **2.4 GHz: confirm `chg` moves `1 -> 2` while charging.** Same session as 4.
-6. **Decide and implement the honesty fix for the fake 100** (defect 1).
-   Depends on 4 — you need to know what a real reading looks like before choosing
+5. **2.4 GHz: capture a real percentage** (the decisive test; needs the user at
+   the keyboard). Depends on 1 and 4.
+6. **2.4 GHz: confirm `chg` moves `1 -> 2` while charging.** Same session as 5.
+7. **Decide and implement the honesty fix for the fake 100** (defect 1).
+   Depends on 5 — you need to know what a real reading looks like before choosing
    how to represent "unknown".
-7. **Wireless while charging (requirement 2).** Disable the cable-insert
+8. **Wireless while charging (requirement 2).** Disable the cable-insert
    auto-switch in `housekeeping_task_user()` so mode selection belongs to the
    physical switch, then verify on hardware that a cable with the switch on
    2.4 GHz leaves the keyboard wireless and the level still updates. The policy
@@ -94,34 +110,46 @@ sections below.
 
 **Tier 2 — feature completeness (in scope, not yet probed):**
 
-8. **Probe Bluetooth at all**, then update `docs/PROTOCOL.md` and `README.md`.
-   Independent of Tier 1 except that it wants a fixed host tool (1).
+9. **Probe Bluetooth at all**, then update `docs/PROTOCOL.md` and `README.md`.
+   Independent of Tier 1 except that it wants a fixed host tool (2).
 
 **Tier 3 — quality / ergonomics (valuable, not blocking):**
 
-9. **Firmware unit tests** for the pure battery helpers. Best done after 4/6 so
-   the tests encode settled semantics, not the current fake-100 behaviour.
-10. **Key-based right-half DFU.** Removes the case-opening procedure. Only worth
-    doing if the physical short is a real pain point; the short stays documented
-    as the recovery path regardless.
-11. **The rest of the UX / usability review** (whole section below) — layer
+10. **Firmware unit tests** for the board-local **pure helpers** (`kb_battery_*`).
+    Scope stops at those functions: the split transport is upstream's transaction
+    API, so tests must not re-cover it (see `docs/FINDINGS.md`, "the vendor split
+    stack is closer to upstream than it first looks"). Best done after 5/7 so the
+    tests encode settled semantics, not the current fake-100 behaviour.
+11. **Key-based right-half DFU (low priority).** Both halves run identical
+    firmware and the right half is link/bus-powered (no cell), so its own
+    recovery path is less pressing than it first appeared. The physical short
+    (R_Shift toggle + spacebar-pin; `docs/HARDWARE.md`) stays the recovery path.
+12. **The rest of the UX / usability review** (whole section below) — layer
     ergonomics, held-modifier comfort, mode-switch discoverability, legends.
-    Largest, most subjective; depends on 6 and 9 for what is even possible.
-
-**Tier 4 — long-horizon, high-cost, low-urgency:**
-
-12. **Re-base onto newer upstream QMK.** See `## Other`; invalidates all hardware
-    verification and would re-do 4–5. Do not start before Tier 1 is closed.
+    Largest, most subjective; depends on 7 and 10 for what is even possible.
+13. **Research: can upstream's split watchdog replace the vendor's hand-rolled
+    disconnect handling?** Upstream ships `SPLIT_WATCHDOG_ENABLE` /
+    `SPLIT_MAX_CONNECTION_ERRORS` (`quantum/split_common/`), which detect exactly
+    the "link dropped" case the vendor instead handles itself (`wls/wls.c`
+    `lpwr_*` hooks plus the `0xAA` sleep-propagation cmd). Both touch the
+    right-half-wake and `lower_sleep` paths item 3/8 already modify, so decide
+    first whether enabling the upstream watchdog subsumes that handling or
+    conflicts with it. Also weigh `SPLIT_ACTIVITY_ENABLE`, which keeps the link
+    warm and so interacts with any sleep tuning. No code until the question is
+    answered.
 
 **Dependency notes (why the order is not free):**
 
-- 1 blocks 4/5/8 (interface selection is the read path).
-- 3 must come after 2 so the flash is done once, and before 4 so a mid-measurement
-  reflash cannot invalidate the result.
-- 2 must precede 3: every one of those decisions changes bytes that get flashed.
-- 7 changes `housekeeping_task_user()`, so it should land before 3 as well, or it
+- 1 decides the base everything else lands on; doing it first means Tier 1's
+  flash and measurement are done once, on the final tree.
+- 2 blocks 5/6/9 (interface selection is the read path).
+- 4 must come after 3 so the flash is done once, and before 5 so a
+  mid-measurement reflash cannot invalidate the result.
+- 3 must precede 4: every one of those decisions changes bytes that get flashed.
+- 8 changes `housekeeping_task_user()`, so it should land before 4 as well, or it
   forces a second flash.
-- 12 invalidates 4–6, so it must come last or not at all.
+- 13 gates no others but touches the same sleep paths as 3/8; decide its direction
+  before tuning sleep, or the tuning may be wasted.
 
 ## Outstanding verification (the deliverable is not yet proven)
 
@@ -161,9 +189,19 @@ unverified.
 These facts are **not yet proven** and must be measured before the doc claims
 them:
 
-- [ ] **Which of `P1`/`P2` on the left half is the host data port vs the charge
-      port.** Firmware has one cable-detect pin (`A7`) and cannot tell them
-      apart; the roles in `DEVICE.md` are provisional.
+- [ ] **Which left-half port (`P1`/`P2`) is intended for the host vs the
+      inter-half link.** The two are positionally distinct but functionally
+      interchangeable (both carry power and data); firmware has one cable-detect
+      pin (`A7`) and cannot tell them apart. Not a hardware property, so only
+      the physical positions are recorded in `DEVICE.md`.
+- [ ] **Right-half power path (informational).** The right half has **no battery**
+      (observed with the backplate off). The firmware still models per-half
+      charge state on that half; this is a harmless quirk, not a defect (see
+      `docs/HARDWARE.md` "Batteries"). Only remaining question: whether the right
+      half has any charging circuitry at all or is purely bus/link powered.
+      **Caveat: this stays harmless only while the master is the battery-bearing
+      half** — if the halves were ever swapped, the master would be the
+      cell-less half and the reported level and cutoff would both read a phantom.
 - [ ] **Confirm the current master/slave assignment** with the cable in the right
       half's `P3` — record which half reports as master.
 - [ ] **Stock (`MILE`) factory configuration**: default layer, lighting, and
@@ -296,12 +334,13 @@ cheap and must land in the same flash as other pre-flash decisions: the
 `QK_BOOT`/`EE_CLR` placement, the battery-indicator-vs-fill decision, and whether
 to trim the compiled-in animation list. The remainder stay here.
 
-- **Charging/battery LED placement.** The only per-half-charge renderer is the
+- **Charging/battery LED placement.** The only charge renderer is the
   master-only soft indicator at `HS_MATRIX_BAT_SOFT_INDEX 64` (right half, bottom
   row, `[11,5]`, fourth from the right). Question whether that is discoverable at
-  all: it sits on the *opposite* half from the half it describes, is master-only,
-  and is invisible when RGB brightness is zero. Consider a better location or a
-  dedicated indicator, and whether the level colours are distinguishable.
+  all: it sits on the *opposite* half from the battery-bearing half it describes,
+  is master-only, and is invisible when RGB brightness is zero. Consider a better
+  location or a dedicated indicator, and whether the level colours are
+  distinguishable.
 - **Default RGB effects.** Partly addressed: the vendor rainbow is gone; the
   default is now solid white at 50%, declared in `keyboard.json`
   (`rgb_matrix.default`) with the keymaps re-applying it persistently in
@@ -314,7 +353,7 @@ to trim the compiled-in animation list. The remainder stay here.
 - **Battery indicator vs solid fill.** With a uniform white fill, the battery
   indicator is the only thing that breaks it (one LED on the right half shows the
   charge colour). Decide whether that single-LED exception is wanted, and whether
-  it should be more prominent given it is the only per-half charge readout.
+  it should be more prominent given it is the only charge readout.
 - **Connection-mode switching.** `KC_BT1`/`KC_BT2`/`KC_BT3`/`KC_2G4` (Fn layer,
   row 1) and the physical mode switch both exist. Question the discoverability of
   the keycodes, whether the currently-selected channel is visible, and whether
@@ -342,7 +381,7 @@ from the vendor default. Record findings here and in `docs/FINDINGS.md`.
 ## Other
 
 - **Wireless while charging (requirement 2)** — now first-class, see `## Priority
-  order` item 7 and `docs/FINDINGS.md` "Functional requirements". Verdict to be
+  order` item 8 and `docs/FINDINGS.md` "Functional requirements". Verdict to be
   recorded in `docs/HARDWARE.md`.
 
 - Firmware unit tests for the pure battery helpers (`kb_battery_percent`,
@@ -351,9 +390,56 @@ from the vendor default. Record findings here and in `docs/FINDINGS.md`.
 - Bluetooth transport: confirm whether the BT link exposes the raw HID
   collection (`0xFF60`/`0x61`) and whether `*md_getp_bat()` is populated over BT;
   BLE Battery Service `0x180F`/`0x2A19` is the host fallback.
-- Consider re-basing onto a newer upstream QMK. This tree is a 1-commit
-  squashed vendor snapshot (`hangshengkeji/qmk_firmware` `tri-mode`,
-  2026-01-20); a full-history upstream tree (`qmk/qmk_firmware` master) is
-  ~4.5 months newer but lacks the wireless stack. Any re-base would require
-  rebuilding, re-flashing **and** re-verifying the battery work on hardware.
-  See the consolidation note in `docs/FINDINGS.md`.
+- Re-basing onto current upstream QMK is now **Tier 0 item 1** (see `## Re-base`
+  below and `docs/FINDINGS.md` "the vendor fork is shallow").
+
+## Re-base
+
+The move off the vendor's Oct-2024 core onto current `qmk/qmk_firmware` master,
+promoted to Tier 0. The spike proved it tractable (see below); the remaining work
+is deciding how the spike lands, then doing the Tier 1 hardware verification once
+on the final base.
+
+**Why the fork is cheap to leave.** The vendor did **not** patch core. Of the
+entire divergence from the upstream base (`92afc8198a`, 2024-10-29), only two
+non-board files differ — `.gitignore` (removes `*.a`, so `libmodule.a` can be
+tracked) and a stray `.txt` — plus three submodule bumps. Everything else is
+additive vendor boards plus the shared wireless stack. WB32 platform support
+(`platforms/chibios/boards/GENERIC_WB32_FQ95XX/`, the `wb32_dfu` bootloader) is
+**already upstream**, so no platform fork is needed. Our own authored payload is
+9 commits, all in the board + wireless stack + a 4-line `math.py` fix.
+
+**Spike result (branch `split65-rebase-spike`, off `qmk/master` `7a1bbf37c5`,
+2026-10-02 — 1,695 commits ahead of base):**
+
+- Two commits: `11d0bc8` (port the 44 board/shared files) and `35de42afe0`
+  (the port fixes). Both signed.
+- **Both keymaps build green**: `default` 64,768 B, `nathan` 66,816 B.
+  `qmk lint` clean (four cosmetic `keyboard.json` redundancy nits).
+- Six upstream breakages fixed, all mechanical, all confined to the board +
+  shared stack: moved `EECONFIG_USER_DATABLOCK` internal header; legacy GPIO API
+  → `gpio_*`; removed `keyboard_protocol` global → `usb_device_state_set_protocol()`;
+  removed `SD1_*`→`UART_*` alias layer → define `UART_TX/RX_PIN` +
+  `UART_TX/RX_PAL_MODE`; renamed RGB keycodes (no compat aliases); keymap-config
+  eeconfig now takes a struct pointer.
+- **`nathan` (userspace) needed a manifest.** Master's CLI validates a userspace
+  dir only if it carries `qmk.json` (`userspace_version`, `qmk.user_repo.v0`).
+  Added `keeb-userspace/qmk.json`; the older vendored CLI ignores the extra file,
+  so it is backward-compatible. (The `QMK_USERSPACE` forwarding was fine — the
+  manifest was the real cause.)
+
+**Open decisions before this lands:**
+
+- **How the spike lands.** Merge `split65-rebase-spike` into the overlay line, or
+  keep it a parallel branch until the port is fully settled.
+- **`libmodule.a`** — the vendor's prebuilt blob (kept only by the `.gitignore`
+  edit). Keep it as a binary dependency, or treat it as the thing to replace.
+- **Legacy `keyboards/wireless/` copy** carried in the spike — possibly
+  removable in favour of the hoisted `keyboards/linker/wireless/`.
+- **Upstream battery API.** Master has `quantum/battery/` +
+  `drivers/battery/` (with a `custom` driver contract). Re-basing makes migrating
+  our `kb_battery_*` onto it finally possible — see `docs/FINDINGS.md`.
+
+**Cost note.** A re-base invalidates any hardware verification done on the vendor
+tree, which is exactly why it is now first: do the Tier 1 flash and measurements
+on the final base, once.

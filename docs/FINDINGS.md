@@ -18,7 +18,8 @@ reporting described below is a means to them.
 1. **Wireless while discharging.** Both halves operate on a wireless transport
    (2.4 GHz or Bluetooth) with no cable attached.
 2. **Wireless while charging.** Both halves operate on a wireless transport
-   while a cable supplies charge.
+   while a cable supplies charge (to the battery-bearing left half; see
+   `HARDWARE.md` "Batteries").
 3. **USB while charging.** Both halves operate over USB-C with a cable attached.
 
 **Why requirement 2 exists.** The operator may charge the halves from an
@@ -53,10 +54,50 @@ path.
 - Upstream is `github.com/hangshengkeji/qmk_firmware`, branch `tri-mode`, which
   contains `keyboards/epomaker/epomaker_split65/` and the wireless stack at
   `keyboards/linker/wireless/` (pulled in by the board's `post_rules.mk`). There
-  is **no** `keyboards/wireless/` in this tree.
+  is **no** `keyboards/wireless/` in the pinned tree (the legacy copy exists only
+  in the vendor's own history).
 - The board source is a sibling port of the same EPOMAKER board found in
-  `qmk/qmk_firmware`; that upstream tree is newer but lacks the wireless stack,
-  so re-basing would invalidate all hardware verification (`TODO.md`, Tier 4).
+  `qmk/qmk_firmware`; that upstream tree is newer but lacks the wireless stack.
+  Re-basing is now the organizing priority (Tier 0) — see "the vendor fork is
+  shallow" below.
+
+## FINDING — the vendor fork is shallow, so a re-base is a replay, not a re-import
+
+The vendor tree is **not** a squashed snapshot. It carries full upstream lineage
+(28,110 commits); its last real upstream sync merge is `45caa1174b` (2024-10-30),
+whose `qmk:master` parent is upstream commit **`92afc8198a`** (2024-10-29, "Add
+Singa Kohaku (#24309)"). That is our true base. The vendor then forked to build
+the wireless/tri-mode stack and stopped reconciling against upstream — the normal
+vendor-fork trajectory.
+
+**The conflict surface is almost nil because the vendor never patched core.**
+Of the entire 677-file / 81,873-line divergence from `92afc8198a`, only two
+non-board files differ:
+
+- `.gitignore` — removes `*.a` (one line) so the prebuilt `libmodule.a` can be
+  tracked;
+- a stray `.txt`.
+
+Plus three submodule bumps (`lib/chibios`, `lib/chibios-contrib`, `lib/pico-sdk`).
+Everything else is additive: vendor boards under `keyboards/…` and the shared
+wireless stack.
+
+**WB32 platform support is already upstream** at the base —
+`platforms/chibios/boards/GENERIC_WB32_FQ95XX/` and
+`platforms/chibios/bootloaders/wb32_dfu.c` exist — so the vendor needed no
+platform fork, and neither do we.
+
+**Our own authored payload is 9 commits**, confined to
+`keyboards/epomaker/epomaker_split65/`, `keyboards/linker/wireless/`, and a
+4-line `lib/python/qmk/math.py` fix. No core edits we authored.
+
+**Consequence:** re-basing is "replay our ~10 commits onto `qmk/qmk_firmware`
+master," not a fork re-import. It was proven tractable by the spike (branch
+`split65-rebase-spike`): both keymaps build green on master (`7a1bbf37c5`,
+2026-10-02, 1,695 commits ahead of base) after six mechanical upstream-breakage
+fixes. The one genuine red flag is `libmodule.a`, the vendor's prebuilt binary —
+a vendored `.a` is not upstreamable as-is and needs a keep-or-replace decision.
+Details in `TODO.md` "## Re-base".
 
 ## KEY FINDING — the battery value already exists in firmware
 
@@ -326,3 +367,54 @@ halves with a hardware-only recovery path.
   inquiry on USB, the value is indistinguishable from the init constant.
 - **Which interface did the host pick?** See `TODO.md` defect 3.
 - **Does Bluetooth expose the raw collection at all?** See `TODO.md`, Tier 2.
+
+## FINDING — the vendor split stack is closer to upstream than it first looks
+
+QMK's own split-keyboard documentation (`docs/features/split_keyboard.md` in the
+pinned tree; same text as `docs.qmk.fm/features/split_keyboard`) was read against
+the actual board source. It is **relevant and correct**, and it shows the vendor
+already uses upstream mechanisms in the places that matter — so the U1 upstream
+port should **extend** them, not reinvent them.
+
+**Verified against the tree (not assumed from the doc):**
+
+- **Upstream's transaction API is already in use.** The board declares
+  `#define SPLIT_TRANSACTION_IDS_USER USER_SYNC_MMS` (`config.h:79`), registers a
+  slave handler with `transaction_register_rpc(USER_SYNC_MMS, ...)`
+  (`epomaker_split65.c:215`), and drives it with `transaction_rpc_exec(...)` in
+  five places (the mode-sync 0x55 / 0xCC / 0xAA paths). This is exactly QMK's
+  documented "custom data sync between sides" mechanism. *(An earlier note in
+  this project called the m2s/s2m link "hand-rolled" — that was wrong; it is
+  upstream's RPC transport with vendor-chosen `cmd` bytes.)*
+- **Handedness is upstream's hand-by-pin.** `keyboard.json` sets
+  `split.handedness.pin B9`, generating `SPLIT_HAND_PIN B9` — the doc's
+  "Handedness by Pin" method, with high = left.
+- **`SPLIT_USB_DETECT` is forced on for this board.** `platforms/chibios/chibios_config.h:18-20`
+  defines it whenever `USB_VBUS_PIN` is **not** defined, and this board does not
+  define that pin. So core would delegate master by USB communication — which is
+  why the board's `is_keyboard_master()` override (to `readPin(SPLIT_HAND_PIN)`)
+  matters: it **supersedes** the core USB-role decision, pinning the role to
+  handedness. The doc's own warning that `SPLIT_USB_DETECT` "will stop the
+  ability to demo using battery packs" is precisely the reason a battery board
+  prefers a pinned handedness — that is what this board does.
+- **Supported transport.** ARM split with the `serial` / `serial_usart` driver is
+  upstream-supported; the board uses `SERIAL_USART` (SD1 A9/A10).
+
+**What upstream offers that the vendor does not yet use** (candidates for the U1
+port, not defects today):
+
+- **`SPLIT_WATCHDOG_ENABLE` / `SPLIT_MAX_CONNECTION_ERRORS`.** The vendor stack
+  has its own low-power/disconnect handling; upstream's watchdog would reboot a
+  wedged slave if no master communication arrives. Worth evaluating against the
+  vendor logic rather than adding blindly.
+- **`SPLIT_ACTIVITY_ENABLE`.** Syncs activity timestamps so a sleep timeout can
+  fire consistently across halves — directly relevant to the deep-sleep work.
+- **The other `SPLIT_*` sync options** (`SPLIT_MODS_ENABLE`, `SPLIT_LAYER_STATE_ENABLE`,
+  …) are documented as cosmetic/OLED aids; the board has no display, so these are
+  not needed.
+
+**Conclusion for the upstream effort:** the split layer is *not* a place to
+invent. The vendor already rides QMK's transaction RPC and handedness-by-pin.
+The upstream-shaped contribution is the **wireless/battery** layer (radio,
+low-power, module UART) — that is the genuinely novel part, and it should sit
+*on top of* the standard split mechanisms rather than replacing them.

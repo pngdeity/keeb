@@ -63,19 +63,22 @@ to mean "left" or vice versa.
 
 ### The three USB-C ports
 
-Name every port by side **and** function. Never say "the USB port".
+Name every port by side **and** physical position. Never say "the USB port".
 
-| Name | Half | Faces | Role |
+| Name | Half | Faces | Notes |
 |---|---|---|---|
-| `P1 left-half host USB-C` | left | rear edge | The wired-**host** data port. |
-| `P2 left-half charge USB-C` | left | rear edge | The second left-half port. |
-| `P3 right-half USB-C` | right | rear edge, at the mode-switch plate | The right half's only port. |
+| `P1 left-half USB-C, outer` | left | rear edge | left half's outer port |
+| `P2 left-half USB-C, inner` | left | rear edge | left half's inner port |
+| `P3 right-half USB-C` | right | rear edge, at the mode-switch plate | the right half's only port |
+
+All three are USB-C ports that carry both power and data; there is **no
+functional role split between `P1` and `P2`** — either left-half port can serve
+as the host data port or the inter-half link. Which of the two is used for what
+is a firmware/usage choice, not a hardware property, so it is deliberately not
+recorded here.
 
 Firmware caveat: there is **one** cable-detect pin (`HS_BAT_CABLE_PIN` = A7), so
-on the **left** half the firmware does **not** distinguish `P1` from `P2`. The
-distinction above is physical and by intended role, taken from the product
-photographs; treat the exact role split as provisional until confirmed (see
-`TODO.md`).
+on the **left** half the firmware does **not** distinguish `P1` from `P2`.
 
 The inter-half **link cable** joins the two halves and also carries power (see
 `HARDWARE.md` "Split-link power"); it uses the right half's sole port (`P3`).
@@ -181,8 +184,8 @@ Rear-edge photograph: `docs/assets/split65-rear-ports.webp`.
 
 Reading that photograph left to right:
 
-1. **Left half** rear: `P1 left-half host USB-C`.
-2. **Left half** rear: `P2 left-half charge USB-C`.
+1. **Left half** rear: `P1 left-half USB-C, outer`.
+2. **Left half** rear: `P2 left-half USB-C, inner`.
 3. **Plate**: the 3-position `mode switch`, photographed in the `2.4 GHz`
    position, with the `USB`, `2.4 GHz` and `Bluetooth` glyphs beneath it.
 4. **Right half** rear: `P3 right-half USB-C`, at the plate.
@@ -192,7 +195,8 @@ knob` (top-right of the right half), the inter-half link cable.
 
 The left half has two ports (`P1`, `P2`); the right half has one (`P3`) — see
 "Nomenclature" for the firmware caveat that `P1` and `P2` are not
-distinguishable to the firmware.
+distinguishable to the firmware. The two left-half ports are positionally
+distinct but functionally interchangeable.
 
 ## Modes of operation
 
@@ -247,8 +251,7 @@ unproven is marked, not guessed.
 |---|---|---|---|
 | Manufacturer string | `MILE` | `LEO` | Measured |
 | VID:PID | `342d:e4c6` | `342d:e4c6` | Measured |
-| Battery raw HID `0xA4` | absent | present (master only), committed in the tree | Source |
-| Default lighting | vendor rainbow (`cycle_left_right`, speed 135, val 150) | solid white 0/0/128 (set in `keyboard.json`; re-applied in `keyboard_post_init_user()`) | Source (tree) |
+| Battery raw HID `0xA4` | absent | present (master only), committed in the tree | Source || Default lighting | vendor rainbow (`cycle_left_right`, speed 135, val 150) | solid white 0/0/128 (set in `keyboard.json`; re-applied in `keyboard_post_init_user()`) | Source (tree) |
 | Default layer at first boot | unknown | unknown (persisted in EEPROM) | **Unverified** |
 | Keymap / layers as shipped | unknown | vendor `default` keymap in the tree; `nathan` in the userspace repo | **Unverified** for stock |
 
@@ -261,6 +264,11 @@ Notes:
   stock); the halves currently run an older `nathan` build.
 - The default layer is **persisted in EEPROM** and survives power cycles and
   reflashes; a board can therefore be on a past operator's chosen default layer.
+- **Only the left half has a battery** — observed directly with the right half's
+  backplate off; the right half is battery-less. Battery *presence* is a hardware
+  fact; the `0xA4` row above is about *reporting* (master-only), a separate
+  question. Whether the right half has charging circuitry or is purely
+  bus/link-powered is still open. See `HARDWARE.md` "Batteries".
 
 ## Host machine
 
