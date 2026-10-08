@@ -70,19 +70,29 @@ jobs:
         # declaration in quantum/raw_hid.h and the call site in quantum/via.c.
         # A submodule bump that shifts either line silently breaks tunneling
         # (raw HID replies then go to the wrong transport), so fail loudly here.
+        #
+        # The guard reads the line numbers out of md_raw.h itself rather than
+        # duplicating them: it checks that each remap's line still holds the
+        # expected text, so a stale remap is caught wherever upstream moved it.
         run: |
-          check() {
-            file=$1; line=$2; want=$3
-            got=$(sed -n "${line}p" "qmk_firmware/${file}")
+          check_remap() {
+            # $1 = md_raw.h remap macro (e.g. _temp_rhs_29), $2 = file, $3 = want
+            macro=$1; file=$2; want=$3
+            n=$(awk -v m="$macro" '$2 == m {print}' \
+                  "qmk_firmware/keyboards/linker/wireless/md_raw.h" | tr -dc '0-9')
+            if [ -z "$n" ]; then
+              echo "FAIL md_raw.h: no line number found for remap ${macro}"; exit 1
+            fi
+            got=$(sed -n "${n}p" "qmk_firmware/${file}")
             case "$got" in
-              *"$want"*) echo "OK  ${file}:${line}" ;;
-              *) echo "FAIL ${file}:${line} no longer contains '$want' (got: $got)"; \
+              *"$want"*) echo "OK  ${file}:${n} (${macro})" ;;
+              *) echo "FAIL ${file}:${n} no longer contains '$want' (got: $got)"; \
                  echo "     md_raw.h's line-keyed raw_hid_send remap is broken; update"; \
                  echo "     keyboards/linker/wireless/md_raw.h and this guard."; exit 1 ;;
             esac
           }
-          check quantum/raw_hid.h 29 'void raw_hid_send(uint8_t *data, uint8_t length);'
-          check quantum/via.c     461 'raw_hid_send(data, length);'
+          check_remap _temp_rhs_29  quantum/raw_hid.h 'void raw_hid_send(uint8_t *data, uint8_t length);'
+          check_remap _temp_rhs_489 quantum/via.c     'raw_hid_send(data, length);'
       - name: Build every keymap for the board
         # QMK's bar for a keyboard change is `make keyboard:all`. QMK's build
         # container presets QMK_USERSPACE=/qmk_userspace; there is no userspace
