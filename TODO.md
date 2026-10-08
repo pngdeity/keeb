@@ -28,7 +28,7 @@
 - **The halves have NOT been reflashed with the current tree.** They run an
   older `nathan` build, so the tree and the hardware disagree (state which is
   which by the build it was flashed from, not by a hash). Reflashing is Tier 1
-  item 3.
+  item 4.
 - Right-half DFU entry uses the R_Shift toggle + spacebar-pin short (see
   `docs/HARDWARE.md`). Key-based DFU is still future work (a section below).
 - **The prune was discarded and the canonical tree restored.** `qmk_firmware/` is
@@ -417,8 +417,8 @@ additive vendor boards plus the shared wireless stack. WB32 platform support
 **Spike result (branch `split65-overlay` — renamed from `split65-rebase-spike`
 when it landed; off `qmk/master` `7a1bbf37c5`, 2026-10-02 — 1,695 commits ahead
 of base). The root gitlink points at it. The old vendor line is preserved as
-`split65-vendor-overlay` (= `d68e3152c3`, still on `origin/split65-overlay`);
-the two lines are not mergeable — they diverge from the upstream base
+`split65-vendor-overlay` (remote and local, `d68e3152c3`); the two lines are not
+mergeable — they diverge from the upstream base
 `92afc8198a` with 1,695 upstream commits on the new side — so the spike
 **replaces** the payload rather than merging with it. Our nine vendor-line
 authored commits remain on `split65-vendor-overlay`; their end-state is already

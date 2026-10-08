@@ -3,7 +3,8 @@
 ## Build (firmware)
 
 - QMK build toolchain as shipped in `qmk_firmware/`, which is a **pinned
-  submodule** (vendor revision `580665f7`). Its build-required submodules
+  submodule** (branch `split65-overlay`, rebased onto `qmk/qmk_firmware` master).
+  Its build-required submodules
   (`lib/{chibios,chibios-contrib,printf,lufa}`) are initialized; the rest arrive
   with the pinned revision.
 - `arm-none-eabi-gcc` (Arch: `arm-none-eabi-gcc`), `make`, `python3`.
@@ -193,11 +194,10 @@ diagnostics (toolchain, udev rules, device presence).
 The `qmk_firmware/` submodule carries our commits on top of the rebased base
 (`qmk/qmk_firmware` master). They are pushed to the submodule's remote
 (`pngdeity/cleave-keeb`, branch `split65-overlay`), so `git submodule update
---init --recursive` restores them. **Until the rebased branch is pushed, the
-remote's `split65-overlay` still holds the old vendor line** (preserved locally
-as `split65-vendor-overlay`); a fresh `submodule update` before the push would
-restore the pre-rebase tree. The list is kept here so the intent is discoverable
-and so they can be re-applied if the tree is ever reset to pristine upstream:
+--init --recursive` restores them. The old vendor line is preserved on
+`split65-vendor-overlay` (remote and local). The list is kept here so the intent
+is discoverable and so they can be re-applied if the tree is ever reset to
+pristine upstream:
 
 - `lib/python/qmk/math.py`: replace the removed `ast.Num` with `ast.Constant`
   (Python 3.12+).

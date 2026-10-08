@@ -49,7 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **`qmk_firmware/` is a pinned git submodule** (`pngdeity/cleave-keeb`, branch
-  `split65-overlay`, vendor revision `580665f7` + our commits). Board changes are
+  `split65-overlay`, rebased onto `qmk/qmk_firmware` master). Board changes are
   commits inside the submodule; the root repo pins the result by gitlink.
 - `bootmagic.matrix` corrected from `[0,0]` to `[1,0]` (the top-left key's real
   matrix position; row 0 is unused).

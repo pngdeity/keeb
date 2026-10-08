@@ -28,8 +28,9 @@ both halves.
 
 ## Build, lint, flash
 
-`qmk_firmware/` is a **pinned submodule** (vendor revision `580665f7`); the board
-source inside it carries our authored changes. The personal `nathan` keymap lives
+`qmk_firmware/` is a **pinned submodule** (branch `split65-overlay`, rebased onto
+`qmk/qmk_firmware` master); the board source inside it carries our authored
+changes. The personal `nathan` keymap lives
 **outside** the tree, in a sibling userspace repo (`../keeb-userspace/`).
 
 **Use the project-local wrappers — never a bare `make` or `qmk`:**

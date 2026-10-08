@@ -8,7 +8,7 @@ charges it while a separate, power-limited host uses it for input); and wired
 over USB while charging. See `docs/FINDINGS.md` "Functional
 requirements" for the rationale and the accepted tradeoffs. Mode 2 currently
 conflicts with a cable-insert auto-switch in the firmware; that is `TODO.md`
-Tier 1 item 7.
+Tier 1 item 8.
 
 To serve those modes, the firmware adds host-visible battery reporting via a
 vendor Raw HID command (`0xA4`), so a polybar module can display the keyboard's
@@ -25,7 +25,7 @@ halves still run an older build of it (see Status).
 
 | Path | Purpose |
 |------|---------|
-| `qmk_firmware/` | The QMK tree this board builds against, a **pinned submodule** (`pngdeity/cleave-keeb`, vendor revision `580665f7` + our commits). GPL-2.0-or-later. |
+| `qmk_firmware/` | The QMK tree this board builds against, a **pinned submodule** (`pngdeity/cleave-keeb`, rebased onto `qmk/qmk_firmware` master + our commits). GPL-2.0-or-later. |
 | `qmk_firmware/keyboards/epomaker/epomaker_split65/` | Board source, including our battery responder (`wls/wls_battery.c`). |
 | `qmk_firmware/keyboards/epomaker/epomaker_split65/keymaps/default/` | Vendor `default` keymap (the only keymap in the tree). |
 | `qmk_firmware/keyboards/linker/wireless/` | The vendor wireless stack, included by the board's `post_rules.mk`. |
@@ -50,11 +50,10 @@ halves still run an older build of it (see Status).
 - **`pngdeity/keeb`** (this project) — the docs, host tooling, build wrappers and
   the submodule pin.
 - **`pngdeity/cleave-keeb`** — the QMK fork the firmware builds from (branch
-  `split65-overlay`, now rebased onto `qmk/qmk_firmware` master; the old vendor
-  line is preserved as the local branch `split65-vendor-overlay`). It is the
+  `split65-overlay`, rebased onto `qmk/qmk_firmware` master). The old vendor line
+  is preserved as `split65-vendor-overlay` (remote and local). It is the
   `qmk_firmware/` submodule's remote. Upstream is `hangshengkeji/qmk_firmware`
-  (`tri-mode`). **The rebased branch is local-only until pushed** — the remote's
-  `split65-overlay` still holds the old vendor line.
+  (`tri-mode`).
 
 `qmk_firmware/` is a **pinned git submodule**, not plain files. A fresh clone
 needs `git clone --recurse-submodules` (or `git submodule update --init
