@@ -67,17 +67,18 @@ Name every port by side **and** function. Never say "the USB port".
 
 | Name | Half | Faces | Role |
 |---|---|---|---|
-| `P1 left-half USB-C` | left | rear edge | The left half's only port. |
-| `P2 right-half host USB-C` | right | rear edge, left of the mode switch | The wired-**host** data port. |
-| `P3 right-half charge USB-C` | right | rear edge, right of the mode switch | The second right-half port. |
+| `P1 left-half host USB-C` | left | rear edge | The wired-**host** data port. |
+| `P2 left-half charge USB-C` | left | rear edge | The second left-half port. |
+| `P3 right-half USB-C` | right | rear edge, at the mode-switch plate | The right half's only port. |
 
 Firmware caveat: there is **one** cable-detect pin (`HS_BAT_CABLE_PIN` = A7), so
-the firmware does **not** distinguish `P2` from `P3`. The distinction above is
-physical and by intended role, taken from the product photographs; treat the
-exact role split as provisional until confirmed (see `TODO.md`).
+on the **left** half the firmware does **not** distinguish `P1` from `P2`. The
+distinction above is physical and by intended role, taken from the product
+photographs; treat the exact role split as provisional until confirmed (see
+`TODO.md`).
 
 The inter-half **link cable** joins the two halves and also carries power (see
-`HARDWARE.md` "Split-link power"); it uses `P1` on the left half.
+`HARDWARE.md` "Split-link power"); it uses the right half's sole port (`P3`).
 
 ### Mode switch
 
@@ -180,17 +181,17 @@ Rear-edge photograph: `docs/assets/split65-rear-ports.webp`.
 
 Reading that photograph left to right:
 
-1. **Left half** rear: `P1 left-half USB-C`.
-2. **Right half** rear: `P2 right-half host USB-C`.
+1. **Left half** rear: `P1 left-half host USB-C`.
+2. **Left half** rear: `P2 left-half charge USB-C`.
 3. **Plate**: the 3-position `mode switch`, photographed in the `2.4 GHz`
    position, with the `USB`, `2.4 GHz` and `Bluetooth` glyphs beneath it.
-4. **Right half** rear: `P3 right-half charge USB-C`, on the plate's right.
+4. **Right half** rear: `P3 right-half USB-C`, at the plate.
 
 Not visible from the rear: the per-key LEDs (under the keycaps), the `volume
 knob` (top-right of the right half), the inter-half link cable.
 
-The left half has exactly one port (`P1`); the right half has two (`P2`, `P3`) —
-see "Nomenclature" for the firmware caveat that `P2` and `P3` are not
+The left half has two ports (`P1`, `P2`); the right half has one (`P3`) — see
+"Nomenclature" for the firmware caveat that `P1` and `P2` are not
 distinguishable to the firmware.
 
 ## Modes of operation
@@ -232,7 +233,7 @@ Selected by the `mode switch`; the active mode is reported by firmware as
 
 ### Inter-half link cable
 
-Connects the two halves (`P1` on the left half); carries both data and power.
+Connects the two halves (`P3` on the right half); carries both data and power.
 A single USB-C cable into **either** half charges the whole keyboard, so
 `charging_state` is a shared power-present bit, not per-half (see `HARDWARE.md`
 "Split-link power").

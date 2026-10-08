@@ -161,11 +161,11 @@ unverified.
 These facts are **not yet proven** and must be measured before the doc claims
 them:
 
-- [ ] **Which of `P2`/`P3` on the right half is the host data port vs the charge
+- [ ] **Which of `P1`/`P2` on the left half is the host data port vs the charge
       port.** Firmware has one cable-detect pin (`A7`) and cannot tell them
       apart; the roles in `DEVICE.md` are provisional.
 - [ ] **Confirm the current master/slave assignment** with the cable in the right
-      half's `P2` — record which half reports as master.
+      half's `P3` — record which half reports as master.
 - [ ] **Stock (`MILE`) factory configuration**: default layer, lighting, and
       keymap as shipped. Unverified; `DEVICE.md` "Stock vs ours" marks these
       unknown.

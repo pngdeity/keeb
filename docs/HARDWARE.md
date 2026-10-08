@@ -69,7 +69,7 @@ One LED, on the **right half** bottom row. Its index is into
 - **The inter-half link carries power.** A single USB-C cable into *either* half
   charges the whole keyboard, so both halves do not need to be plugged in.
 - Confirmed by the master's `charging_state` (A7) reading true with no cable in
-  the master's own port — only the right half's cable and the inter-half link.
+  the master's own port — only the slave half's cable and the inter-half link.
 - Consequence: `charging_state` is effectively a shared "power present" bit, not
   a per-half cable-detection bit.
 
