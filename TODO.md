@@ -139,16 +139,14 @@ sections below.
 12. **The rest of the UX / usability review** (whole section below) — layer
     ergonomics, held-modifier comfort, mode-switch discoverability, legends.
     Largest, most subjective; depends on 7 and 10 for what is even possible.
-13. **Research: can upstream's split watchdog replace the vendor's hand-rolled
-    disconnect handling?** Upstream ships `SPLIT_WATCHDOG_ENABLE` /
-    `SPLIT_MAX_CONNECTION_ERRORS` (`quantum/split_common/`), which detect exactly
-    the "link dropped" case the vendor instead handles itself (`wls/wls.c`
-    `lpwr_*` hooks plus the `0xAA` sleep-propagation cmd). Both touch the
-    right-half-wake and `lower_sleep` paths item 3/8 already modify, so decide
-    first whether enabling the upstream watchdog subsumes that handling or
-    conflicts with it. Also weigh `SPLIT_ACTIVITY_ENABLE`, which keeps the link
-    warm and so interacts with any sleep tuning. No code until the question is
-    answered.
+13. ~~**Research: can upstream's split watchdog replace the vendor's hand-rolled
+    disconnect handling?**~~ **DONE — enabled.** `SPLIT_WATCHDOG_ENABLE` is now
+    defined in the board `config.h` (regression 2 in the section below). Upstream's
+    `quantum/split_common` watchdog resets a slave that has heard nothing for
+    `SPLIT_WATCHDOG_TIMEOUT` (3 s) so it re-syncs instead of churning; upstream's
+    `transport_master_if_connected()` throttling was already live via
+    `quantum/matrix_common.c:96`. `SPLIT_ACTIVITY_ENABLE` remains an open
+    candidate (keeps the link warm; interacts with sleep tuning).
 
 **Dependency notes (why the order is not free):**
 
@@ -318,6 +316,53 @@ keyboard's VID:PID (`342d:e4c6`), the two cannot be told apart by a `342d` grep;
 the doc appears to have conflated them. Do not rewrite `PROTOCOL.md` on a guess —
 correct it only once a dongle is confirmed present on the bus. This is why the
 interface-2 preference in defect 3 above is still unconfirmed.
+
+## Regressions introduced by our own change set (not vendor defects)
+
+### 1. Slave backlight flickers then goes dark (split link while cabled) — FIXED
+
+**Symptom.** With both halves joined by the inter-half link cable, the slave's
+backlight flickered and then extinguished, on every USB-C cable tried. Absent on
+stock firmware.
+
+**Cause.** `suspend_power_down_user()` sends RPC `0xBB` and
+`suspend_wakeup_init_user()` sends `0xCC`; the slave's handler maps them to
+`gpio_write_pin_low/high(A5)` / `(A8)` — i.e. the master's own suspend/wake
+**broadcasts LED-rail power to the slave** (`LED_POWER_EN_PIN`/
+`LED_POWER_EN2_PIN`). The pair is asymmetric: `0xBB` fires on every suspend, but
+`0xCC` only on a matching QMK wake. When the master entered low power via the
+vendor `lpwr_*` path (not QMK suspend/wake), the slave last received `0xBB` with
+no `0xCC` to follow, so its rail stayed off.
+
+**Why our change set exposed it.** The flash-ready commit made
+`hs_transport_arbitrate_cable()` a no-op. Previously it forced the master's
+transport to match the cable every housekeeping tick, which kept the master out
+of the wireless low-power path while cabled, so `0xBB` never fired. Removing it
+(pre-req for requirement 2) let the master sleep while cabled. Stock firmware had
+the arbitrator; ours stopped calling it.
+
+**Fix.** Gate both sends on `wireless_get_current_devs() != DEVS_USB`
+(`epomaker_split65.c` `suspend_wakeup_init_user()` / `suspend_power_down_user()`):
+the LED-rail relay only makes sense on battery; while cabled the rail stays up on
+both halves. Two-line guard, no new coupling.
+
+### 2. Slave could churn forever on a genuinely lost link — FIXED
+
+Not a regression we introduced so much as an upstream feature we failed to enable
+at the re-base: `SPLIT_WATCHDOG_ENABLE` (upstream `quantum/split_common`) resets a
+slave (`mcu_reset()`) that has heard nothing for `SPLIT_WATCHDOG_TIMEOUT`
+(3 s default) so it re-syncs instead of hammering a dead transport. Now defined
+in the board `config.h`. Zero bespoke code.
+
+### Process note — anticipatable issues were not anticipated
+
+Both items above were foreseeable from upstream's own code and mechanics, and
+neither was caught because the re-base port audit checked only **breaking
+changes**, never "what upstream **features** does this board now become eligible
+for?". `SPLIT_WATCHDOG_ENABLE` and `SPLIT_ACTIVITY_ENABLE` were noted in
+`docs/FINDINGS.md` as unused options and then never acted on. Standing rule: after
+any base or feature change, enumerate newly-eligible upstream mechanisms, not just
+the compile breaks.
 
 ## Right-half DFU without hardware shorting
 

@@ -410,7 +410,9 @@ selection (`quantum/connection`, with our `connection_host_changed_kb()` as a
 deliberate adapter), the split transport and RPC (`quantum/split_common`,
 `transaction_rpc_*`), and core keyboard/RGB/encoder/raw-HID/EEPROM/bootmagic/NKRO.
 `SPLIT_WATCHDOG_ENABLE` / `SPLIT_ACTIVITY_ENABLE` are upstream options we have
-not switched on — unused features, not bespoke code.
+not switched on — unused features, not bespoke code. `SPLIT_WATCHDOG_ENABLE` is
+now enabled (see the regression section in `TODO.md`); `SPLIT_ACTIVITY_ENABLE`
+remains an open candidate.
 
 **Genuinely bespoke, and upstream has no equivalent (this is the contribution,
 not a leftover):**
