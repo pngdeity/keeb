@@ -2,7 +2,15 @@ name: Build firmware
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'vendor/**'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'vendor/**'
   workflow_dispatch:
 permissions:
   contents: read
