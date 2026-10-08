@@ -1,10 +1,19 @@
 # EPOMAKER Split65 — Battery Reporting Protocol
 
-> **Scope.** This documents the protocol implemented by the **battery-feature
-> build** (committed in the `qmk_firmware` submodule as `wls/wls_battery.c`; the
-> halves currently run an older build of it). On a stock/vendor build with no
-> responder, the raw HID interface answers with an unhandled `FF` sentinel
-> instead. See `TODO.md` Status.
+> **Scope.** This documents the wire format of the battery responder and the
+> host read path — the `0xA4` raw HID command and its reply. The *value* source
+> is upstream QMK's battery API: the board supplies a `custom` battery driver
+> (`wls/wls_battery_driver.c`) whose `battery_driver_sample_percent()` returns
+> the wireless module's UART level, and the responder answers
+> `battery_get_percent()` (`quantum/battery/`). The `kb_battery_*` helpers named
+> below survive only as the responder's own framing/push logic; the percentage
+> is no longer computed by them. See `docs/FINDINGS.md`, "upstream already ships
+> the battery and connection APIs".
+>
+> The responder is committed in the `qmk_firmware` submodule as
+> `wls/wls_battery.c` (on the re-base spike branch; the halves currently run an
+> older build). On a stock/vendor build with no responder, the raw HID interface
+> answers with an unhandled `FF` sentinel instead. See `TODO.md` Status.
 
 Raw HID command used by the host to read the keyboard battery over all
 transports. The command id `0xA4` (`KC_GET_BATTERY_LEVEL`) follows the

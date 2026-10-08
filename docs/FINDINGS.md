@@ -331,6 +331,65 @@ entering its DFU bootloader (physical BOOT pads, same as the keyboard); the
 optional command is
 `wb32-dfu-updater_cli -t -s 0x08000000 -U dongle.bin`. Not done, not required.
 
+## FINDING — upstream already ships the battery and connection APIs; adopt, don't maintain
+
+The re-base makes two upstream features usable that the vendor tree could not
+have had: `quantum/battery/` and `quantum/connection/`. Both are now enabled on
+the spike and the vendor's parallel code is replaced rather than kept.
+
+**Battery — upstream owns the sampling and the cache.** `quantum/battery/`
+calls `battery_init()`/`battery_task()` from core (`quantum/keyboard.c`),
+sampling every `BATTERY_SAMPLE_INTERVAL` (30 s) through a driver, caching the
+result, and exposing `battery_get_percent()` plus weak
+`battery_percent_changed_user/kb(uint8_t)` hooks. The driver contract is small
+and is the intended hook for a non-ADC source: the `custom` driver needs only
+`void battery_driver_init(void)` and `uint8_t battery_driver_sample_percent(void)`
+(`drivers/battery/battery_driver.h`); `BATTERY_DRIVER = custom` in
+`post_rules.mk` makes the build skip the bundled driver compile. Our
+`wls/wls_battery_driver.c` is that driver — it returns `*md_getp_bat()`, the
+module's UART-reported level, clamped to 100. The vendor's own
+`kb_battery_percent()` is deleted; `kb_battery_snapshot()` now fills its
+`percent` field from `battery_get_percent()`.
+
+What stays board-local: the `0xA4` raw-HID **responder** (`wls/wls_battery.c`).
+Upstream has no host-visible battery command, so this remains ours. The
+distinction matters — upstream owns the *value*, the board owns the *wire*.
+
+**Connection — upstream is a state store, not a transport driver.** This is the
+non-obvious one. `quantum/connection/` records a `desired_host` in EEPROM
+(`eeconfig_read_connection`) and fires `connection_host_changed_user/kb(host)`;
+it never calls `host_set_driver()`, never touches USB, and its 2.4 GHz candidate
+is `#if 0`-disabled in the candidate array. `connection_set_host()` is a no-op
+when the value is unchanged. So it cannot by itself switch transports on this
+board — the vendor's `wireless_devs_change()` / `set_transport()` remains the
+transport authority.
+
+The board therefore **bridges** the two: `connection_host_changed_kb(host)` maps
+`CONNECTION_HOST_USB` → `DEVS_USB`, `2P4GHZ` → `DEVS_2G4`, `BLUETOOTH` →
+`confinfo.last_btdevs` (fallback `DEVS_BT1`), and ignores `AUTO`/`NONE`; then
+applies it through `wireless_devs_change()`. The vendor keycode path
+(`KC_BT1`/`BT3`/`KC_2G4`) now routes through `connection_set_host()` instead of
+calling `wireless_devs_change()` directly, so upstream owns the user-facing
+selection and the EEPROM record, while the vendor keeps the `DEVS_*` enum and its
+BT1–BT5 profile model. The deferred long-press re-pair path still calls
+`wireless_devs_change(..., true)` directly, preserving pairing/reset.
+
+**Enabling them.** `BATTERY` and `CONNECTION` are `GENERIC_FEATURES` entries
+(`builddefs/generic_features.mk`), so they are turned on with
+`keyboard.json` `features: {battery: true, connection: true}` — which also sets
+`BATTERY_ENABLE`/`CONNECTION_ENABLE`. This is the correct standalone switch for
+`CONNECTION`: `common_features.mk` only sets `CONNECTION_ENABLE` as a side effect
+of `BLUETOOTH_ENABLE` and has no block of its own. Note `quantum/quantum.h`
+auto-includes `battery.h` but **not** `connection.h`, so the board `.c` includes
+it explicitly.
+
+**Consequence.** Adopting the upstream battery API retires the
+`kb_battery_snapshot_t`/`kb_battery_percent()` naming that
+`docs/PROTOCOL.md` described — that doc now scopes to the wire format and the
+responder, not the internal value source. This is the ownerless-shared-state
+cleanup arriving for free: the value's owner is now upstream core, and only the
+wire stays board-local.
+
 ## FINDING — shared state has no owner; two contained fixes
 
 The board and the wireless stack communicate through **shared mutable globals**

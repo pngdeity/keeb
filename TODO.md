@@ -436,9 +436,13 @@ additive vendor boards plus the shared wireless stack. WB32 platform support
   edit). Keep it as a binary dependency, or treat it as the thing to replace.
 - **Legacy `keyboards/wireless/` copy** carried in the spike — possibly
   removable in favour of the hoisted `keyboards/linker/wireless/`.
-- **Upstream battery API.** Master has `quantum/battery/` +
-  `drivers/battery/` (with a `custom` driver contract). Re-basing makes migrating
-  our `kb_battery_*` onto it finally possible — see `docs/FINDINGS.md`.
+- **Upstream battery + connection APIs — ADOPTED (on the spike branch).**
+  Master's `quantum/battery/` + `drivers/battery/` now back the battery value
+  via a `custom` driver (`wls/wls_battery_driver.c`), and `quantum/connection/`
+  owns the user-facing host selection, bridged to the vendor `DEVS_*` enum by
+  `connection_host_changed_kb()`. The `0xA4` responder stays board-local. Builds
+  green (`default` 65,252 B, `nathan` 67,296 B). See `docs/FINDINGS.md`,
+  "upstream already ships the battery and connection APIs".
 
 **Cost note.** A re-base invalidates any hardware verification done on the vendor
 tree, which is exactly why it is now first: do the Tier 1 flash and measurements
