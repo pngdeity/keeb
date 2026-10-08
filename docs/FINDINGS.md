@@ -433,6 +433,54 @@ not a leftover):**
 the module as one more `host_driver_t` alongside `bt_driver`, rather than a
 parallel swap path. This is the single consolidation candidate.
 
+## FINDING — upstream is already defining the API we would invent, and we should follow it
+
+The wireless work is **not duplicating anything merged**, but it is on a
+**collision course with unmerged upstream PRs that propose the exact layering our
+audit independently derived.** Follow their shape rather than inventing ours.
+
+**Nothing on our axis has landed.** On `qmk/master` `7a1bbf37c5`: `drivers/wireless/`
+does not exist; `WIRELESS_2P4GHZ` appears nowhere in `builddefs/`; and
+`quantum/connection/connection.c` still has `CONNECTION_HOST_2P4GHZ` behind
+`#if 0` in `host_candidates[]` (the keycode is wired in
+`process_keycode/process_connection.c`, but the host is unreachable by cycling).
+Only the connection *keycode* ever merged (PR 24251, in our base).
+
+**The upstream proposals, and why they matter to us:**
+
+- **PR 26203 — "enable/implement 2.4 GHz wireless dongle API" (damex).** Closed
+  by the stale bot (2026-08-04), **not rejected**. It proposes precisely the
+  layering this project derived: a `drivers/wireless/wireless_2p4ghz.{c,h}`
+  dispatcher with weak hooks (`init`, `task`, `is_connected`, `can_send_nkro`,
+  `keyboard_leds`, the `send_*` family, `unpair`); a `wireless_2p4ghz_driver`
+  `host_driver_t` in `tmk_core/protocol/host.c` selected when
+  `active_host == CONNECTION_HOST_2P4GHZ`; auto-detect via
+  `wireless_2p4ghz_is_connected()`; a `QK_2P4GHZ_UNPAIR` keycode; enabled with
+  `WIRELESS_2P4GHZ_ENABLE` + `WIRELESS_2P4GHZ_DRIVER = custom`. That is the
+  `host_driver_t`-swap + dispatcher shape, arrived at independently here.
+- **PR 26207 — "implement bt/2.4 GHz fr800x driver" (damex).** **OPEN.** A
+  `drivers/fr800x.{c,h}` shared core for the Freqchip fr8003a UART module —
+  state machine, opcode framing, three BT slots plus a dongle, battery query,
+  charging relay — with thin `drivers/bluetooth/fr800x.c` and
+  `drivers/wireless/fr800x.c` adapters. It is the **same category as our
+  module stack, for a different chip**, and its body says it is "modeled on how
+  the existing bluetooth driver api is implemented". If 26203+26207 land,
+  `WIRELESS_2P4GHZ_DRIVER` becomes real and our stack should be **one more
+  driver behind that API**, not a parallel `keyboards/linker/wireless/` layer.
+- **PR 24365 — "Host driver (wireless) rework, phase 1" (tzarc).** Open draft,
+  stalled ~1.5 years, but it is the maintainer-sanctioned `host_driver_t` swap
+  direction ("swap around outputs dynamically"). Confirms the target; not
+  dependable to land.
+
+**Consequence for our plan.** The layering step below is no longer *our* design
+choice — it is **"conform to the pending upstream shape."** Target
+`WIRELESS_2P4GHZ_DRIVER = custom` and a `drivers/wireless/` dispatcher as PR
+26203 defined them, so our driver drops in behind the upstream API instead of
+racing it. `damex` is the author to engage before writing more, and the U1 RFC
+should cite 26203 / 26207 / 24365 explicitly rather than proposing an API from
+scratch. This supersedes the earlier framing of the layering decision as an open
+design question.
+
 **Alignment plan (for the eventual upstream merge).** QMK review is mechanical,
 and most of it is already satisfied (`qmk lint` is clean on the spike). The
 remaining work is sequenced cheapest-first and happens **on the spike branch**,
@@ -445,11 +493,15 @@ against the vendor overlay:
 2. **Naming / hook conventions** — move the vendor's `wls_*`/`kb_*`/`hs_*` prefixes
    toward upstream idioms, with `_kb`/`_user` hook suffixes and `xxx_init`/`xxx_task`
    pairs where core calls them. The adopted battery driver is the template.
-3. **Layering decision (the real gate)** — whether the wireless stack becomes a
-   `drivers/wireless/` + `quantum/wireless/` feature with a driver contract,
-   mirroring `quantum/battery`/`drivers/battery`. Upstream has no precedent for a
-   shared dir under `keyboards/` (our `keyboards/linker/wireless/`). Resolves the
-   `host_driver_t` alignment above.
+3. **Layering — CONFORM to the pending upstream shape (no longer a design
+   question).** Target `WIRELESS_2P4GHZ_DRIVER = custom` behind a
+   `drivers/wireless/wireless_2p4ghz.*` dispatcher and a
+   `host_driver_t wireless_2p4ghz_driver` in `tmk_core/protocol/host.c`, exactly
+   as PR 26203 defines it (see "upstream is already defining the API" above).
+   Our module stack becomes one driver behind that API rather than a parallel
+   `keyboards/linker/wireless/` layer. This also resolves the `host_driver_t`
+   alignment above. Upstream has no precedent for a shared dir under
+   `keyboards/`, which is why the stack must move behind the driver contract.
 4. **`libmodule.a` — RESOLVED (not a blocker).** The archive lived only in the
    obsolete `keyboards/wireless/` directory, which no board linked (no
    `-lmodule` in any build); the live stack is `keyboards/linker/wireless/` with

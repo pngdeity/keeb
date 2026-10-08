@@ -471,14 +471,20 @@ why it is not superseded".
    hook suffixes and `xxx_init`/`xxx_task` pairs where core calls them. The
    adopted battery driver (`wls_battery_driver.c`) already conforms — that is why
    it dropped in cleanly; treat it as the template.
-3. **Layering decision (the real gate).** Decide whether the wireless stack
-   becomes an upstream-shaped feature — a `drivers/wireless/` + `quantum/wireless/`
-   pair with a driver contract, mirroring `quantum/battery`/`drivers/battery` —
-   or stays board/shared-local. Upstream has **no precedent for a shared dir
-   under `keyboards/`** (our `keyboards/linker/wireless/`). This also resolves the
-   flagged `host_driver_t` alignment: present the module as one more
-   `host_driver_t` beside upstream's `bt_driver` in `tmk_core/protocol/host.c`,
-   rather than a parallel swap mechanism.
+3. **Layering — CONFORM to the pending upstream shape (no longer our choice).**
+   Upstream PRs already propose the exact layering this project derived:
+   **26203** (damex, "2.4 GHz wireless dongle api" — stale-bot-closed, not
+   rejected) defines a `drivers/wireless/wireless_2p4ghz.{c,h}` dispatcher with
+   weak hooks plus a `host_driver_t wireless_2p4ghz_driver` in
+   `tmk_core/protocol/host.c` selected when `active_host ==
+   CONNECTION_HOST_2P4GHZ`, enabled by `WIRELESS_2P4GHZ_ENABLE` +
+   `WIRELESS_2P4GHZ_DRIVER = custom`; **26207** (damex, OPEN) is the same
+   category for the Freqchip fr800x chip; **24365** (tzarc, open draft) is the
+   maintainer-sanctioned `host_driver_t` swap. So the target is
+   `WIRELESS_2P4GHZ_DRIVER = custom`, with our module stack as **one driver
+   behind that API**, not a parallel `keyboards/linker/wireless/` layer. Engage
+   `damex` before writing more; cite 26203/26207/24365 in the U1 RFC. See
+   `docs/FINDINGS.md`, "upstream is already defining the API we would invent".
 4. **`libmodule.a` — RESOLVED, not a blocker.** The prebuilt archive lived only
    in the obsolete `keyboards/wireless/` copy, which no board linked (no
    `-lmodule` in any build); the live stack is `keyboards/linker/wireless/` with
