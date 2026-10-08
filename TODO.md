@@ -140,13 +140,15 @@ sections below.
     ergonomics, held-modifier comfort, mode-switch discoverability, legends.
     Largest, most subjective; depends on 7 and 10 for what is even possible.
 13. ~~**Research: can upstream's split watchdog replace the vendor's hand-rolled
-    disconnect handling?**~~ **DONE — enabled.** `SPLIT_WATCHDOG_ENABLE` is now
-    defined in the board `config.h` (regression 2 in the section below). Upstream's
-    `quantum/split_common` watchdog resets a slave that has heard nothing for
-    `SPLIT_WATCHDOG_TIMEOUT` (3 s) so it re-syncs instead of churning; upstream's
-    `transport_master_if_connected()` throttling was already live via
-    `quantum/matrix_common.c:96`. `SPLIT_ACTIVITY_ENABLE` remains an open
-    candidate (keeps the link warm; interacts with sleep tuning).
+    disconnect handling?**~~ **DONE — decided AGAINST.** The watchdog was enabled
+    during the re-base, then proved to reset-loop the slave (~3 s) on hardware:
+    its slave-side `done` flag is refreshed only by the master's one-way ping,
+    which the master stops emitting once its own flag is clear, so the slave can
+    never re-arm. It is now deliberately **not** defined in the board `config.h`
+    (regression 2 below), matching the vendor firmware, which never enabled it.
+    Upstream's `transport_master_if_connected()` throttling remains live via
+    `quantum/matrix_common.c:96` and is unaffected. `SPLIT_ACTIVITY_ENABLE`
+    remains an open candidate (keeps the link warm; interacts with sleep tuning).
 
 **Dependency notes (why the order is not free):**
 
@@ -346,23 +348,53 @@ the arbitrator; ours stopped calling it.
 the LED-rail relay only makes sense on battery; while cabled the rail stays up on
 both halves. Two-line guard, no new coupling.
 
-### 2. Slave could churn forever on a genuinely lost link — FIXED
+### 2. Slave reset-looped and went dark (split watchdog) — FIXED (by disabling)
 
-Not a regression we introduced so much as an upstream feature we failed to enable
-at the re-base: `SPLIT_WATCHDOG_ENABLE` (upstream `quantum/split_common`) resets a
-slave (`mcu_reset()`) that has heard nothing for `SPLIT_WATCHDOG_TIMEOUT`
-(3 s default) so it re-syncs instead of hammering a dead transport. Now defined
-in the board `config.h`. Zero bespoke code.
+**Symptom.** With the halves cabled, the slave's backlight flickered and then
+went entirely dark after ~5–10 s and did not come back on its own keypresses.
+
+**Cause.** `SPLIT_WATCHDOG_ENABLE` was enabled during the re-base (thinking it
+would replace the vendor's own disconnect handling — it did not, and it was not
+the fix for §1 either). Upstream's `split_watchdog_task()` calls `mcu_reset()` on
+a non-master after `SPLIT_WATCHDOG_TIMEOUT` (3 s). But the slave's `done` flag is
+refreshed **only** by `split_shmem->watchdog_pinged`, which the master writes only
+while the master's own `done` is false. The slave's `is_transport_connected()`
+can never re-arm `done` (`connection_errors` is incremented only inside the
+master-only `transport_master_if_connected()`), so once the master stopped
+pinging the slave reset every ~3 s, forever — rebooting just enough to blink the
+rail before the next reset. The vendor firmware never enabled this watchdog.
+
+**Fix.** `SPLIT_WATCHDOG_ENABLE` is **deliberately not defined** in the board
+`config.h`, with a comment recording why (so a rebase reader does not re-add it).
+Confirmed on hardware: backlight stable, no reset. Upstream's
+`transport_master_if_connected()` throttle (`quantum/matrix_common.c:96`) is
+unaffected and still live.
+
+### 3. Slave typed nothing (module UART collided with the split link) — FIXED
+
+**Symptom.** Master keystrokes registered; slave keystrokes produced no
+characters at all. Present on our build, absent on stock.
+
+**Cause.** The vendor's old `platforms/chibios/drivers/uart.h` carried a
+deprecation alias layer mapping `SERIAL_DRIVER`→`UART_DRIVER` and `SD1_*`→
+`UART_*`. Upstream **removed that file**, and the re-base re-added `UART_TX_PIN`/
+`UART_RX_PIN`/pal-modes but **omitted `UART_DRIVER`**. `uart_serial.c` then
+defaults `UART_DRIVER` to `SD1` — the same peripheral as the split link
+(`SERIAL_USART_DRIVER SD1`). Two drivers on UART1 meant the slave's matrix rows
+never reached the master.
+
+**Fix.** `#define UART_DRIVER SD3` in the board `config.h` (the vendor's value),
+with a comment. Confirmed on hardware: the slave types.
 
 ### Process note — anticipatable issues were not anticipated
 
-Both items above were foreseeable from upstream's own code and mechanics, and
-neither was caught because the re-base port audit checked only **breaking
-changes**, never "what upstream **features** does this board now become eligible
-for?". `SPLIT_WATCHDOG_ENABLE` and `SPLIT_ACTIVITY_ENABLE` were noted in
-`docs/FINDINGS.md` as unused options and then never acted on. Standing rule: after
-any base or feature change, enumerate newly-eligible upstream mechanisms, not just
-the compile breaks.
+Both §1 and §2 were foreseeable from upstream's own code and mechanics, and §2 and
+§3 are both **rebase omissions** (dropped alias macros; an upstream feature enabled
+without checking its slave-side contract). None was caught because the re-base port
+audit checked only **breaking changes**, never "what upstream **features** does this
+board now become eligible for, and what are their contracts?". Standing rule: after
+any base or feature change, enumerate newly-eligible upstream mechanisms *and* trace
+their contracts on this board — not just the compile breaks.
 
 ## Code audit — bespoke payload correctness and upstream-idiom review
 

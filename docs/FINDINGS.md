@@ -409,10 +409,12 @@ upstream does not implement at all.
 selection (`quantum/connection`, with our `connection_host_changed_kb()` as a
 deliberate adapter), the split transport and RPC (`quantum/split_common`,
 `transaction_rpc_*`), and core keyboard/RGB/encoder/raw-HID/EEPROM/bootmagic/NKRO.
-`SPLIT_WATCHDOG_ENABLE` / `SPLIT_ACTIVITY_ENABLE` are upstream options we have
-not switched on — unused features, not bespoke code. `SPLIT_WATCHDOG_ENABLE` is
-now enabled (see the regression section in `TODO.md`); `SPLIT_ACTIVITY_ENABLE`
-remains an open candidate.
+`SPLIT_WATCHDOG_ENABLE` / `SPLIT_ACTIVITY_ENABLE` are upstream options.
+`SPLIT_WATCHDOG_ENABLE` was tried and reverted: its slave-side re-arm depends on
+a one-way master ping, which reset-looped this board's slave (~3 s) — it is
+deliberately left off, matching the vendor firmware (see the regression section in
+`TODO.md`). `SPLIT_ACTIVITY_ENABLE` is enabled (via `keyboard.json`
+`split.transport.sync.activity`).
 
 **Genuinely bespoke, and upstream has no equivalent (this is the contribution,
 not a leftover):**
@@ -583,12 +585,14 @@ port should **extend** them, not reinvent them.
 **What upstream offers that the vendor does not yet use** (candidates for the U1
 port, not defects today):
 
-- **`SPLIT_WATCHDOG_ENABLE` / `SPLIT_MAX_CONNECTION_ERRORS`.** The vendor stack
-  has its own low-power/disconnect handling; upstream's watchdog would reboot a
-  wedged slave if no master communication arrives. Worth evaluating against the
-  vendor logic rather than adding blindly.
+- **`SPLIT_WATCHDOG_ENABLE` / `SPLIT_MAX_CONNECTION_ERRORS`.** Tried and
+  **reverted**: upstream's watchdog reset-loops a slave on this board because the
+  slave's `done` flag can only be re-armed by a one-way master ping. The vendor
+  stack's own low-power/disconnect handling stays; the watchdog is left off. (The
+  `SPLIT_MAX_CONNECTION_ERRORS` retry throttle is part of
+  `transport_master_if_connected()` and remains live independently.)
 - **`SPLIT_ACTIVITY_ENABLE`.** Syncs activity timestamps so a sleep timeout can
-  fire consistently across halves — directly relevant to the deep-sleep work.
+  fire consistently across halves — already enabled via `keyboard.json`.
 - **The other `SPLIT_*` sync options** (`SPLIT_MODS_ENABLE`, `SPLIT_LAYER_STATE_ENABLE`,
   …) are documented as cosmetic/OLED aids; the board has no display, so these are
   not needed.
