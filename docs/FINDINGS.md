@@ -346,6 +346,59 @@ entering its DFU bootloader (physical BOOT pads, same as the keyboard); the
 optional command is
 `wb32-dfu-updater_cli -t -s 0x08000000 -U dongle.bin`. Not done, not required.
 
+## FINDING — Bluetooth is a dongle-free path to the same radio, and upstream BT is not our shape
+
+Two facts that matter for testing and for the eventual upstream port.
+
+**The battery inquiry is transport-gated, and USB is the only blocked transport.**
+`wireless_task()` (`keyboards/linker/wireless/wireless.c:225-243`) only calls
+`md_inquire_bat()` when the transport is **not** USB:
+
+```c
+if (get_transport() == TRANSPORT_USB) {
+    usb_remote_wakeup();
+} else if (lpwr_get_state() == LPWR_NORMAL) {
+    if (sync_timer_elapsed32(inqtimer) >= WLS_INQUIRY_BAT_TIME) {
+        if (md_inquire_bat()) inqtimer = sync_timer_read32();
+    }
+}
+```
+
+The reply handler (`MD_REV_CMD_BATVOL`, `module.c:232-233`) is transport-agnostic.
+So **Bluetooth populates `md_info.bat` exactly as 2.4 GHz would** — which makes BT
+a **dongle-free substitute** for the blocked 2.4 GHz tests: the real battery
+percentage (and the ground truth defect 1's honesty fix needs), the real
+transport field, and requirement 2. The raw-HID tunnel is likewise
+transport-agnostic (`md_raw.c:23-27`: `replaced_hid_send()` uses `md_send_raw()`
+whenever the transport is not USB). Caveat: the module is the single radio for
+both 2.4 GHz and BT, so a BT *failure* would be ambiguous (module vs host), but a
+BT *success* proves the module radio alive and yields the real reading.
+
+**Upstream's Bluetooth subsystem does not fit this board — but there is a seam to
+conform to later.** `docs/features/wireless.md` scopes upstream BT to **AVR only**:
+RN-42 (UART, `BLUETOOTH_DRIVER = rn42`) and Adafruit Bluefruit LE SPI Friend (SPI,
+`bluefruit_le`); Bluefruit LE UART / HC-05 / HM-13 are "Not Supported Yet". This
+board's BT is a **third-party UART module** (the same chip that does 2.4 GHz) with
+**multi-profile BT (BT1–BT5)**, driven over the vendor `module.c`/`smsg.c` UART
+protocol and selected by the physical mode switch — neither RN-42 nor Bluefruit,
+on a ChibiOS/WB32 ARM MCU. Nothing upstream can be reused directly, and for the
+immediate test upstream is irrelevant: our BT runs entirely through the vendor
+stack, not `host_driver_t bluetooth_*`.
+
+The upstream-shaped seam for the contribution is the **`custom` driver type**:
+`builddefs/common_features.mk:905-927` lists
+`VALID_BLUETOOTH_DRIVER_TYPES := bluefruit_le custom rn42`, and the driver
+contract is `drivers/bluetooth/bluetooth.h` (`bluetooth_init/task/is_connected/
+can_send_nkro/keyboard_leds/send_{keyboard,nkro,mouse,consumer,system,raw_hid}`);
+core wires it through `host_driver_t bt_driver` (`tmk_core/protocol/host.c:53-62`,
+under `BLUETOOTH_ENABLE`) with `bluetooth_init()`/`bluetooth_task()` called from
+`quantum/keyboard.c:541,792`. A future `BLUETOOTH_DRIVER = custom` implementing
+that header is the upstream-idiomatic home for our module — mirroring what we
+already did with `BATTERY_DRIVER = custom`. Of the upstream BT keycodes, only
+`QK_OUTPUT_BLUETOOTH` is implemented; the profile/unpair/2.4 GHz keycodes are all
+still "(not yet implemented)". **This is a later refactor, not a test
+prerequisite.**
+
 ## FINDING — upstream already ships the battery and connection APIs; adopt, don't maintain
 
 The re-base makes two upstream features usable that the vendor tree could not
