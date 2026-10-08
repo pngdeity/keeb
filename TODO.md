@@ -612,6 +612,48 @@ to trim the compiled-in animation list. The remainder stay here.
 Deliverable: a reviewed mapping with a written rationale for every deviation
 from the vendor default. Record findings here and in `docs/FINDINGS.md`.
 
+## Reverse-engineering the board (no OEM schematic exists)
+
+Epomaker has not published a schematic, and QMK upstream has flagged the lack.
+The board is in hand and fully USB-powered, so a reverse-engineered
+**interface-level** map is recoverable — enough for a QMK port. What probing can
+and cannot establish:
+
+- **Definitive (measured):** pin-to-signal mapping for every GPIO; net
+  connectivity (continuity on an unpowered board); power-rail voltages; the WS2812
+  daisy-chain order; the module UART and its protocol (with a logic analyzer);
+  charging/FULL/CABLE line polarity and behaviour.
+- **Inferred, not proven:** component values read in-circuit (parallel paths make
+  a meter lie); *why* a net exists; the module's internals (sealed sub-board).
+- **Effectively unknowable:** PCB inner-layer routing under a power plane (the
+  endpoints are findable, the path is not); laser-etched part numbers; the
+  designer's naming and intent. You reconstruct a functionally-equivalent
+  schematic, never *the* schematic — label it **reverse-engineered** (measured
+  nets = fact; values/intent = inference).
+
+Probe plan (produces an upstream-usable pin/net map):
+
+1. **Cold, unpowered — continuity.** Enumerate the MCU package pins and classify
+   each as connected / NC. Map matrix rows and columns (already partly known from
+   the firmware: rows 1–5 left, 7–11 right; `MATRIX_COLS 9`). Confirm the LED
+   data chain start and order. Identify the module UART, power and control pins,
+   and the USB-C CC/ID conditioning. Prefer exposed test pads/probe points; do
+   not lift legs.
+2. **Powered — voltages.** USB VBUS 5 V, the 3.3 V (or core) regulator output,
+   the LED rail, the charger output. Record each under USB power.
+3. **Powered — dynamic.** Toggle each firmware-known pin (A5/A8 LED power, A7
+   cable detect, A15 FULL, B9 handedness, B7/B6 encoder, C10/C11 module UART,
+   A9/A10 split link) and observe the responding net. For firmware-*unknown*
+   GPIOs, toggle in a scratch build and watch where the state changes.
+4. **Logic capture.** A logic analyzer on the module UART (SD3, C10/C11) and the
+   WS2812 data line turns "this is a UART" into the concrete protocol —
+   confirming the deobfuscated `module.c`/`smsg.c` or surfacing undocumented
+   commands. Highest-value new knowledge.
+
+Caution: continuity on a populated board is the slow/lossy part, not the
+electrical part. Record every result as measured vs inferred. Deliverable: a
+`docs/` reverse-engineered interface map a QMK reviewer can trust.
+
 ## Other
 
 - **Wireless while charging (requirement 2)** — now first-class, see `## Priority
