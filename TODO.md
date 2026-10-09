@@ -857,8 +857,47 @@ Build clean (63,552 B); `format-c` clean; tests pass (transport_logic 6,
 lowpower_logic 8, wireless_nkro_parity 8). **Not yet flashed.**
 
 **Next probe (hardware).** Flash, then with the right half dark: read `0xA4`
-(master alive) and toggle the master's RGB brightness (Fn+`F5`/`F6`) — the
-**slave** rail must come back and stay back.
+(master alive) and press **Fn+`↑`** (brightness up, `RM_VALU`) — the **slave**
+rail must come back and stay back. (Not `Fn+F5`/`F6`: on the `nathan` keymap the
+`_FL` F5/F6 keys are plain `KC_F5`/`KC_F6`; the RGB-value keys are `RM_VALU` on
+Fn+`↑` and, since the brightness fix, `RM_VALD` on its left neighbour plus the
+Fn-layer encoder.)
+
+### 6. Right (slave) half's backlight flashes on a fixed interval — FIXED (rearchitected)
+
+**Symptom (2026-10-09).** The right half's backlight flashes on a **consistent
+~2 s interval**; re-seating the inter-half cable does not change it.
+
+**Root cause (confirmed by reading source).** `wireless_devs_change_kb(old, new,
+reset)` served **two unrelated purposes**: (1) bookkeeping — mirror the vendor
+device index into `confinfo`; (2) a transient **pairing-indicator flash** (`switch
+(new_devs)` → `rgb_matrix_wls_indicator_set(index, color, 500, 1)`). (1) must run
+on every call; (2) should run only on a real transition — but they were welded
+together, so the function blinked on every call with no change guard. Three
+callers re-assert with `old == new`: the master's **2 s** `master_sync_mms_slave`
+(carries the battery `pov`), the `MD_STATE_DISCONNECTED` retry in
+`hs_rgb_blink_hook`, and `rgb_matrix_wls_indicator_cb`. So every 2 s the slave was
+told "you're on channel N" and re-flashed the indicator — a blink with no meaning,
+on the half the user did not touch.
+
+**Why it should not exist as-is (UX).** The indicator is *feedback for a deliberate
+action* (Fn+Q/W/E or a switch move confirms the channel). A periodic flash is not
+feedback: on a split it flashes the half you did not press, and a signal that
+fires on non-events trains the user to ignore it. It had escaped its purpose.
+
+**Fix (rearchitected, A: one-shot on real transitions, both halves).**
+`wireless_devs_change_kb` is now **bookkeeping only** (no LED writes; params
+unused). A new **`wls_indicate_devs(new_devs, reset)`** owns the transient flash and
+is called **only** from genuine transitions: the mode-switch edge
+(`wls.c` `sw_mode`), the Fn+Q/W/E keycode tap (`WLS_KEYCODE_EXEC`), the three
+re-pair long-presses, and the indicator's own self-re-arm while still unconnected
+(`rgb_matrix_wls_indicator_cb` — a repeat policy, not a change). The 2 s sync
+becomes a true no-op for LEDs. `wls_rgb_indicator_reset` now travels with
+`wls_indicate_devs`. This is the **same separation as defect 5** (effect out of
+bookkeeping, one owner, no-ops silent) — board-local.
+
+Build clean (63,804 B); `format-c` clean; tests pass (transport_logic 6,
+lowpower_logic 8, wireless_nkro_parity 8). **Not yet flashed.**
 
 ### Process note — anticipatable issues were not anticipated
 

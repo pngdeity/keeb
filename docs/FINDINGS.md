@@ -1500,3 +1500,42 @@ This is the same shape as the transport collapse (item 14): several partial
 writers of one piece of state, reconciled into a single authoritative owner —
 board-local here because a vendor rail-relay is not a generic model gap, but the
 principle (derive, don't scatter) is the general one.
+
+## FINDING — the half-blink was a transient effect welded to a bookkeeping hook
+
+Same disease as the rail, different organ. `wireless_devs_change_kb(old, new,
+reset)` did two jobs that have opposite call frequencies:
+
+- **Bookkeeping** — mirror the vendor device index into `confinfo`. Wanted on
+  *every* call.
+- **A transient indicator flash** — `switch (new_devs)` → `rgb_matrix_wls_indicator_set(index, color, 500, 1)`.
+  Wanted only on a *real* transition.
+
+Because the flash lived inside a function the bookkeeping needs unconditionally,
+it fired on every call with **no change guard** — including the master's **2 s**
+`master_sync_mms_slave` (which exists to carry the battery value, `old == new`),
+the `MD_STATE_DISCONNECTED` retry in `hs_rgb_blink_hook`, and the indicator's own
+`rgb_matrix_wls_indicator_cb`. Net effect: the **slave half flashed its indicator
+every 2 s forever**, on the half the user had not touched.
+
+**Why a guard would have been the wrong fix.** Adding `if (old == new) return;`
+to the flash would have treated the symptom: the *function* would still conflate
+two responsibilities with different cadences, and the next re-assert caller would
+inherit the same latent blink. The honest read is that the change hook should
+never have had a visible effect at all.
+
+**The rearchitecture: separate the effect, give it one owner.** `wireless_devs_change_kb`
+is now **bookkeeping only**; a new **`wls_indicate_devs(new_devs, reset)`** owns the
+flash and is called **only** from genuine transitions (the mode-switch edge via
+`sw_mode`, the Fn+Q/W/E keycode tap, the re-pair long-presses) plus its own
+self-re-arm while the module is still unconnected (a repeat policy, not a change).
+The 2 s sync is now a true no-op for LEDs. This is the rail fix's shape exactly —
+pull the effect out of the bookkeeping, give the effect a single owner, so a
+re-assert cannot carry it. Board-local (a vendor sync/indicator design), not a
+generic model gap.
+
+**The general principle (now applied twice).** A re-assert must be a no-op for
+anything user-visible: *derive state and effects from a single owner, and let
+idempotent re-asserts be silent.* Transport (item 14), the LED rail (defect 5),
+and the channel indicator (defect 6) were all the same bug — several partial
+writers of one piece of state.
