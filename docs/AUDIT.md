@@ -1,0 +1,113 @@
+# Code audit — ownership, cadence, and maintainability
+
+> **Scope and method.** A read-only, systematic audit prompted by the observation
+> that the defects found on this board share a *shape* rather than being random
+> faults. Four parallel passes covered disjoint areas: (1) the board file
+> `epomaker_split65.c`, (2) our board layer `wls/` + host tools, (3) the vendor
+> wireless stack `keyboards/linker/wireless/`, (4) the upstream seams we patched.
+> Every finding was verified by reading source; citations are `file:line`.
+>
+> The lens is **not** "find bugs" but "find design faults that make bugs
+> intractable": multiple writers for one state, one function doing two jobs at
+> different cadences, state derived at the wrong time, and duplicated
+> consistency readers. These are the mechanical causes of the defects already
+> fixed (defect 4 = two owners; defect 5 = four writers; defect 6 = one function,
+> two cadences).
+>
+> **Disposition vocabulary.** `FIX` = consolidate to a single owner / split
+> cadences. `ACCEPT` = keep as-is with a Chesterton's-fence reason (upstream
+> contract, or inert). `FC/S` = extract a pure functional core so the rule is
+> testable and the imperative shell only performs effects.
+
+## Summary of the recurring shapes
+
+| Shape | Meaning | Examples found |
+|---|---|---|
+| N-writers | >1 subsystem mutates one state without reconciliation | `md_info.state`/`.indicator`, `lower_sleep`, `confinfo.devs`/`last_btdevs`, `lpwr_state`/`lpwr_timestamp` |
+| Two-cadence | one function/variable serves a bookkeeping job *and* a transition/effect job | `hs_linker_rgb_timer`, `wls_rgb_indicator_*`, `housekeeping_task_user`, `manual_timeout` |
+| Stale-time | state derived at the wrong moment (snapshot vs live; torn reads) | battery read at 4 sites; `keycode_shadow` captured by pointer |
+| Duplicated reader | two decoders of one wire layout, kept in sync by hand | `0xA4` byte map in `wls.h` vs `battery_polybar.py`; charge decode |
+
+## Tier 1 — our additions (`wls/`, board hooks, host tools)
+
+| State / Effect | Writers (file:line) | Persistence | Verdict | Disposition |
+|---|---|---|---|---|
+| `wls_bt_profile` vs `wls_devs`/`confinfo.devs` | `wls_bluetooth.c:43`; `wireless.c:208` | RAM (mirrors EEPROM) | **VIOLATION** — two RAM vars for one sub-selection, kept in lockstep only by convention; a `wireless_devs_change` on a BT index that bypasses `bluetooth_select_profile` desyncs them, and `bluetooth_get_profile()` (`wls_bluetooth.c:61`) then lies in the `0xA4` reply (`wls_battery.c:35`) | **FC/S FIX** |
+| `lower_sleep` | `epomaker_split65.c:1589` (battery tick), `:1810` (0xAA RPC), cleared `wls.c:280` | RAM | **VIOLATION** — 3 writers, 2 cadences; `lpwr_stop_is_allowed` (`wls.c:260`) consumes it | **FC/S FIX** |
+| `confinfo.devs` / `confinfo.last_btdevs` | `wireless_devs_change_kb` `:1369/:1370` (bookkeeping) vs `wls_persist_devs` `:1349/:1351` (user intent) | EEPROM + RAM mirror | **VIOLATION** — bookkeeping hook and user-intent path both write; range check duplicated (`<=DEVS_BT3` vs `<4`) | **FC/S FIX** |
+| `hs_linker_rgb_timer` | setter `wls.c:123`, ~13 callers | RAM | **VIOLATION** — one timer read as both `HS_LBACK_TIMEOUT` (`wls.c:153`) and `HS_SLEEP_TIMEOUT` (`wls.c:164`) in one fall-through pass | **FC/S FIX** |
+| `wls_rgb_indicator_*` | arm `epomaker_split65.c:1336-1341`; tick `:1469-1476`; re-arm `:1456` | RAM | **VIOLATION** — arm path and tick path write the same fields; the tick callback re-enters the arm function | **FC/S FIX** |
+| `keycode_shadow` | `:477` (every `process_record_wls` call) | RAM | **VIOLATION** — deferred long-press captures the *address* (`:502`); a later non-WLS key overwrites it before the 3 s timer fires → wrong profile re-pair | **FIX (highest functional risk)** |
+| `confinfo.filp` persist | `:1103-1104` writes the whole `confinfo.raw`, committing whatever `wireless_devs_change_kb` last mirrored into `.devs` | EEPROM | **VIOLATION** — sibling of the two-persisted-selectors defect; a `KC_FILP` toggle can persist a transport the user never chose | **FC/S FIX** |
+| LED rail `A5`/`A8` | `wls_led_rail_apply` `wls.c:21` (sole logical writer) | derived | **SINGLE-OWNER (clean)** — fixed as defect 5 | ACCEPT (done) |
+| `bat_indicator_cnt` | init `:75` (`= true` on a ms timestamp) | RAM | latent — the 2 s re-enable gate can trip at boot | FIX (one-line) |
+| `inqbat_flag`, `test_white_light_flag`, `start_hsv`, `temp`, `im_test_rate_flag`, `prev_cable_state` | never set / never read | RAM | dead or missing-writer state | FIX (delete) |
+| Host: interface selection | `battery_polybar.py:75` hardcoded default vs `:250` CLI vs `:80` first-candidate fallback | host memory | **VIOLATION** — three selection rules, two made unreachable by argparse defaults | FIX (one selector) |
+| Host: charge decode | `battery_polybar.py:203` (1,2 → "CHG") vs `:217` (raw) | derived | **VIOLATION** — two decoders disagree; FULL renders as "CHG" | FIX |
+| Host: `0xA4` byte map | duplicated between `wls.h:55-77` and `battery_polybar.py:136-152` | n/a | **VIOLATION** — two hand-synced copies of the wire layout | FIX (single source or generated) |
+
+## Tier 2 — our modifications to upstream/vendor seams
+
+| State / Effect | Verdict | Disposition |
+|---|---|---|
+| `active_host` (`host.c:109`) | **SINGLE-OWNER (clean)** — one writer, only on change | ACCEPT (done) |
+| `host_candidates[]`, `w2p4_driver`/`bt_driver` structs | **SINGLE-OWNER (clean)** | ACCEPT (done) |
+| `driver` fallthrough (`host.c:164`) | latent second chooser; upstream contract; not live (no report before first `host_task`) | ACCEPT (upstream) |
+| `connection_set_host` unconditional EEPROM write (`connection.c:80-84`) | upstream idiom; board already uses `_noeeprom` where needed | ACCEPT (upstream) |
+| `connection_host_changed_kb` reads routed state inside a change hook (`:1447`) | board mitigates the upstream "hook skipped on no-op" gap with an explicit `wls_usb_connect()` (`:219`) | ACCEPT (documented mitigation) |
+| `wireless_2p4ghz_task()/init()` | **VIOLATION (new incompleteness)** — mirrors the BT contract but `keyboard.c` never calls it (unlike `bluetooth_init`/`bluetooth_task`) | FIX (add call sites or drop the contract) |
+| `md_info.state` / `.indicator` | **VIOLATION** — decoder (`module.c:212-227`) *and* `wireless_devs_change` (`wireless.c:204-205`) write; reset gated by `(wls_devs != new_devs) \|\| reset`, so a same-index re-assert leaves stale `CONNECTED` | **FC/S FIX** |
+| `smsg_instance.state` | **VIOLATION** — decoder sets `replied` (`module.c:158`), send task sets the rest (`module.c:257-276`); no lock | FIX |
+| `lpwr_state` / `lpwr_timestamp` | **VIOLATION** — `md_receive_host_cb` (`lowpower.c:121-133`, UART cadence) writes both alongside `lpwr_task` | **FC/S FIX** |
+| `manual_timeout` | **VIOLATION** — `lpwr_is_allow_timeout()` is a query that *clears* it (`lowpower.c:145,150,155`) | **FC/S FIX** |
+| `lpwr_wakeupcd` reset vs ISR | **VIOLATION** — non-atomic `= NONE` (`lowpower.c:272`) races the ISR `\|=` | FIX (critical section) |
+| `raw_hid_send` line-pinned macro (`md_raw.h:8-10`) | **VIOLATION** — a compile-time alias pinned to `__LINE__` 29/489; adding a line silently breaks it; force-included into every TU | FIX (replace with a real dispatch) |
+| `md_receive_msg_task` | **VIOLATION** — one function decodes six frame types and carries two coupled statics (`data_count`, `data_remain`) | **FC/S FIX** |
+
+## Tier 3 — upstream/vendor code we depend on but did not author
+
+Everything in Tier 2 above that is labelled **ACCEPT (upstream)** is documented
+here rather than fixed: it is the upstream contract, we work around it in the
+board layer, and rewriting it would fight the plate. Tier 2 items we *did* author
+or materially extend (`md_info` writers, the framer, `raw_hid_send`) are ours to
+fix.
+
+## Acceptance criteria — what "clean" means on hardware
+
+For this project a fix is **not** done when the symptom disappears; it is done
+when the rule is *provable*. Every remaining fix must meet all three bars, and
+each is checked against them before it is committed:
+
+1. **Single authority.** Exactly one writer per piece of state, or the state is
+   **derived** from a single source and never mirrored. A second writer is a
+   defect even if it currently agrees (it will diverge).
+2. **One job per function / one cadence per variable.** Bookkeeping (runs
+   always) and effect (runs on a transition) never share a body. A timer has one
+   meaning. A "change" handler does not act on a no-op.
+3. **Testable rule.** The decision lives in a **pure function** (no I/O, no
+   globals, no timers) covered by a test in `tests/`; the imperative shell only
+   selects effects from its result. "It works" is not evidence — a test that
+   states *why* it is right is.
+
+This is the standard the three already-landed fixes met: `transport_logic`
+(defect 4 — the switch→host rule as a tested pure core), the rail owner (defect
+5 — effect derived from one source), and `wls_indicate_devs` (defect 6 — the
+effect separated from the bookkeeping hook).
+
+## The fix strategy — functional core / imperative shell
+
+The recurring cure is to move each rule out of the tangled imperative code into a
+**pure function** (no I/O, no globals, fully testable) and leave the shell with
+only effect-selection. This is what has already worked three times (the pure
+`transport_logic`, `lowpower_logic`, and the rail-owner derive), and it is what
+retires the remaining shapes structurally:
+
+1. **A change handler should decide, not act.** `wireless_devs_change_kb` and
+   friends become shells that call a pure `decide_*` and apply its result.
+2. **One timer, one meaning.** `hs_linker_rgb_timer`'s two roles split into two
+   named deadlines owned by their respective rules.
+3. **Wire layouts get one source.** The `0xA4` map (firmware + Python) and the
+   framer state machine become pure functions with shared tests.
+
+Each fix lands with a test in `tests/` (as `transport_logic` and `lowpower_logic`
+already do), so the rule cannot regress and the shell stays trivial.
