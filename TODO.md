@@ -391,6 +391,27 @@ never reached the master.
 **Fix.** `#define UART_DRIVER SD3` in the board `config.h` (the vendor's value),
 with a comment. Confirmed on hardware: the slave types.
 
+### 4. Master half entered an unrecoverable STOP on a non-USB transport — FIX (pending hardware)
+
+**Symptom.** On Bluetooth, after ~60 s idle the **master** (left) half's
+backlight went dark and it produced no characters; no keypress revived it. New
+because the master was previously exempt (USB-only testing).
+
+**Cause.** `lpwr_is_allow_timeout_hook()` exempted a half only when
+`wireless_get_current_devs() == DEVS_USB`. Off USB the master became
+timeout-eligible and entered STOP on the plain idle timer
+(`hs_rgb_blink_hook()`, `HS_SLEEP_TIMEOUT` = 60 s). That path runs with
+`lower_sleep == false`, which arms none of the driver-side wake sources, so the
+master stopped unwakeable. Same class as regressions 1–3: a half entering an
+unrecoverable low-power state.
+
+**Fix (minimal, board-level).** `lpwr_is_allow_timeout_hook()` now also refuses
+the timeout when `lower_sleep == false`, so a half may idle-sleep only via the
+*ordered* path (the low-battery case that sets `lower_sleep` first and arms the
+wake sources). Both the slave's self-timeout and the master's un-ordered timeout
+are refused; only wake-armed sleeps remain. See `docs/FINDINGS.md`, "the three
+power-off faults are one defect". Not yet flashed.
+
 ### Process note — anticipatable issues were not anticipated
 
 Both §1 and §2 were foreseeable from upstream's own code and mechanics, and §2 and

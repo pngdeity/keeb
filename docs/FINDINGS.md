@@ -674,3 +674,51 @@ invent. The vendor already rides QMK's transaction RPC and handedness-by-pin.
 The upstream-shaped contribution is the **wireless/battery** layer (radio,
 low-power, module UART) — that is the genuinely novel part, and it should sit
 *on top of* the standard split mechanisms rather than replacing them.
+
+## FINDING — the three power-off faults are one defect: sleep has no enforced invariant
+
+Three faults, chased separately, are the same architectural defect wearing
+different masks:
+
+1. **Slave reset-loops** (`SPLIT_WATCHDOG_ENABLE`) — the slave entered a state
+   nothing could rescue; fixed by removing the watchdog.
+2. **Slave dark-out** (idle timeout) — the slave entered STOP with no armed
+   wake; fixed by making the slave never self-time-out.
+3. **Master dark-out** (BT mode, current) — the master enters STOP and cannot be
+   woken; the same class again, one half over.
+
+Each was fixed at the point it bit. That is whack-a-mole. The real defect is
+structural: **a half can enter an unrecoverable low-power state, and nothing
+owns the decision or guarantees a way back.** The event loop has conventions
+three call sites are trusted to honour, and no invariant it enforces.
+
+What is missing, concretely:
+
+- **No single owner of "may we sleep?".** The decision is spread across
+  `lowpower.c` (`lpwr_is_allow_timeout`), the board hook
+  (`lpwr_is_allow_timeout_hook`), `wls/wls.c` (`hs_rgb_blink_hook` sets the
+  manual timeout), and config flags. Nothing states the rule in one place.
+- **No invariant that *entering* a sleep arms a *wake*.** `mcu_stop_mode()` is
+  entered with no check that any wake source is live. `lpwr_stop_hook_pre()`
+  kills the LED rail unconditionally. `lpwr_exti_init()` arms wake sources from
+  **hand-agnostic** static arrays: `static ioline_t row_pins[MATRIX_ROWS] =
+  MATRIX_ROW_PINS;` where `MATRIX_ROW_PINS` lists only the **6** left-half rows
+  into a **12**-element array — indices 6..11 are zero-filled (pin 0), so the
+  loop arms 6 bogus entries. A half can therefore stop with the wake it needs
+  unarmed and nothing detects it.
+- **No recovery guarantee.** After `mcu_stop_mode()` resumes there is no check
+  that it woke for a known reason, and no backstop if it did not.
+
+**The invariant the loop should enforce** (the vendor `lpwr_*` state machine
+already has the shape — `LPWR_NORMAL/PRESLEEP/STOP/WAKEUP` and a
+`lpwr_wakeupcd` field — but no rule over it):
+
+> Sleep is a decision only the master may take. A half stops only when the
+> master orders it (which arms the wake sources first). Before `mcu_stop_mode()`
+> at least one wake source must be armed, or the stop is refused.
+
+Stated once, this subsumes all three masks. Expressed as code it has two homes:
+the **board** (minimal, rebase-safe, enforced for this board) or the **shared**
+`lowpower.c` (upstream-shaped, inherited by every board on the stack — the
+subject of the U1 RFC). The minimal-and-correct fix is the board-level arbiter;
+the upstream-shaped one belongs in the shared file.
