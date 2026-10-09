@@ -900,3 +900,40 @@ ISR, and `update_matrix_state_after_wakeup()` calls `matrix_scan()`, which runs
 transaction RPC to the other half. It was written, then reverted on discovering
 the ISR context. Any future work on this path must live in a main-loop site, not
 the suspend callback.
+
+## FINDING — the sleep decisions are a functional core, and the shell that touches the MCU is not
+
+The low-power state machine mixes two kinds of code: decisions that depend only
+on their arguments, and code that touches the MCU (registers, ChibiOS, the
+`PRE_LP()`/`POST_LP()` blobs). Both faults chased in this project — the
+un-ordered stop and the phantom wake code — lived entirely in the first kind.
+That part is now a dependency-free core so it can be tested without hardware:
+
+- `keyboards/linker/wireless/lowpower_logic.{h,c}` (no ChibiOS, no registers, no
+  globals) holds `lpwr_stop_is_allowed_decide(is_master, lower_sleep)` and
+  `lpwr_wakeup_is_real(wake_set, armed_mask)`.
+- `lowpower.c` and the board `wls.c` are now thin adapters: they fetch the facts
+  (`is_keyboard_master()`, `lower_sleep`, the accumulated wake set, the board's
+  armed mask) and delegate. `lpwr_stop_cb()` no longer contains the decision; it
+  calls `lpwr_wakeup_is_real()` and maps the result to the next state.
+
+**Why this shape and not a parallel mock of the chassis.** The upstream test
+convention (battery, encoder, debounce) is to compile the *real* module against
+mocked primitives — but no upstream test mocks ChibiOS (`chSysLock`,
+`mcu_stop_mode`, `__WFI`), and we should not invent that infrastructure. The
+existing fence is therefore respected by extracting only the pure decisions,
+not by building a ChibiOS mock to test `lowpower.c` itself.
+
+**Test placement.** Modern upstream tests live in `tests/<name>/` (auto-discovered
+by `find -name test.mk`, built via `include $(n)/test.mk`; the test's own `.cpp`
+files are globbed automatically and must **not** be re-listed in `SRC`). The
+per-feature `quantum/*/tests/testlist.mk` path expects its entries relative to
+`tests/` and is not for a keyboard-dir module. `tests/lowpower_logic/` follows the
+modern layout and pins the two hardware facts as data: the wake codes are bit
+flags, and the armed mask excludes UART (the phantom). Eight tests, all passing.
+
+**Honest limitation.** The core cannot enforce the storage width of
+`lpwr_wakeupcd_t` at the shell boundary; the core takes `uint32_t` throughout, so
+it is immune, but the boundary stays a shell fact (a `_Static_assert` is the
+mitigation). This pattern fixes *testability*, not *hardware truth* — the aliasing
+is reproduced only because the test is fed the board's real pad/armed facts.

@@ -748,6 +748,14 @@ drive it. Until (1), installing the software changes nothing.
   `kb_battery_transport`, `kb_battery_changed`, `kb_battery_snapshot`) — deferred
   pending the hardware probe. (`kb_battery_percent` no longer exists; the value is
   upstream `battery_get_percent()`.)
+- **The sleep decisions are extracted and unit-tested.** The functional core is
+  `keyboards/linker/wireless/lowpower_logic.{h,c}`
+  (`lpwr_stop_is_allowed_decide`, `lpwr_wakeup_is_real`); `lowpower.c` and the
+  board `wls.c` are thin adapters. Tests live in `tests/lowpower_logic/` (modern
+  `tests/<name>/` layout; run `make test:lowpower_logic`, 8 tests). Conventions and
+  rationale in `docs/FINDINGS.md`. Next candidates in the same style: the
+  `md_*` decode helpers and the pad→wake-code classifier (the latter needs the
+  pad map as data, and is what would have caught the aliasing bug as a test).
 - Bluetooth transport: confirm whether the BT link exposes the raw HID
   collection (`0xFF60`/`0x61`) and whether `*md_getp_bat()` is populated over BT;
   BLE Battery Service `0x180F`/`0x2A19` is the host fallback.
