@@ -722,3 +722,57 @@ the **board** (minimal, rebase-safe, enforced for this board) or the **shared**
 `lowpower.c` (upstream-shaped, inherited by every board on the stack — the
 subject of the U1 RFC). The minimal-and-correct fix is the board-level arbiter;
 the upstream-shaped one belongs in the shared file.
+
+## FINDING — upstream has no sleep invariant, and our wireless stack *is* an upstream PR
+
+Checked upstream before fixing the invariant, to keep the bespoke code minimal.
+Result: **there is nothing to adopt — upstream has no low-power/sleep subsystem at
+all, and the stack we carry is itself an open upstream PR.** The invariant above
+is therefore novel work, not a reimplementation.
+
+**No core sleep machinery exists.** A search across `quantum/`, `tmk_core/`,
+`platforms/` and `docs/` for `lpwr`, `deep_sleep`, `low_power`, `allow_timeout`
+and `wakeupcd` returns nothing. Upstream's own `platforms/chibios/suspend.c` is 55
+lines beginning `/* TODO */` — the trivial AVR-shaped
+`suspend_power_down()`/`suspend_wakeup_init()`, with no STOP mode, no wake arming
+and no invariant. The split layer's only power-adjacent device is
+`SPLIT_WATCHDOG_ENABLE` (`split_util.c`, `SPLIT_WATCHDOG_TIMEOUT` 3000,
+`SPLIT_MAX_CONNECTION_ERRORS`) — the link-liveness watchdog already tried and
+reverted here (it reset-loops our slave).
+
+**Our wireless stack is PR #24209, still open and stalled.** "Update Tide65
+keyboard to add wireless functionality" (sdk66, open 2024-07-29) upstreams
+`keyboards/linker/wireless/` wholesale — `lowpower.c`/`.h`, `lpwr_wb32.c`,
+`module.c`/`.h`, `smsg.c`/`.h`, `transport.c`/`.h`, `wireless.c`/`.h`,
+`md_raw.c`/`.h` — which is exactly the shared stack this board carries. Activity
+is cosmetic only; the latest comment (2025-12-21) says it builds on QMK 0.25.17
+only after dropping a stray `quantum/rgblight/rgblight.c` change and a `.vscode/`
+file, **relocating `linker/wireless/` into `epomaker/tide65/wireless/`** ("fix
+improper location"), and correcting the `WIRELESS_DIR`/`post_rules.mk` includes.
+No reviewer has flashed it, so the unbounded-sleep defect fixed here was never
+seen. Our stack is *ahead* of its own upstream submission.
+
+**Upstream has deliberately gated wireless boards on a core framework.** PR
+# 24808 (Tide75) was closed unmerged, with tzarc: *"until true wireless support is
+added to QMK core code, boards like this are on hold."* The label
+`needs-core-wireless` (12 open PRs: AULA F75 Ultra, NuPhy Air60 V2 / Air75 v2, RK
+R87Pro, Skylong GK87, redragon k715_pro, …) marks exactly this gate. The
+manufacturer PR #23552 sits `invalid`/`crippled-firmware` since 2024-04.
+
+**The core framework in flight — and it has no power handling.** PR #26207
+"feat: implement bt/2.4ghz fr800x driver" (damex, open 2026-05-12) is the effort
+that would satisfy that gate: `drivers/fr800x.{c,h}` (shared chip core: state
+machine, framing, queue, init sequence `HANDSHAKE + SLEEP_BLUETOOTH_ENABLE +
+SLEEP_DONGLE_ENABLE`, 3 BT slots + dongle, battery query, charge relay),
+`drivers/bluetooth/bluetooth.{c,h}` and `drivers/wireless/wireless_2p4ghz.{c,h}`
+adapters, `quantum/connection/`, and `process_connection.c`. It adds reconnection
+(2 s retry while DISCONNECTED) but **contains no low-power/sleep code** — its only
+"sleep" is the chip's RF sleep opcodes. So the invariant is unaddressed by the
+core work too.
+
+**Consequence for the effort.** The board-level `lower_sleep` gate is the correct
+minimal fix and is *novel* relative to upstream. The upstream-shaped path — the
+invariant inside the shared `lowpower.c` — is genuinely new work, a talking point
+for the wireless-core discussion with `damex` (it could ride alongside #24209 as
+the fix that PR needs). Recorded here so a future agent does not re-search for an
+upstream sleep API that does not exist.
