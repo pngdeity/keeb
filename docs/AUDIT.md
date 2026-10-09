@@ -56,7 +56,7 @@
 | `connection_set_host` unconditional EEPROM write (`connection.c:80-84`) | upstream idiom; board already uses `_noeeprom` where needed | ACCEPT (upstream) |
 | `connection_host_changed_kb` reads routed state inside a change hook (`:1447`) | board mitigates the upstream "hook skipped on no-op" gap with an explicit `wls_usb_connect()` (`:219`) | ACCEPT (documented mitigation) |
 | `wireless_2p4ghz_task()/init()` | **VIOLATION (new incompleteness)** — mirrors the BT contract but `keyboard.c` never calls it (unlike `bluetooth_init`/`bluetooth_task`) | FIX (add call sites or drop the contract) |
-| `md_info.state` / `.indicator` | **VIOLATION** — decoder (`module.c:212-227`) *and* `wireless_devs_change` (`wireless.c:204-205`) write; reset gated by `(wls_devs != new_devs) \|\| reset`, so a same-index re-assert leaves stale `CONNECTED` | **FC/S FIX** |
+| `md_info.state` / `.indicator` | **DONE (fix 6)** — the module now owns the transition: `wireless_devs_change` calls `md_devs_changed()` (module.c) instead of poking `*md_getp_state()`/`*md_getp_indicator()`; no external writer reaches the registers (reads via the accessors remain) | **DONE** |
 | `smsg_instance.state` | **VIOLATION** — decoder sets `replied` (`module.c:158`), send task sets the rest (`module.c:257-276`); no lock | FIX |
 | `lpwr_state` / `lpwr_timestamp` | **VIOLATION** — `md_receive_host_cb` (`lowpower.c:121-133`, UART cadence) writes both alongside `lpwr_task` | **FC/S FIX** |
 | `manual_timeout` | **VIOLATION** — `lpwr_is_allow_timeout()` is a query that *clears* it (`lowpower.c:145,150,155`) | **FC/S FIX** |

@@ -1069,8 +1069,13 @@ one commit each, ordered by risk × provability.
   wake-clear no longer writes a bare global), and the low-battery decision is the
   pure `hsm_should_order_sleep(level, charging, stop_threshold)`. Pure-core test
   `sleep_order_is_a_pure_function_of_battery_and_charge` (13/13 pass).
-- **Fixes 6–10 — OPEN** (`docs/AUDIT.md` Tier 1/2):
-  `md_info.state`/`.indicator` cross-layer writers; dead-state deletion +
+- **Fix 6 — DONE.** `md_info.state`/`.indicator` had two writers: the module UART
+  decoder *and* the vendor `wireless_devs_change` (which poked the registers on a
+  device change). The transition is now expressed once, by the module that owns
+  the registers: `md_devs_changed()` (module.c) replaces the two pointer writes,
+  so no external writer reaches `md_info`; callers read via the accessors.
+- **Fixes 7–10 — OPEN** (`docs/AUDIT.md` Tier 1/2):
+  dead-state deletion +
   `bat_indicator_cnt` init; `raw_hid_send` line-pinned macro → real dispatch;
   `md_receive_msg_task` pure framer; `lpwr_*` pure cores
   + side-effect-free `lpwr_is_allow_timeout` + `lpwr_wakeupcd` critical section.
