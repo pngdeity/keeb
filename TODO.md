@@ -1019,6 +1019,36 @@ yet unless marked DONE.
 - All shared-stack and board files carry `SPDX-License-Identifier:
   GPL-2.0-or-later` **except** `rgb_record/rgb_record.h` (legacy prose header).
 
+## Design cleanup — ownership/cadence audit (`docs/AUDIT.md`)
+
+> **Live.** The actionable tracker is `docs/AUDIT.md` (state/effect inventory
+> with dispositions, and the "clean = provable" acceptance bar). This section
+> records progress only; edit the audit doc for the current list.
+
+A four-pass audit found the defects that surfaced were one shape, not random:
+**state-ownership faults** (multiple writers for one state; one function doing
+two jobs at different cadences; state derived at the wrong time). Our own
+additions are among them. Fixes land as **pure core + test + trivial shell**,
+one commit each, ordered by risk × provability.
+
+- **Fix 1 — DONE.** `keycode_shadow` (the long-press re-pair could target the
+  wrong profile because the deferred timer captured a *pointer* into shared
+  state that every later keypress overwrote). Now a pure
+  `hsm_long_press_devs(keycode)` decides the target and the shell passes the
+  **value** at arm time; the shared shadow is deleted. Pure-core test
+  `TransportLogic.long_press_target_is_a_keycode_table` (7/7 pass). Submodule
+  commit recorded in `docs/AUDIT.md`.
+- **Fixes 2–10 — OPEN** (`docs/AUDIT.md` Tier 1/2): `wls_bt_profile` derived;
+  `confinfo.devs`/`.filp` single writer; `hs_linker_rgb_timer` two-meaning split;
+  `lower_sleep` one setter; `md_info.state`/`.indicator` cross-layer writers;
+  dead-state deletion + `bat_indicator_cnt` init; `raw_hid_send` line-pinned
+  macro → real dispatch; `md_receive_msg_task` pure framer; `lpwr_*` pure cores
+  + side-effect-free `lpwr_is_allow_timeout` + `lpwr_wakeupcd` critical section.
+- **Tier 3 — ACCEPT + document** (upstream contract: `driver` fallthrough, the
+  unconditional `connection_set_host` EEPROM write, the hook-skipped-on-no-op
+  gap), plus one genuinely-new incompleteness to fix: `wireless_2p4ghz_init/task`
+  mirror the BT contract but `keyboard.c` never calls them.
+
 ## Right-half DFU without hardware shorting
 
 Goal: let the right half enter the WB32 DFU bootloader by holding a key, like the
