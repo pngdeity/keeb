@@ -1045,11 +1045,20 @@ one commit each, ordered by risk × provability.
   deleted; the profile is **derived** via pure `hsm_profile_of_devs(devs)`.
   Pure-core test `TransportLogic.bt_profile_is_a_pure_function_of_the_device_index`
   (8/8 pass).
-- **Fixes 3–10 — OPEN** (`docs/AUDIT.md` Tier 1/2):
-  `confinfo.devs`/`.filp` single writer; `hs_linker_rgb_timer` two-meaning split;
-  `lower_sleep` one setter; `md_info.state`/`.indicator` cross-layer writers;
-  dead-state deletion + `bat_indicator_cnt` init; `raw_hid_send` line-pinned
-  macro → real dispatch; `md_receive_msg_task` pure framer; `lpwr_*` pure cores
+- **Fix 3 — DONE.** `confinfo.devs`/`.last_btdevs` had two writers (the
+  `wireless_devs_change_kb` bookkeeping mirror and the `wls_persist_devs` user
+  path) in a struct a third field (`KC_FILP`) persists whole — so an internal
+  change could commit a transport the user never chose. The board no longer
+  overrides the vendor hook (mirror gone); `confinfo.*` is written **only** by
+  user intent and read only as the boot seed. Every live "current mode" reader
+  now uses `wireless_get_current_devs()` via pure `hsm_mode_seed`/`hsm_seed_btdev`.
+  Pure-core tests `mode_seed_is_the_live_device_index` and
+  `bt_seed_prefers_live_index_and_clamps_fallback` (10/10 pass).
+- **Fixes 4–10 — OPEN** (`docs/AUDIT.md` Tier 1/2):
+  `hs_linker_rgb_timer` two-meaning split; `lower_sleep` one setter;
+  `md_info.state`/`.indicator` cross-layer writers; dead-state deletion +
+  `bat_indicator_cnt` init; `raw_hid_send` line-pinned macro → real dispatch;
+  `md_receive_msg_task` pure framer; `lpwr_*` pure cores
   + side-effect-free `lpwr_is_allow_timeout` + `lpwr_wakeupcd` critical section.
 - **Tier 3 — ACCEPT + document** (upstream contract: `driver` fallthrough, the
   unconditional `connection_set_host` EEPROM write, the hook-skipped-on-no-op
