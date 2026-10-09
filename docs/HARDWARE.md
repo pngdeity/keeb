@@ -226,6 +226,62 @@ The remaining genuinely-proprietary piece is:
 - the module's **shipped factory product image** (the `.hex` flashed onto the
   CH582F in the keyboard) — no vendor publishes its own customer firmware.
 
+**Public firmware artifacts that DO exist (2026-10-09).** Two distinct classes
+were found, and neither is a CH582F module image:
+
+1. **The main-MCU (WB32) factory firmware is public.** `carlosedp/qmk_firmware`
+   release `0.31.2` ("Factory Firmware files") ships
+   `EPOMAKER_Split65_via_v10_factory.zip` → a single `EPOMAKER_Split65_via_v10.hex`
+   (sha256 `ee9bb455…308a`), covering `0x08000000..0x080123C4` (74,692 bytes).
+   Verified **WB32/ARM, not CH582F**: Intel-hex base records `0x0800`/`0x0801`,
+   vector table SP `0x20000400`, reset `0x080001B9` (Cortex-M Thumb). It is the
+   *main MCU* application — the same thing we flash, not the module.
+   - It is **a closed/older build, not the public vendor source**: it embeds
+     strings absent from both our tree and the vendor-overlay source —
+     `0bts lib version: v2.8.2` and `module ver: %d` (grep of the source finds
+     neither). So the factory WB32 firmware was built from an unpublished codebase
+     and is not byte-comparable to `hangshengkeji/qmk_firmware`.
+   - The other EPOMAKER "factory" zips in the same release (TH40, Split70,
+     Galaxy100-lite) are **also single `0x08000000` WB32 images** — EPOMAKER's
+     packaging never bundles a CH582F module image.
+2. **The CH582F *stack archive* is public, the *application* is closed — but
+   open CH582 keyboard projects now expose the failing layer as source.**
+   - Independent CH582-family QMK ports confirm the module app cannot be rebuilt
+     wholesale: `O-H-M2/qmk_port_ch582` (and its `rgoulter` write-up) state plainly
+     that *"Enabling BLE requires the wireless lib, but … the required files aren't
+     provided in the repo. Hence, BLE isn't available with the publicly provided
+     code"* — wireless is marked 暂不开放 ("not yet opened") on the `via` branch.
+   - **However**, sibling *open* tri-mode keyboard projects publish the whole CH582
+     application, including the exact layer that fails for us. `ChnMasterOG/tp78_v2`
+     (active, releases to v2.1.17, 2026-09) ships, in-tree:
+     - `Profile/hidkbmservice.c` (940 lines) + `Profile/hiddev.c` (1214) +
+       `Profile/battservice.c` (599) — the **HID-over-GATT server, device
+       information service, and battery service, in full C source**, including the
+       CCC-descriptor table (`hidAttrTbl[…CCCD_IDX]`, `hidRptMap[].cccdHandle`).
+     - `LIB/LIBCH58xBLE.a` + `CH58xBLE_ROM{,x}.hex` — the same WCH stack class we
+       already hold (here sha1 `3e7a0b7e…`; **not** the same build as our
+       `/tmp/opencode/ch583` copy, sha1 `f9b488a9…`), plus `APP/` application source.
+     - A `firmware/DefaultFS.BIN` DataFlash image and full `obj/` build output.
+   - So the **HID GATT/profile layer** — the part returning ATT `0x0E` on our unit —
+     is **readable as ordinary source** in a sibling CH582 project, not merely
+     disassemblable. It is the *generic WCH/WCH-derived profile* (a different vendor
+     than `0bts`), so it is a reference implementation, not a drop-in replacement.
+   - `c3h4o` (oshwhub 丐PAD) and `bluetooth-keyboard-squad` (oshwhub) likewise
+     publish complete keyboard+receiver **`.hex` images** for their own CH582
+     boards — proof that a full CH582 keyboard image is distributable; ours simply
+     is not published by EPOMAKER.
+   - The module's *own* application image (the `0bts` build) remains unavailable:
+     no EPOMAKER, WCH, or leaked copy. Its version string `0bts lib version: v2.8.2`
+     is the only public fingerprint, and it appears **only inside the WB32 factory
+     firmware** (the WB32 side links the "0bts" host protocol library), not in any
+     CH582 image.
+
+So: the module's own firmware image is **not** publicly available (no EPOMAKER, WCH, or
+leaked image), the SDK's stack archive is readable but is not the app, and the one
+public EPOMAKER firmware artifact is the WB32 side we already control. Reflashing
+a *fixed* module image is therefore not a route we can take; the module is only
+reachable over UART/ISP (WCH tooling) if a vendor image were ever obtained.
+
 The `CH58xBLE_ROM.hex` / `CH58xBLE_ROMx.hex` files are **not** a chip mask ROM.
 Despite the name, the CH582/583 has **no BLE stack in silicon ROM**; "ROM" here
 means "the protocol stack compiled separately, flashed to a fixed Flash region and
@@ -684,6 +740,72 @@ without the schematic.
     display), so **pairing must be re-done from the keyboard each session**. The
     address policy (RPA vs non-resolvable random) is set **inside the module** and
     is Layer 0.
+  - **External corroboration (2026-10-09).** Two independent lines confirm this is
+    a known firmware-fault class, not a host misconfiguration and not our code:
+    - **The vendor's own issue tracker.** `Epomaker/Split65` issue **#3, "Stuck
+      after wireless connection"** (gwangyi, 2025-08-04): a build from the
+      *vendor's own* `hangshengkeji/qmk_firmware` "stuck about 20s later from
+      wireless connection … *both BT and 2.4 GHz*", with the left half dark — the
+      same power-state family as our defect 4. The reporter's own fix was the
+      community workaround below. Issue **#7** asks for official `.bin`s; the
+      vendor only distributes them via Discord, so there is no public module
+      firmware to diff against.
+    - **The community workaround.** `zozonteq/epomaker_split65` (a fork of the
+      vendor repo) is described as "**Wireless issue workaround (lowpower-mode
+      disabled)** + More Bluetooth Connections (up to 5)". Its `wls/wls.c` proves
+      the mechanism: every `lpwr_set_timeout_manual(true)` call is **commented
+      out**, i.e. the board is simply never allowed to sleep. Their BT works once
+      the power-management path is removed — consistent with our finding that the
+      faults live below our firmware, and with our own defect-4 conclusion (a half
+      entering an unrecoverable STOP). We fixed the STOP fault properly; they
+      disabled sleep outright.
+    - **The ATT `0x0E` signature is a documented host/peripheral interaction, not a
+      BlueZ-only bug.** BlueZ issue #448 and zmkfirmware/zmk issue #3309 show the
+      *same* `hog-lib.c:ccc_read_cb() … unlikely error` stream arising when a
+      peripheral's GATT server returns `BT_ATT_ERR_UNLIKELY` (0x0E) for reads it
+      cannot yet serve — and the ZMK case localises the cause to the peripheral's
+      own profile/address matching (its `zmk_ble_profile_index()` fails on an
+      address it cannot match, exactly the rotation problem recorded above). So the
+      failure is the module declining the ATT operations, not Linux refusing them.
+    - Our BT-select is **protocol-identical to the vendor's**: `bluetooth_select_profile`
+      → `wireless_devs_change` → `md_devs_change()` emits the same `DEVCTRL_BTn`
+      frame, and on re-pair the same `DEVCTRL_CLEAN` + `devinfo` + `DEVCTRL_PAIR`
+      sequence, so the module receives exactly the commands the stock firmware
+      sends. Nothing in our change set altered the module wire.
+  - **Source-level comparison against a working reference (2026-10-09).** The
+    failing layer *is* public as ordinary C source in a different CH582M tri-mode
+    keyboard: `ChnMasterOG/tp78_v2`, `mounriver_project/KEYBOARD_CH582M/Profile/`
+    (`hidkbmservice.c`, `hiddev.c`, `battservice.c`). It is the generic
+    WCH-derived HID-over-GATT profile — a different vendor than our module's
+    `0bts`, so it is a reference, not a drop-in — but it shows precisely what a
+    correct implementation does, and where ours diverges:
+    - **CCC writes.** The reference's `HidDev_WriteAttrCB()` handles
+      `GATT_CLIENT_CHAR_CFG_UUID` by calling `GATTServApp_ProcessCCCWriteReq(...)`
+      and **always returns `SUCCESS`**; the whole profile never emits an ATT error
+      from a CCC write (the only `0x0E` bytes in the file are HID report-map
+      descriptor data, not error codes). Our module answers the same write with
+      `ATT_ERROR_UNLIKELY_ERROR` (0x0E) — i.e. its GATT server is failing an
+      operation the reference stack serves generically. The CCC attributes are
+      `GATT_PERMIT_READ | GATT_PERMIT_ENCRYPT_WRITE` with a zero initial value;
+      the host's `ccc_read_cb()` on our module also failed, which means the module
+      could not even serve a plain readable attribute — a stack-level GATT fault,
+      not a profile-callback choice we could influence.
+    - **Reconnect after bond.** The reference makes reconnect work by two
+      deliberate mechanisms we see no sign of in our module's behaviour:
+      (a) `GAPBondMgr_SetParameter(GAPBOND_AUTO_SYNC_WL, TRUE)` — it syncs the
+      bonded host's address into the **controller whitelist** so the bond survives
+      across the peer's own address changes; and (b) `HidDev_Report()` chooses the
+      advertising duty by bond state — **high-duty-cycle** when bonded (fast
+      reconnect for the known host), initial/general when not. Our module instead
+      re-advertises under a **non-resolvable random address** each session, so the
+      host cannot match its stored bond at all (`No matching connection for
+      device`). That is the opposite of the reference's whitelist/RPA-bond design
+      and is fixed entirely inside the module image.
+    - Net: the two faults are **exactly the two behaviours the reference
+      implementation handles explicitly and our module does not.** This upgrades
+      the conclusion from "module misbehaves" to "module's GATT/ bonding layer is a
+      known-aberrant/older WCH-profile variant" — still Layer 0, still unreachable
+      from the WB32 firmware, but no longer unexplained.
 - **What `0xA4` byte 1 means off-USB.** Every value seen on USB is the module's
   init constant; only the radio path is known to be live. Cannot be bounded until
   2.4 GHz or BT works.
