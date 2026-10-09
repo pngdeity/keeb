@@ -810,42 +810,55 @@ wake-armed predicate was a proxy; the real fault is an unhandled wake code", and
 "the WB32 EXTI aliases pads, and a wake code must be validated as a set". Not yet
 flashed.
 
-### 5. Right (slave) half backlight off while typing on USB — OPEN
+### 5. Right (slave) half backlight off while typing on USB — FIXED (rearchitected)
 
-**Symptom (2026-10-09).** With the board back on our firmware and cabled over
-USB-C, the **right (slave) half's backlight is off**, yet the board still types
-normally (this is the same observation class as the off-cable BT session where
-the left half went dark, but now on USB and on the *other* half). Additional
-data point from the same session: pressing **Fn+Q (a pairing keycode)** made the
-**left half's backlight flicker briefly** while no BT pairing was established —
-i.e. the RGB indicator path is exercising the LED rail on the master.
+**Symptom (2026-10-09).** With the board cabled over USB-C, the **right
+(slave) half's backlight is off**, yet the board still types normally — input
+runs over the split link, which is unaffected. The same observation class
+appeared on the off-cable BT session, on the *other* half (the left/master went
+dark). Durable on both transports; the right half's keys still register.
 
-**Working hypothesis (unverified).** The LED rail (`LED_POWER_EN_PIN` /
-`LED_POWER_EN2_PIN`, relayed to the slave over RPC `0xBB`/`0xCC` — see §1) is in
-a state where the **slave's** rail is down while the master's is up. §1 fixed the
-master-tears-down-slave-rail case by gating the relay on
-`wireless_get_current_devs() != DEVS_USB`; this symptom is the **opposite
-asymmetry** on USB (slave dark, master lit) and so is **not** covered by that
-fix. Candidates, in order of cheapness to test:
+**Root cause (confirmed by reading source).** `A5`/`A8`
+(`LED_POWER_EN_PIN`/`LED_POWER_EN2_PIN`) are the backlight-rail **ENABLE**, and
+the rail was written ad hoc from sites that disagreed:
 
-1. **Rail latch / init race on the slave** — the slave's `LED_POWER_EN*` pins
-   are set in `keyboard_post_init_kb()` from `rgb_matrix_get_val()`; if the
-   slave's saved RGB value read 0 at init (e.g. before EEPROM/RGB state settled)
-   its rail is never raised, and no later path re-raises it. Check whether the
-   slave's `rgb_matrix_get_val()!=0` guard is false at post-init.
-2. **Fn+Q flicker** — the pairing indicator writes a left-half LED index; if that
-   path also toggles the rail, it may be implicated. Low priority until (1) is
-   excluded.
-3. **Split-link raciness** — the RGB-rail RPC (`0xCC`/`0xBB`) is sent on QMK
-   suspend/wake only; a missed `0xCC` after a `0xBB` leaves the slave dark (§1's
-   mechanism). Re-check whether any USB path emits `0xBB` without a matching
-   `0xCC`.
+1. `keyboard_post_init_kb()` / `lpwr_wakeup_hook()` — set the rail from a
+   **snapshot** of `rgb_matrix_get_val()`, once, at boot/wake.
+2. `QK_RGB_MATRIX_VALUE_UP` / `_DOWN` — drove `A5`/`A8` directly, unguarded by
+   `is_keyboard_master()`, duplicating what QMK's own `process_rgb_matrix`
+   already does to the RGB *value*.
+3. The cross-half `0xBB`/`0xCC` relay — `0xBB` forced the slave's rail **LOW**,
+   `0xCC` raised it. Both senders are gated `if (wireless_get_current_devs() ==
+   DEVS_USB) return;`, so **on USB neither fires** — a `0xBB` received while
+   off-cable had no `0xCC` to undo it.
 
-**Next probe when convenient.** On USB with the slave dark, read `0xA4` on
-`/dev/hidraw4` (master alive ⇒ 0xA4 answers), then toggle the master's RGB
-brightness (Fn+`F5`/`F6` on the `_FL` layer per `USAGE.md`) and watch whether the
-**slave** rail comes back — that distinguishes a per-half rail latch fault from a
-link-relay fault. Not yet flashed/tested; recorded so it is not lost.
+No path re-raised the rail after a LOW write, so a stray `0xBB` (its matching
+`0xCC` USB-gated off) or a local value-down press left a half **permanently dark
+while still typing**. The rail is LED enable, not matrix power — hence the
+"dark but functional" symptom. This **confirms the rail-latch hypothesis and
+refutes the link-relay one** (input works over the split link).
+
+**Fix (rearchitected, not patched).** Rather than add a fifth writer, the rail
+became a **pure function of the RGB value with a single owner**:
+`wls_led_rail_apply()` (`wls/wls.c`, declared `wls.h`) sets `A5`/`A8` from
+`rgb_matrix_get_val() != 0`. Every former writer is now a **caller**:
+`keyboard_post_init_kb`, `suspend_wakeup_init_kb`, `lpwr_wakeup_hook`, the
+VALUE_UP/DOWN handlers, the `0xCC` relay, and a per-tick reassertion in
+`housekeeping_task_user` (runs on both halves). The `0xBB` handler no longer
+forces the rail off — the slave's own suspend path drops it when it actually
+sleeps. Net: the rail self-derives and cannot be latched LOW. A Chesterton's-fence
+analysis (why was the rail written where it was?) showed the scattered writers
+*were* the defect, so collapsing them is the fix, not the risk. The only
+remaining direct writes are pin setup and the explicit suspend power-down (a
+one-way action, not a latch).
+
+Board-local by nature (a vendor rail-relay quirk, not a generic model gap).
+Build clean (63,552 B); `format-c` clean; tests pass (transport_logic 6,
+lowpower_logic 8, wireless_nkro_parity 8). **Not yet flashed.**
+
+**Next probe (hardware).** Flash, then with the right half dark: read `0xA4`
+(master alive) and toggle the master's RGB brightness (Fn+`F5`/`F6`) — the
+**slave** rail must come back and stay back.
 
 ### Process note — anticipatable issues were not anticipated
 

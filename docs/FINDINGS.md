@@ -1463,3 +1463,40 @@ not the always-true weak stub; and the deletion of the vendor swap is complete
 `qmk format-c -n` clean, `qmk lint` unchanged (4 pre-existing duplicates),
 `host_raw_hid_send` linked, tests `transport_logic` 6/6, `lowpower_logic` 8/8,
 `wireless_nkro_parity` 8/8.
+
+## FINDING — the half-backlight fault was four writers for one rail; the fix is one owner
+
+Defect 5 (a half's backlight off while it still types) was not a race to be
+papered over with a reasserting write — the Chesterton's-fence question ("why is
+the rail written *here*?") exposed that **the writes themselves were the
+defect.** `A5`/`A8` (`LED_POWER_EN_PIN`/`LED_POWER_EN2_PIN`) are the backlight
+rail ENABLE — the rail is a pure function of the RGB value (`val != 0`). Yet it
+had **four** writers that disagreed:
+
+- `keyboard_post_init_kb()` / `lpwr_wakeup_hook()` set it from a **one-shot
+  snapshot** of `rgb_matrix_get_val()` at boot/wake;
+- `QK_RGB_MATRIX_VALUE_UP`/`_DOWN` drove the pins **directly** (duplicating what
+  QMK's `process_rgb_matrix` does to the value), unguarded by master/slave;
+- the cross-half `0xBB`/`0xCC` relay forced the slave's rail **off/on**, and both
+  senders are gated `if (wireless_get_current_devs() == DEVS_USB) return;` — so
+  **on USB neither fires**, leaving a `0xBB` (received off-cable) with no `0xCC`
+  to undo it.
+
+With no reassertion anywhere, a single retained-LOW write latched a half dark
+permanently (the rail is LED enable, not matrix power, so typing continued over
+the split link). Four writers, one pin pair, no arbiter: the fifth-writer
+"reassert every tick" patch would have made the rail *work by tick order*, which
+is the same anti-pattern with a longer fuse.
+
+**The rearchitecture: one owner, derived, idempotent.** `wls_led_rail_apply()`
+(`wls/wls.c`) sets `A5`/`A8` from `rgb_matrix_get_val() != 0`; every former
+writer is now a **caller** (post-init, wake, the value keycodes, the `0xCC`
+relay, and one reassertion in `housekeeping_task_user` on both halves). The
+`0xBB` handler no longer forces the rail off. The rail now **self-derives**, so
+no stray write can latch it; the only direct writes left are pin setup and the
+explicit suspend power-down (a one-way action, not a latch).
+
+This is the same shape as the transport collapse (item 14): several partial
+writers of one piece of state, reconciled into a single authoritative owner —
+board-local here because a vendor rail-relay is not a generic model gap, but the
+principle (derive, don't scatter) is the general one.
