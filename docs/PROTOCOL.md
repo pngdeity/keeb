@@ -118,7 +118,29 @@ convention, giving a 33-byte write.
 | 4 | charging state: `0` discharging, `1` charging, `2` full |
 | 5 | transport: `0x01` USB, `0x02` Bluetooth, `0x04` 2.4 GHz |
 | 6 | model id (`KB_BATTERY_MODEL_ID`; board sets `1` = Split65, `0` = unspecified) |
-| 7..31 | `0x00` |
+| 7 | persisted host (`connection_get_host_raw()` raw value: `0` AUTO, `1` NONE, `2` USB, `3` BLUETOOTH, `4` 2P4GHZ) |
+| 8 | active BT sub-profile (the BT driver's profile, `DEVS_BT1`..`DEVS_BT5` = `1`..`5`) |
+| 9 | module firmware version (`0x5D` reply; `0` if the image never answers — see below) |
+| 10 | module link state (`MD_STATE_*`: `0` NONE, `1` PAIRING, `2` CONNECTED, `3` DISCONNECTED, `4` REJECT) |
+| 11..31 | `0x00` |
+
+The fields at 7–10 are a **diagnostic extension** (added with the transport
+collapse and the module-fingerprint work). They exist because the Bluetooth
+faults live in the CH582F module, whose image is closed and undumpable: byte 9
+identifies which module revision is fitted (the only public fingerprint), and
+byte 10 makes the module's own view of the link observable when the HID link
+never establishes. Byte 7 is the *stored* host (not the AUTO-resolved one) so a
+client can see what persistence holds. Hosts must ignore fields they do not
+know; older firmware replies with `0x00` here.
+
+**Scope of these fields — board-local, not upstream.** This whole `0xA4` command
+is a board host convention (Keychron-derived), not a QMK standard, so none of
+7–10 can be "upstreamed" today. Two of them carry a *generic concept* anyway and
+are the natural readback if a wireless-module abstraction is ever modeled
+upstream: **byte 9 (module firmware version)** and **byte 10 (module link
+state)** are module-protocol-agnostic. **Bytes 7–8 are test-only diagnostics for
+our own verification and are deliberately reclaimable** — do not build host
+features on them. See `HARDWARE.md` "The Layer boundary" for the full split.
 
 > **Byte 1 is not yet a measurement.** The keyboard has no ADC; the value only
 > ever arrives from the wireless module, and on USB the module does not answer,
@@ -173,6 +195,16 @@ picked before trusting the transport byte** — with keyboard and dongle both
 attached, a first-match selection returns the keyboard's USB interface
 (`TODO.md` defect 3). A read timeout means the pull did not complete on that
 attempt; the push path then covers it.
+
+Use `python3 host/battery_polybar.py --info` to print the **full** readback —
+battery, the persisted host and BT sub-profile (bytes 7–8), and the module
+fingerprint (bytes 9–10). This is the way to identify the fitted CH582F image
+(byte 9) and to see the module's link state (byte 10) when no HID link forms.
+
+For the Bluetooth re-pair loop, `host/bt_reconnect.py` scans for `Split65-N`,
+pairs fresh with an agent, and connects — working around the module's
+non-resolvable address rotation, which makes a stored bond unusable. It cannot
+fix the module's GATT faults; it makes the connection attempt reproducible.
 
 What a successful pull proves and does not prove:
 

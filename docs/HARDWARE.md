@@ -842,6 +842,50 @@ without the schematic.
       the conclusion from "module misbehaves" to "module's GATT/ bonding layer is a
       known-aberrant/older WCH-profile variant" — still Layer 0, still unreachable
       from the WB32 firmware, but no longer unexplained.
+
+### The Layer boundary: what we can and cannot fix (2026-10-09)
+
+The Bluetooth faults sit at a boundary worth stating plainly, because it decides
+where any future work belongs.
+
+- **Layer 0 — the CH582F module image.** The GATT server that rejects CCC writes
+  (ATT `0x0E`) and the address/bond policy that rotates non-resolvably. **Closed,
+  undumpable, un-updatable** from the keyboard (see "Can we dump or update the
+  module's firmware?"). Nothing we flash onto the WB32 can reach it: the UART
+  command set has no flash/bootloader/memory command, and ISP entry cannot be
+  triggered from outside the module's own app. This layer is not ours to fix.
+
+- **Layer 1 — our WB32 firmware.** It can (a) speak the module protocol
+  correctly (done; the vendor A/B showed the faults are not host-sequence-caused),
+  (b) **fingerprint** the module — `0xA4` bytes 9–10 expose the module's `0x5D`
+  firmware version and its own `0x5B` link state, the only public handle on a
+  closed image, and (c) surface module state for diagnosis. It **cannot** make
+  the module's GATT server serve an attribute it refuses to serve, nor make it
+  use a resolvable address.
+
+- **Layer 2 — host tooling.** The reconnect loop is a host-side workaround for
+  the module's rotation (`host/bt_reconnect.py`). It makes the attempt
+  reproducible; it does not repair the link.
+
+**Which of these is upstreamable, and which is board-local — deliberately:**
+
+- **Upstreamable (already done, generic):** the wireless-module *abstraction* —
+  `drivers/wireless/wireless_2p4ghz.{c,h}`, the `CONNECTION_HOST_2P4GHZ` cases in
+  `host.c`, the `WIRELESS_2P4GHZ_ENABLE` feature. These fill a hole upstream left
+  open (`#if 0` in `host_candidates[]`) and name a transport any board may have.
+  If a generic wireless-module protocol readback is ever modeled upstream, `0xA4`
+  bytes 9–10 (module firmware version / link state) are the fields that would
+  carry over — they are module-protocol-agnostic concepts.
+- **Board-local, never upstream:** the `0xA4` command itself (a
+  Keychron-derived host convention, not a QMK standard), bytes 7–8 (the
+  persisted host and BT sub-profile — *test-only* diagnostics for our
+  verification, deliberately reclaimable), and the entire reconnect workaround
+  (`host/bt_reconnect.py`), which encodes *this* module's specific bug. Upstream
+  cannot carry "reconnect to a broken CH582F", and must not: patching around a
+  vendor fault (faking notifications, spoofing an address) would be fiction in
+  the plate. The honest split is *generic model gaps upstream; vendor-specific
+  faults board-local and documented.*
+
 - **What `0xA4` byte 1 means off-USB.** Every value seen on USB is the module's
   init constant; only the radio path is known to be live. Cannot be bounded until
   2.4 GHz or BT works.

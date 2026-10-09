@@ -24,6 +24,17 @@ vendor = scaffolding to delete) live in `TODO.md` "Priority of code sources" and
 stack is **not owed preservation** — only the CH582F UART wire
 (`module.c`/`smsg.c`) is kept, because it is a fixed hardware fact.
 
+**The generic-vs-vendor-specific split decides where work belongs.** *Generic
+model gaps* — a transport upstream forgot to enumerate, a driver contract shape
+— are upstream-shaped and should be written to be upstreamable (e.g. the
+wireless-module abstraction: `drivers/wireless/wireless_2p4ghz.*`, the
+`CONNECTION_HOST_2P4GHZ` cases). *Vendor-specific faults and the workarounds for
+them* — the CH582F module's GATT/address bugs, the `0xA4` host convention and its
+test-only bytes, the host reconnect loop — are **board-local and never
+upstream**; do not patch around a vendor fault in a way upstream would have to
+carry (fake notifications, spoofed addresses are fiction in the plate). See
+`docs/HARDWARE.md` "The Layer boundary" for the Layer-0/1/2 statement.
+
 ## Environment traps
 
 - **Never run `doas`, `split65.py flash`, or `wb32-dfu-updater_cli`.** `flash`

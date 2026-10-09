@@ -140,6 +140,16 @@ def parse_reply(report: bytes):
         result["transport"] = report[5]
     if len(report) >= 7:
         result["model"] = report[6]
+    # Extended diagnostics (firmware wls.h): persisted host, BT sub-profile, and
+    # the CH582F module fingerprint. Absent on older firmware; guard by length.
+    if len(report) >= 8:
+        result["host"] = report[7]
+    if len(report) >= 9:
+        result["btsub"] = report[8]
+    if len(report) >= 10:
+        result["md_version"] = report[9]
+    if len(report) >= 11:
+        result["md_state"] = report[10]
     return result
 
 
@@ -195,12 +205,39 @@ def format_status(result):
     return f"BAT {percent}%"
 
 
+_TRANSPORT_NAMES = {0x01: "USB", 0x02: "BT", 0x04: "2.4G"}
+_HOST_NAMES = {0: "AUTO", 1: "NONE", 2: "USB", 3: "BLUETOOTH", 4: "2P4GHZ"}
+_MD_STATE_NAMES = {0: "NONE", 1: "PAIRING", 2: "CONNECTED", 3: "DISCONNECTED", 4: "REJECT"}
+
+
+def format_info(result):
+    """Full readback: battery, selectors, and the module fingerprint."""
+    transport = result.get("transport", 0)
+    lines = [
+        f"battery:   {result['percent']}%  charge={result.get('charging', 0)}  "
+        f"transport={_TRANSPORT_NAMES.get(transport, hex(transport))}",
+        f"model:     {result.get('model', 0)}",
+    ]
+    if "host" in result:
+        host = result["host"]
+        lines.append(f"host(raw): {host} ({_HOST_NAMES.get(host, '?')})")
+    if "btsub" in result:
+        lines.append(f"bt profile:{result['btsub']}")
+    if "md_version" in result:
+        lines.append(f"md fw ver: {result['md_version']}  (0 = module did not answer 0x5D)")
+    if "md_state" in result:
+        state = result["md_state"]
+        lines.append(f"md state:  {state} ({_MD_STATE_NAMES.get(state, '?')})")
+    return "\n".join(lines)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--pull", action="store_true", help="send the request and read the reply")
     mode.add_argument("--listen", action="store_true", help="passively read push reports")
     mode.add_argument("--bluetooth", action="store_true", help="read the BLE battery service")
+    mode.add_argument("--info", action="store_true", help="print the full readback (battery, selectors, module fingerprint)")
     parser.add_argument("--mac", help="Bluetooth MAC address for --bluetooth")
     parser.add_argument(
         "--transport",
@@ -218,6 +255,8 @@ def main():
         result = read_battery_listen(prefer=prefer)
     elif args.bluetooth:
         result = read_battery_bluetooth(args.mac)
+    elif args.info:
+        result = read_battery_pull(prefer) or read_battery_listen(prefer=prefer)
     else:
         result = read_battery_pull(prefer)
         if result is None:
@@ -226,7 +265,10 @@ def main():
     if result is None or result.get("percent") is None:
         return 1
 
-    print(format_status(result))
+    if args.info:
+        print(format_info(result))
+    else:
+        print(format_status(result))
     return 0
 
 
