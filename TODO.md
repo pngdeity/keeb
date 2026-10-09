@@ -1063,8 +1063,13 @@ one commit each, ordered by risk × provability.
   `break` that caused the fall-through is gone. Pure-core tests
   `link_watch_uses_independent_deadlines` and `link_watch_clears_foreign_deadlines`
   (12/12 pass).
-- **Fixes 5–10 — OPEN** (`docs/AUDIT.md` Tier 1/2):
-  `lower_sleep` one setter;
+- **Fix 5 — DONE.** The ordered-sleep flag (`lower_sleep`) has one authority:
+  it moved into `wls/wls.c` behind `wls_order_sleep(bool)` / `wls_sleep_ordered()`,
+  and the `extern bool` is gone. Every reader is a side-effect-free query (the
+  wake-clear no longer writes a bare global), and the low-battery decision is the
+  pure `hsm_should_order_sleep(level, charging, stop_threshold)`. Pure-core test
+  `sleep_order_is_a_pure_function_of_battery_and_charge` (13/13 pass).
+- **Fixes 6–10 — OPEN** (`docs/AUDIT.md` Tier 1/2):
   `md_info.state`/`.indicator` cross-layer writers; dead-state deletion +
   `bat_indicator_cnt` init; `raw_hid_send` line-pinned macro → real dispatch;
   `md_receive_msg_task` pure framer; `lpwr_*` pure cores
