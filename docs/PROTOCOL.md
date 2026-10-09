@@ -19,6 +19,31 @@ community/Keychron convention (Keychron `qmk_firmware` PR #504), where
 **response byte 1 is the battery percentage**. The additional fields below are
 a backwards-compatible extension; hosts must ignore bytes they do not know.
 
+> **The transport underneath is the WCH CH582F module protocol, and it is
+> public.** The `0xA4` command above is the *host-facing* wire (ours). The
+> keyboard-to-module link that supplies the percentage is a documented
+> third-party protocol — query battery via `0xA6 0x53`, reply `0x5C <percent>`,
+> with `0x5B` carrying connection/battery-threshold events. See `HARDWARE.md`
+> "The wireless module (public information)" for the full command set and the
+> reference doc (`emolitor/WestberryTech-WB32`, `docs/wireless/ch582f-protocol.md`).
+> This is why the module's per-transport battery behavior can be reasoned about
+> from a specification rather than only from hardware.
+>
+> **Command-space collision worth noting before flashing.** `0xA4` is also the
+> third-party module's `MD_SND_CMD_SEND_SYSTEM` code on the keyboard→module UART
+> link (`keyboards/linker/wireless/module.h`). The two uses live on different
+> buses today — ours is the *host-facing* raw-HID command, the module's is the
+> internal UART frame — so they do not collide while raw HID is distinct from the
+> module link. They **would** meet if a raw-HID report were ever tunneled over
+> the module UART: `md_raw.c` `replaced_hid_send()` does exactly that whenever
+> `get_transport() != TRANSPORT_USB`, wrapping our 32-byte report in a
+> `0xAF 0x61` frame. That frame carries the report as opaque payload (its own
+> `0xAF`/`0x61` header, not a bare `0xA4`), so no collision is present in the
+> current code — but any future change that put a bare host command into the
+> module byte stream would have to avoid the `0xA4` system-key code. Recorded so
+> the 2.4 GHz/BT raw-HID test (which takes exactly that tunnel path) is not
+> misread as a protocol fault if `0xA4` appears on the UART.
+
 ## Transport / interface
 
 - Raw HID interface: usage page `0xFF60`, usage `0x61`, report size `RAW_EPSIZE`

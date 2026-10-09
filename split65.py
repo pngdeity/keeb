@@ -278,7 +278,7 @@ def flash() -> None:
         print("    Left half:  remove the spacebar, short the two metal-plated holes,")
         print("                then plug in USB while still shorting (Esc-hold is broken")
         print("                on this build)")
-        print("    Right half: toggle the hidden R_Shift switch, short the spacebar")
+        print("    Right half: toggle the hidden R_Shift switch DOWN, short the spacebar")
         print("                switch pin holes, then plug in USB")
         print()
         resp = input("  Continue anyway? [y/N] ").strip().lower()

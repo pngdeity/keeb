@@ -10,6 +10,20 @@ wb32-dfu bootloader). The firmware adds raw HID battery reporting (`0xA4`) over
 USB, the 2.4 GHz dongle and Bluetooth. The deliverable is a `.bin` flashed onto
 both halves.
 
+## Priority of code sources (read before changing the wireless/connection stack)
+
+**The goal is a firmware that works on this one keyboard.** Nothing else is owed
+to any upstream or vendor: prior work (upstream *or* vendor) is an *input we may
+use or ignore*, judged only by whether it serves that goal. Where existing code
+is worse than what we would write, **discard it and write our own** — high
+quality and clean architecture are ours to define, and are what makes the result
+both correct here and, secondarily, plausible to upstream. The full doctrine and
+the three-way weighting (upstream = plate; our board layer = the clean extension;
+vendor = scaffolding to delete) live in `TODO.md` "Priority of code sources" and
+`docs/FINDINGS.md` "the transport is three partial state machines". The vendor
+stack is **not owed preservation** — only the CH582F UART wire
+(`module.c`/`smsg.c`) is kept, because it is a fixed hardware fact.
+
 ## Environment traps
 
 - **Never run `doas`, `split65.py flash`, or `wb32-dfu-updater_cli`.** `flash`

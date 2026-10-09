@@ -27,7 +27,9 @@ work are in `TODO.md`.
   upstream than it looks · the three power-off faults are one defect · upstream
   has no sleep invariant · the wake-armed predicate was a proxy · the WB32 EXTI
   aliases pads · the USB path has a second sleep route · the sleep decisions are
-  a functional core.
+  a functional core · the wireless stack is a documented third-party protocol,
+  not an Epomaker invention · the board is an ODM product (MATHEW candidate /
+  Shenzhen Changyun named by certification).
 - Design · Build facts · Dongle recon — reference.
 - Open questions tied to these findings.
 
@@ -314,12 +316,20 @@ contract is `drivers/bluetooth/bluetooth.h` (`bluetooth_init/task/is_connected/
 can_send_nkro/keyboard_leds/send_{keyboard,nkro,mouse,consumer,system,raw_hid}`);
 core wires it through `host_driver_t bt_driver` (`tmk_core/protocol/host.c:53-62`,
 under `BLUETOOTH_ENABLE`) with `bluetooth_init()`/`bluetooth_task()` called from
-`quantum/keyboard.c:541,792`. A future `BLUETOOTH_DRIVER = custom` implementing
-that header is the upstream-idiomatic home for our module — mirroring what we
-already did with `BATTERY_DRIVER = custom`. Of the upstream BT keycodes, only
-`QK_OUTPUT_BLUETOOTH` is implemented; the profile/unpair/2.4 GHz keycodes are all
-still "(not yet implemented)". **This is a later refactor, not a test
-prerequisite.**
+`quantum/keyboard.c:541,792`. **A `BLUETOOTH_DRIVER = custom` implementing that
+header is now in place** — `wls/wls_bluetooth.c`, selected by
+`BLUETOOTH_DRIVER = custom` in `post_rules.mk` and `"bluetooth": true` in
+`keyboard.json` — mirroring what we did with `BATTERY_DRIVER = custom`. It is a
+thin adapter over the vendor module stack: it gates every call on the current
+device being a BT profile (`DEVS_BT1..DEVS_BT5`), because otherwise upstream's
+`connection_auto_detect_host()` would resolve `CONNECTION_HOST_AUTO` to Bluetooth
+on USB and 2.4 GHz too (the module UART reports `MD_STATE_CONNECTED` on every
+transport). Of the upstream BT keycodes, only `QK_OUTPUT_BLUETOOTH` is
+implemented; the profile/unpair/2.4 GHz keycodes are all still "(not yet
+implemented)". The driver is inert until a BT profile is selected — the vendor
+stack still owns the module lifecycle and the `host_driver_t` swap, and this
+driver is the path upstream's `bt_driver` takes once `active_host` is
+`CONNECTION_HOST_BLUETOOTH`.
 
 ## FINDING — upstream already ships the battery and connection APIs; adopt, don't maintain
 
@@ -851,6 +861,40 @@ reset** after the 19:17:49 clean enumeration. The USB contract (stays enumerated
 raw HID responsive, no EPROTO storm) held throughout. Runner:
 `/tmp/opencode/usb_soak.py`.
 
+**Reflash verification (2026-10-09).** Both halves reflashed with the current
+build (battery responder + BT driver + board-local deep-sleep fix), then the
+keyboard reconnected on USB in USB mode. Enumerated cleanly as `342d:e4c6`
+(`LEO` / `EPOMAKER Split65`, `bcdDevice 0.30`) with **one** raw-HID collection at
+interface 1 (`0xFF60`/`0x61`, `/dev/hidraw4`). A single live `0xA4` piggyback
+query returned `A4 64 00 00 01 01 01 …`: level byte1 `0x64` = **100%**, charge
+byte4 `0x01` (charging), transport byte5 `0x01` (USB), model byte6 `0x01`
+(Split65) — indexes per `wls.h` (cmd 0, level 1, charge 4, transport 5, model
+6). No EPROTO/`-71` in the kernel
+log; all HID collections (keyboard, raw, mouse/system/consumer) attached. This
+confirms the responder and manufacturer string on the freshly flashed hardware;
+the 100% is still the USB-mode constant, so it does not yet distinguish a real
+reading (defect 1).
+
+**The BT-profile keycode persists the transport, and the mode switch cannot undo
+it (2026-10-09).** After using `KC_BT1` (Fn on the **right** spacebar, then `Q`)
+to try Bluetooth, the keyboard stopped typing on USB on **both** halves — while
+USB stayed enumerated (`342d:e4c6`) and the `0xA4` responder still answered. The
+cause is persistence, not a crash: `KC_BT1` → `connection_set_host(BLUETOOTH)`
+writes EEPROM, and `connection_host_changed_kb()` maps it through
+`wireless_devs_change()`, which persists `confinfo.devs = DEVS_BT1`. On the next
+boot the housekeeping path restores that persisted index
+(`wireless_devs_change(!confinfo.devs, confinfo.devs, false)`), so reports are
+routed to the dead BT link while the USB composite remains up. The mode switch is
+**not** an override at a steady position: the boot-time `hs_mode_scan(false, …)`
+acts only when `hs_modeio_detection()` sees the switch *change* after boot. There
+is no USB-select keycode. **Recovery that works:** `EE_CLR` (hold 3 s) →
+`hs_reset_settings()` → `eeconfig_init()` (EEPROM wipe) →
+`keyboard_post_init_kb()` re-defaults `confinfo` and restores USB. **Bootmagic is
+not a recovery route** — `bootmagic_should_reset()` does `eeconfig_disable()` and
+`bootloader_jump()`, i.e. it enters DFU rather than resuming. Full defect writeup
+in `TODO.md` defect 4. Not a regression from our change set (the vendor stack has
+the same persistence); it is a usability/authority defect in the mode model.
+
 ## FINDING — the sleep decisions are a functional core, and the shell that touches the MCU is not
 
 The low-power state machine mixes two kinds of code: decisions that depend only
@@ -887,3 +931,535 @@ flags, and the armed mask excludes UART (the phantom). Eight tests, all passing.
 it is immune, but the boundary stays a shell fact (a `_Static_assert` is the
 mitigation). This pattern fixes *testability*, not *hardware truth* — the aliasing
 is reproduced only because the test is fed the board's real pad/armed facts.
+
+## FINDING — the wireless stack is a documented third-party protocol, not an Epomaker invention
+
+A search for the board's schematics (English, Japanese, Chinese) found **no
+Split65 netlist** — but it found something more useful: **our wireless subsystem
+is a standard WCH module stack with a public specification, and our firmware
+traces to public source.** This converts several "assumption, not measurement"
+items into spec-backed facts.
+
+**The module is a WCH CH582F, and the UART protocol is documented publicly.**
+`emolitor/WestberryTech-WB32` (a ~year of independent WB32 RE) carries
+`docs/wireless/ch582f-protocol.md`: a complete reference for the CH582F, "a BLE
+5.0 / 2.4 GHz wireless SoC from Nanjing Qinheng Microelectronics." It states the
+protocol is **not vendor-specific** — used by "GMMK, Akko, MonsGeek, Neo,
+Shortcut Studio, and others", with the module firmware a **WCH binary blob** (the
+protocol doc's words; see the correction below — the stack is actually a
+symbolized library) and
+only the host side implemented per board. Our `keyboards/linker/wireless/module.h`
+matches it **byte for byte** (`0xA1/0xA2/0xA3/0xA4/0xA8`, `0xA6`+`0x11/0x30/
+0x31..0x35/0x51/0x52/0x53`, `0x5A/0x5B/0x5C`, the additive checksum, the
+`0x61 0x0D 0x0A` ACK, `WLS_INQUIRY_BAT_TIME == 3000`).
+
+**What this settles without hardware:**
+- **The per-transport state question.** The doc defines `MD_STATE_*` and states
+  HID reports are only transmitted in `MD_STATE_CONNECTED`, else a reconnection
+  attempt fires. This is module-firmware behavior, documented by the ecosystem —
+  it backs the BT-profile link-up gate in `wls/wls_bluetooth.c` (see "Bluetooth is
+  a dongle-free path"), which previously rested on inference.
+- **Battery semantics.** Poll `0xA6 0x53` → `0x5C <percent>`, plus optional
+  unsolicited `0x5B` threshold sub-codes (`0x21` very-low / `0x22` first-read /
+  `0x23` normal). Relevant to defect 1: a stale placeholder could partially be a
+  threshold-notification artifact, though the `0x5C` value remains authoritative.
+  Our stack **deliberately ignores** the `0x5B` threshold sub-codes:
+  `module.c` `md_receive_msg_task()` handles only the `0x5B` pairing/connected/
+  disconnected/reject states and drops everything else, and `module.h` annotates
+  `0x21/0x22/0x23` "(unused)". That is a defensible choice — the `0x5C` percent is
+  the authoritative value and the thresholds are advisory — but it means a
+  low-battery or first-read notification the module sends is invisible to us. The
+  RE route (below) can confirm from `gap.o`/`ll_connect.o` which internal event
+  drives each sub-code before deciding whether to honour them.
+- **Dongle descriptor programming.** The doc explains the *host MCU* sets the
+  dongle's manufacturer/product strings and VID/PID (`0xAB`/`0xAC`/`0xAD`) during
+  pairing — a concrete failure mode for our dongle's enumeration, and a reason its
+  USB identity is not fixed.
+- **The receiver has no debug interface** ("dev only via a CH582EVT eval board"),
+  so the dongle cannot be introspected from the keyboard side — mechanistically
+  consistent with our dongle's failure to enumerate, though not a diagnosis.
+
+**The lineage is public and shallow.** Each of these carries the same
+`keyboards/*/wireless/` file set (`lowpower`, `lpwr_wb32`, `md_raw`, `module`,
+`smsg`, `transport`, `wireless`):
+
+```
+isuua → emolitor/qmk_firmware#wireless-2.0 (Shortcut Bridge75, WB32FQ95+CH582F)
+      → WestberryTech/qmk_westberry#tri-mode (vendor fork)
+      → hangshengkeji/qmk_firmware#tri-mode → Epomaker/Split65
+```
+
+`emolitor`'s `module.h` is essentially identical to ours, and that port ships a
+**`battery_custom.c`** — an independent precedent for our `BATTERY_DRIVER =
+custom` shape — plus a `retarget_suspend.c` we do not carry.
+
+**Consequence.** (a) The stack is not an Epomaker black box; it is a documented,
+shared OEM stack, so the U1 RFC can cite the protocol reference rather than
+reverse-engineering it. (b) A `test/` harness that stubs `module.c`/`smsg.c` can be
+written against a **specification**, not a guess — the highest-value artifact that
+needs no hardware. (c) The board-specific netlist and the radio/dongle facts
+remain flash-gated; the search did not find them and they are not inferable from
+the protocol doc.
+
+**Why the schematic is unfindable (a white-label board).** A deliberate sweep of
+every plausible leak channel found nothing: the OEM's GitHub (33 repos, all
+firmware), its firmware/software/VIA/manual download pages, `hub.epomaker.com`,
+the ODM's `hangshengkeji` tree, the `WestberryTech` vendor fork, Chinese
+open-hardware `oshwhub.com` (**0** "split65" projects), `gitee.com`, and forums
+(the only "Split65" elsewhere is an unrelated 2.4 G-only kit). The board is a
+**white-label ODMed product**: the WCH CH582 module reference design plus a vendor
+QMK tree, wired by the ODM and never published. The "accidental public web server"
+hypothesis is not supported by any reachable channel; treat the netlist as
+unavailable and derive board facts from the firmware, not from a schematic.
+
+**Related schematics DO exist — the question is which kind of "schematic".** A
+follow-up sweep for *any* same-family schematic (not necessarily the Split65)
+turned up three usable artifacts, none of them our netlist:
+
+- **A same-family board pin map — `ozboar/zoom65v3-re`.** A Meletrix Zoom65 v3
+  (WB32FQ95, `HFD22001A` rebadge) reverse-engineered to a full **pin map**:
+  matrix rows/cols, the 14-pin ribbon, and the module-UART / cable-detect /
+  battery / LED / power-enable pins. It is the closest published analogue to a
+  Split65 netlist and the reason the "sibling pinout" section in `HARDWARE.md`
+  exists. **Critical caveat:** its module UART is `A9`/`A10`, whereas ours is
+  `C10`/`C11` (UART3) with the *split link* on `A9`/`A10` — so the sibling's
+  literal pin assignment must not be copied; copying it re-creates the module/split
+  UART collision our board-local comments already warn about.
+- **The module's own chip datasheet — WCH CH582F (QFN28).** Public; gives the
+  module-side UARTs (`UART1` = `PA8`/`PA9`, `UART3` = `PA4`/`PA5`, default console
+  `UART1`). This explains *why* two boards can speak the same protocol over
+  different MCU pins: the module exposes several UARTs and the board picks one.
+- **Third-party CH582F *keyboard* schematics — `oshwhub.com`.** Open-hardware
+  projects with published schematics for a wired→BT converter module ("HH90"),
+  CH582M tri-mode pads / a 61-key board, and a CH582F **2.4 GHz receiver**. These
+  are different boards but document the **same module architecture** (keyboard MCU
+  + CH582F + TP4056 charge / boost LDO / battery + PCB antenna), which is directly
+  reusable as a *reference topology* even though the matrix and pins differ.
+  `oshwhub.com` blocks direct fetch (HTTP 418); descriptions/attachments are
+  reachable via search.
+
+**What stays unavailable:** the WCH vendor `CH583EVT.ZIP` / `SCHPCB.ZIP` (official
+eval-board schematic/PCB) require "contact sales", and the module's shipped
+factory product image is not published. **But the BLE stack is not the opaque blob
+it was once recorded as:** `openwch/ch583` `EVT/EXAM/BLE/LIB/LIBCH58xBLE.a` is a
+genuine `ar` archive of 67 named object files (`ll_*.o`, `gap*.o`, `hci*.o`,
+`sm*.o`, `tmos*.o`, …), unstripped, exporting 10,410 named functions and
+disassemblable with `llvm-objdump`; the app/profile layer is full C source. The
+`CH58xBLE_ROM*.hex` BASELIB is **also public** and is **not mask ROM** — the
+CH582/583 has no BLE stack in silicon; "ROM" is the stack compiled separately and
+flashed to a fixed Flash region, reached through a jump table
+(`BLE_LIB_JT(n)` at `LIB_FLASH_BASE_ADDRESSS+0x34`, `_ROM`/`_ROMx` differing only
+in load address). It is a first-class WCH download (and `WCHBleLib_MultiOS.ZIP`),
+mirrored in the same repo. Both the archive and the linked 180 KB image are
+disassemblable. This turns "the module is a black box" into "the module's
+*behavior* is readable", which is discussed under "Why this matters" in
+`docs/HARDWARE.md`. Net: the **Split65 netlist is still flash-gated**, but the
+*architecture it is an instance of* is now public from three independent
+directions.
+
+## FINDING — the board is an ODM product; the ODM candidate is MATHEW TECHNOLOGY LIMITED, the manufacturer named by certification is Shenzhen Changyun Technology Co., Ltd., and the radio filings are public
+
+The provenance chain resolves one level above Epomaker. `Epomaker/Split65` is a
+direct copy of `hangshengkeji/qmk_firmware#tri-mode`, which is the `WestberryTech`
+vendor fork, which is `emolitor`'s Shortcut Bridge75 port. The **ODM itself** is
+reachable and has published its raw firmware source archives:
+
+- **`mathewkb.com` = "MATHEW TECHNOLOGY LIMITED"** (`wp-json` site name), a Shenzhen
+  keyboard OEM/ODM. Its `/firmware/` page and `wp-content/uploads/` tree carry
+  **dozens of unencrypted `.7z` firmware source archives** (not just `.bin`
+  blobs): `MK*`, `MT*`, `NK*`, `HW*`, `YG*`, Honor, Aula, Langtu, and the **ZUOYA
+  GMK** series. WordPress `wp/v2/media?mime_type=application/x-7z-compressed`
+  enumerates the recent set; the older set is linked from the `/firmware/`
+  portfolio (`us_portfolio` post type, no REST base).
+- **`ZUOYA-GMK70.7z`** (`uploads/2024/11/`) is the same source *shape* as our
+  board: `config.h`, `keyboard.json`, `post_rules.mk`, `rgb_record/`, `wls/`,
+  `keymaps/`, `mcuconf.h`, `halconf.h`, `*.c` — a QMK `keyboards/<oem>/<board>/`
+  tree with the vendor wireless stack, archived with source timestamps
+  (`2024-12-19`).
+- **ZUOYA is the ODM's own brand.** GMK70's `keyboard.json` gives
+  `manufacturer: "LEO"` and `"pid": "0xE491"`, and **VID `0x342D` — the same VID as
+  our Split65** (`342d:e4c6`, manufacturer `LEO`). The GMK70 VIA JSON
+  (`customKeycodes` = `BT DEV1..BT DEV5 / 2.4G / USB`, matrix 10×9, `layouts` = 5)
+  is the same vendor JSON generator as our Split65 VIA JSON (`0x342d:0xe4c6`,
+  matrix 12×9, identical custom-keycode set). `mathewkb.com` even names its
+  `qmk-via-json` and `oem-odm` pages.
+- **The GMK70 board source is upstream's Split65 source with board-local edits.**
+  `wls/wls.c` (OEM) differs from `upstream/tri-mode`'s
+  `keyboards/epomaker/epomaker_split65/wls/wls.c` by exactly the split-half /
+  master-gating lines we ourselves later added (`col_pins_right`,
+  `is_keyboard_master()` gates) — i.e. the OEM archive is an *earlier snapshot of
+  the very file* we carry. `rgb_record/rgb_record.c` differs by 3 commented
+  lines; `rgb_record.mk` is byte-identical; `wls.h` differs only in whether
+  `HS_BT_DEF_PIN`/`HS_2G4_DEF_PIN` are commented out.
+
+**What the ODM library does *not* contain (negative result).** A full sweep of
+`mathewkb.com`'s published set — 73 download archives spanning `MK*` (61/66/67/68/
+75/80/84/86/87/96/100), `MT*` (66/87/97), `NK*` (68T/75T/98T), `HW*` (61/68/87/108),
+`YG*` (108/98), Honor (84/100), Aula, Langtu, CIDOO, and **ZUOYA GMK (61/70/81/87/
+104)** — turns up **no 65% split board and no Split65**. The GMK family is a
+*67-key/70-key/75-key/…* series, all apparently single-piece or standard splits,
+never a 65% split. So the Split65 is **not** published by the OEM under any name;
+it is a board the ODM built for Epomaker and left unpublished. The Split65 remains
+the only source of its own pin truth; GMK70 is a same-platform sibling, not a
+hardware-equivalent donor.
+
+**Confidence: circumstantial, and it has a gap that has *not* been closed.** The
+chain `emolitor → WestberryTech → hangshengkeji → Epomaker/Split65` is an
+**explicit GitHub fork chain** (provenance by `git` parentage). Every link from
+`emolitor` onward is *declared vendor source*, not a rebadge of an unknown board.
+Getting from there to "MATHEW built *this* board" rests on **three inferences,
+none of which is a direct OEM→Split65 link**:
+
+1. `mathewkb.com` is titled "MATHEW TECHNOLOGY LIMITED" and self-labels its pages
+   `oem-odm` — this identifies the *website's* operator, not a contract with
+   Epomaker. Nothing on the site names Epomaker, the Split65, or a 65% split.
+2. The **ZUOYA GMK70 archive is a near-identical *earlier snapshot* of the same
+   vendor file we carry** (`wls/wls.c` differs by exactly the split-half lines we
+   later added; `rgb_record.mk` byte-identical; same VID `0x342D`, same `LEO`
+   persona, same VIA-JSON generator, same Magic-keycode set). This proves *the
+   same hand wrote both trees* — a shared ancestor — and given that `mathewkb.com`
+   distributes it, MATHEW is the strongest candidate for that hand. It does **not**
+   prove MATHEW contracted for the Split65 specifically.
+3. The **VID `0x342D` + manufacturer `"LEO"`** is a *platform* identity shared
+   across the whole family (`MK*`, `MT*`, …), not a per-board OEM stamp.
+
+The gap: **no archive, page, or string ties `mathewkb.com` to Epomaker or to the
+Split65.** MATHEW might be the ODM; it might equally be a distributor/reseller that
+merely *rebrands* a stack it also received from the same further-upstream source
+that fed `emolitor`. The negative result above (no 65% split in the library)
+is consistent with either story. The **certification filings name a different
+entity — `Shenzhen Changyun Technology Co., Ltd.` — as the manufacturer/applicant**
+(see "Corroboration" below), which is a *second* candidate and shows the MATHEW
+inference is not the whole story.
+
+**What would close it (all flash- or contact-gated):** the dongle's USB
+descriptors, the module firmware's ODM string, the PCB silkscreen, a
+`strings`/`binwalk` sweep of the vendor `.bin`, or a direct reply from
+`mathewkb.com`. Until then the correct statement is: **the board is a Shenzhen
+ODM product; `Shenzhen Changyun Technology Co., Ltd.` is named as manufacturer by
+the radio certifications, and MATHEW is a strongly-indicated candidate via a
+shared-ancestor source snapshot — but the exact OEM→Split65 contract is not
+proven.**
+
+**Corroboration from the certification filings (new evidence).** Two filing
+bodies name the manufacturer directly:
+
+- **FCC ID `2A5D2-RT100-010`** (grantee `2A5D2` = **SHENZHEN CHANGYUN TECH CO.,
+  LTD**), granted `2024-12-13`, test report `SSP24100235-1E`. The Split65 is
+  certified **by family declaration** under the RT100 main model: the *Model
+  Difference Statement* lists `... Hack 59, Alice 66, **Split 65**` as "the same
+  circuit and electronic construction." `fccid.io/2A5D2-RT100-010` publishes a
+  **teardown annex** (`Internal-Photos-7897160.pdf`) showing the **wireless
+  daughter module with a PCB antenna over the main matrix PCB** — i.e. the module
+  architecture we inferred — plus the battery cell. The schematic is withheld
+  (`Long-Term Confidentiality: Yes`).
+- **EU CE annex** (retail packaging / `manuals.plus`) names `Manufacturer:
+  **Shenzhen Changyun Technology Co., Ltd.**, Seventh Floor, Kai Daer Building,
+  No.168 Tongsha Road, Xili Street, Nanshan District, Shenzhen` — **the same
+  entity and address cluster as the FCC grantee**. So Epomaker's supplier is
+  **Changyun**, a Shenzhen factory that also acts as the certification applicant.
+
+This **changes the OEM picture**: it corroborates that a Shenzhen ODM manufactures
+the board and files the radio certifications, and it names that ODM candidate
+(`Changyun`) independently of the `mathewkb.com`/MATHEW inference. It does **not**
+merge the two — Changyun and MATHEW may be the same group, related, or separate
+tiers — but it is a second, government-facing identity for "who built this radio."
+
+**Consequence.** (a) There is a *provably equivalent, source-available* sibling
+board: ZUOYA GMK70 shares our VID, ODM, vendor-stack source, VIA-JSON generator,
+and Magic-keycode set, and its source is free to read. (b) The "epomaker" name is
+a rebadge of the ODM's own ZUOYA/GMK platform; the Split65 (65%) is one
+keyswitch-count variant in a family (`GMK61/70/81/87/104`, `MK*`, `MT*`). (c) The
+OEM half of "upstreaming" is not a black box: the OEM publishes exactly this QMK
+vendor-tree shape, which is what the pinned `split65-overlay` branch mirrors. (d)
+The netlist is still unpublished — the archives hold *firmware source*, not
+schematics or PCB files.
+
+## FINDING — the transport WAS a tiny machine whose transition matrix named the defect-4 bug
+
+**Resolved 2026-10-09.** Kept as the audit record. The `transport`/`driver`/`T`/`H`
+columns below no longer exist: 14d deleted `set_transport()`, `host_set_driver()`,
+`get_transport()` and the `transport_t` enum, leaving `host_get_active_driver()` as
+the sole chooser. `wls_devs` and `confinfo.devs` remain (the vendor device index the
+CH582F protocol speaks), but neither is a transport authority. See the "three
+partial state machines" finding below for the resolution mapping.
+
+Defect 4 ("a BT keycode hijacks the transport and the switch cannot undo it") was
+not a mystery once the state is written down. This section is the **transition
+matrix** for the transport subsystem as it stood *before* 14d: every state × event
+cell evaluated on purpose, so a missed cell is visible rather than latent. It is
+deliberately a matrix, not a diagram — a matrix forces each cell to be filled,
+which is how the illegal corner was found.
+
+### The state
+
+The runtime transport state is the product of three small variables. There is no
+hidden state; every write site is listed.
+
+| Variable | Domain | Written by | Persisted? |
+| --- | --- | --- | --- |
+| `transport` (`transport.c`) | `USB \| WLS` | `set_transport()`, only | no |
+| `driver` (`host.c`) | `&chibios_driver \| &wireless_driver \| NULL` | `host_set_driver()` (called from `set_transport`) | no |
+| `active_host` (`host.c`) | `USB \| BLUETOOTH \| 2P4GHZ \| NONE` | `host_task()`, from `connection_get_host()` | no |
+| `wls_devs` (`wireless.c`) | `DEVS_USB \| BT1..5 \| 2G4` | `wireless_devs_change()` only | no |
+| `confinfo.devs` (`epomaker_split65.c`) | same enum | `wireless_devs_change_kb()` only | **yes (EEPROM)** |
+| `config.desired_host` (`connection.c`) | `AUTO \| USB \| BLUETOOTH \| 2P4GHZ \| NONE` | `connection_set_host*()` | **yes (EEPROM)** |
+| `md_info.state` (`module.c`) | `NONE \| PAIRING \| CONNECTED \| DISCONNECTED \| REJECT` | module UART RX (`md_receive_msg_task`) + `wireless_devs_change` force | no |
+
+Two facts make the machine subtle:
+
+1. **Two independent selectors pick the sender.** `host_get_active_driver()`
+   returns `&bt_driver` iff `active_host == BLUETOOTH`, else the `driver` pointer.
+   So the **same** `wls_devs == DEVS_BT1` physical link can be driven either by
+   the board's `wls_bluetooth.c` (`bt_driver`) **or** by the vendor
+   `wireless_driver` (`driver`), depending on `desired_host`, not on `wls_devs`.
+   There is no invariant tying the two.
+2. **The physical switch is an input to a *comparison*, not a selector.** At boot
+   the board restores `confinfo.devs`, and the switch only matters when it has
+   *changed* since the last scan (`sw_mode`). The switch LEVEL is never read to
+   *set* the mode at boot.
+
+### The transition matrix
+
+Rows are states; columns are events; each cell is `[next wls_devs / side-effects]`.
+`devs` = the device index; `T` = `set_transport`; `H` = `host_set_driver`;
+`sleep` = module sleep command.
+
+| State (`wls_devs`, `desired_host`) | boot / post-init | switch→USB | switch→BT | switch→2.4G | `KC_BT1` (Fn+RSPC+Q) | `KC_2G4` | module `CONNECTED` | module `DISCONNECTED`/\`REJECT` | `EE_CLR` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **(USB, USB)** | stays USB; T(USB); H(chibios) | — (already) | devs→BT1; T(WLS) if conn; H(wireless) | devs→2G4; T(WLS) if conn | persist `desired_host=BT`; devs→BT1 | devs→2G4 | n/a | n/a | reset → (USB, AUTO) |
+| **(BTn, BLUETOOTH)** | **restores BTn** (defect); `active_host=BLUETOOTH`→H(bt_driver) **and** T(WLS)→H(wireless) | devs→USB; T(USB); H(chibios); clears md state | devs→BT(n) | devs→2G4 | devs→BT1 | devs→2G4 | md=CONNECTED; T(WLS); H(wireless) | forces md=DISCONNECTED | reset → (USB, AUTO) |
+| **(2G4, 2P4GHZ)** | restores 2G4 | devs→USB; T(USB) | devs→BT1; T(WLS) if conn | — (already) | persist BT; devs→BT1 | devs→2G4 | md=CONNECTED; T(WLS) | forces md=DISCONNECTED | reset → (USB, AUTO) |
+
+**Boot column is the bug.** Every wireless row *restores itself* at boot from
+`confinfo.devs`, regardless of the switch. USB is not special-cased. So if the
+last session ended on BT1, the board boots on BT1 even with the switch on USB —
+and because USB was still enumerated, the failure is silent ("enumerated but no
+keys"), exactly as observed.
+
+### The illegal combinations (invariants)
+
+These are states the machine can reach that *should* be unreachable. An invariant
+checker (`assert_invariants()`, run in tests and optional debug) would flag each:
+
+- **I1 — "USB present but not selected."** `usb_connected_state() && wls_devs != DEVS_USB`.
+  The switch says a physical cable is authoritative to the user; the state says
+  otherwise. This is the defect-4 landing state.
+- **I2 — "two senders for one link."** On any BT index, both `bt_driver`
+  (`active_host==BLUETOOTH`) and `wireless_driver` (the `driver` pointer, set by
+  `set_transport(WLS)`) are live and target the same UART. Nothing asserts they
+  agree. Only one is consulted per report (`host_get_active_driver()`), but a
+  `host_set_driver()` from either path silently re-points the other.
+- **I3 — "edge-without-level."** `sw_mode` can only be true if the switch moved
+  *after* boot; therefore the boot-time scan cannot correct a state that was
+  already wrong at power-on. Any state that requires the switch to *have moved* to
+  be fixed is fragile.
+- **I4 — "persisted authority with no non-flash escape."** If the persisted state
+  is wrong and no keycode selects the target, the only reset is `EE_CLR` (EEPROM
+  wipe). That is a recovery, not a control.
+
+### Bug classes this instance belongs to
+
+In the taxonomy used for this audit, defect 4 is **authority inversion** (software
+persistence overrides a physical switch) *compounded with* **edge-vs-level boot
+desync** (the override is only corrected on a switch edge, which never occurs at
+boot). Both are structural, not incidental: any state that (a) persists, (b) is
+restored at boot, and (c) is *also* expressed by a physical control, has this
+shape. The general rule the machine violates: **a physical control is absolute
+authority for its own domain; persistence may only model sub-domains the control
+cannot express** (here: which of `BT1..5`, once the switch merely says "BT").
+
+### What the matrix buys
+
+- The fix target is named: make the boot column read the switch LEVEL, not
+  `confinfo.devs`. **DONE** — see `TODO.md` defect 4 and the pre-flight rule; the
+  fix sets both selectors (vendor index + `config.desired_host`) from the level.
+- The test target is named: a table-driven vector asserts **I1 is never entered**
+  for every boot state and switch position, with no hardware. **DONE** —
+  `tests/transport_logic/` holds exactly that matrix as a pure core
+  (`wls/transport_logic.{c,h}`, 6 tests, `make test:transport_logic`).
+- The residual unknown is bounded: I2 (two senders) was a separate, real ambiguity
+  that the transition matrix exposed but did not resolve. **DONE (14d)** — deleting
+  the vendor `set_transport()`/`host_set_driver()` swap leaves
+  `host_get_active_driver()` as the single chooser, so I2 is no longer reachable.
+  The fix still writes both selectors (vendor index + `config.desired_host`) from
+  the level, which the boot-order rule depends on.
+
+## FINDING — the transport WAS three partial state machines, and we collapsed them (the vendor one as scaffolding to delete)
+
+**Resolved 2026-10-09.** This finding is kept as the record of the audit and the
+reasoning; the code has since moved past the state it describes. The three partial
+state machines are gone: the vendor transport selector (`set_transport()` /
+`host_set_driver()` / the `transport_t` enum / `get_transport()`) is deleted, and
+upstream `host_get_active_driver()` is the single sink chooser. See "The
+resolution" at the end of this finding for the mapping of each hole to its commit.
+
+A design audit prompted by "is any of this actually well designed, or are we
+guessing?" The honest answer was **poorly *factored*, not poorly understood**.
+There was no single transport state machine; there were **three partial ones**
+sharing **four variables**, written by different subsystems and never
+reconciled:
+
+| Variable | Owner | Persisted | Consumed by |
+| --- | --- | --- | --- |
+| `config.desired_host` | upstream `connection.c` | EEPROM | `host_task()` → picks `bt_driver` vs `driver` |
+| `confinfo.devs` | vendor `wireless.c` (our bridge writes it) | EEPROM | `wireless_devs_change()` → vendor UART frame |
+| `driver` pointer | vendor `transport.c` `host_set_driver()` | RAM | `host_get_active_driver()` fallback |
+| `active_host` | upstream `host.c` = `connection_get_host()` | RAM | the branch that returns `&bt_driver` |
+
+Every symptom we chased lives at a *seam* between these, not in one of them:
+
+- **`KC_BT1` locks out USB** (defect 4) — the ODM bridge writes **both** persisted
+  selectors; upstream AUTO is never consulted; the vendor switch-edge check never
+  fires. Authority inversion + edge-vs-level desync.
+- **Fn+Q blinks but nothing advertises** — the bridge told the module "go BT1"
+  (layer 2); whether BLE advertises is layer 0 (module firmware), which *neither*
+  subsystem models. **RESOLVED 2026-10-09:** the module *does* advertise correctly
+  (see `HARDWARE.md`); the original "nothing advertises" was a search-miss on the
+  wrong name and a random address.
+- **2.4 GHz unreadable over USB** — upstream `connection.c` **cannot represent
+  2.4 GHz at all**; the vendor piggybacks `DEVS_2G4` outside the model.
+- **`bluetooth_send_raw_hid` vs `md_send_raw`** — two mechanisms for the same
+  bytes (upstream BT-driver contract vs vendor tunnel).
+
+### Provenance (why the three exist)
+
+- **Upstream `quantum/connection/` is new and unfinished.** Authored by Joel
+  Challis, PRs #25176 (2025-04-21) and #25199 (2025-05-05) — ~6 months old.
+  Critically, **it already names tri-mode**: `CONNECTION_HOST_2P4GHZ` is a real
+  enum member (`connection.h:21`). The `#if 0` in `host_candidates[]`
+  (`connection.c:33`) and the missing case in `host_get_active_driver()`
+  (`host.c:121`) are **gaps upstream left open, not a rejection**. Upstream has
+  **no tri-mode/vendor-module BT driver** — only `bluefruit_le` and `rn42`.
+- **The vendor stack predates the connection subsystem** and has its own model
+  (`wls_devs`, its own `transport`, its own `host_driver_t wireless_driver`,
+  `set_transport()` calling `host_set_driver()` directly). It does not know
+  `connection.c` exists. ODM-authored, lightly maintained.
+- **Our ODM bridge** (`epomaker_split65.c` `connection_host_changed_kb()` +
+  `WLS_KEYCODE_EXEC`) is the translation shim, and the weakest link.
+
+### Doctrine — priority of the three code sources
+
+Recorded here because it governs every future change:
+
+**The goal is a firmware that works on this one keyboard.** Prior work — upstream
+*or* vendor — is an optional input, judged only by whether it serves that goal.
+Where existing code is worse than what we would write, **discard it and write our
+own**; quality and clean architecture are ours to define, and are what makes the
+result correct here and (secondarily) plausible to upstream.
+
+1. **Upstream QMK is the plate.** Extend its model; do not invent a parallel one.
+   Its unfinished tri-mode support (holes below) is the *intended* home for our
+   work, and patching it is the most upstreamable path.
+2. **Our own well-architected code is the board layer.** The switch-authority
+   rule, the pure decision cores (`transport_logic`, `lowpower_logic`), the
+   upstream-shaped BT/battery drivers.
+3. **The vendor stack is scaffolding to delete where it fights the plate.**
+   Keep only what upstream cannot provide (the CH582F UART protocol in
+   `module.c`/`smsg.c`, which drives the module). Do **not** add glue around it.
+   The vendor "remember last transport" persistence is abandoned wherever a
+   physical switch exists — the switch is the authority for its domain, and
+   persistence is only for what the switch cannot express (which of BT1–5).
+   **The vendor stack is not owed preservation.** Keeping a vendor file is a
+   choice made only when it beats a rewrite we would otherwise do; "it already
+   exists" is not a reason. `module.c`/`smsg.c` stay because the CH582F UART wire
+   is a fixed hardware fact, not because the code is good.
+
+### The five holes after committing to upstream-first
+
+1. **2.4 GHz is unrepresented upstream.** Add a `2p4ghz` driver contract mirroring
+   `bluetooth.h` (weak `is_connected`/`send_*`), un-`#if 0` the candidate, add the
+   `host_get_active_driver()` case. Same shape as the BT driver work; upstreamable.
+2. **`connection.h` cannot express "which BT1–5".** `desired_host` is 3 transports;
+   the sub-index has no upstream home — our `confinfo.devs` exists only for it.
+   Give the BT driver its own `select_profile(n)` and delete `confinfo.devs`.
+3. **Persistence semantics conflict.** `connection_set_host()` persists
+   *unconditionally* (`connection.c:76`) — wrong when a physical switch is
+   authoritative. Board doctrine: switch-driven changes use
+   `connection_set_host_noeeprom()`; only user keycodes persist.
+4. **Two sink choosers.** Delete vendor `set_transport()`/`host_set_driver()`;
+   leave `host_get_active_driver()` as the single chooser, so
+   `bluetooth_send_raw_hid` (upstream contract) is the only raw path.
+5. **The module is unmodeled in either system.** Treat the CH582F as a **modeled
+   peer**: inputs = UART frames; outputs = {BLE advert, BLE HID, UART reply,
+   `md_info.state`}. ~~Whether it advertises is layer-0 and remains a **bounded
+   hardware unknown**~~ **RESOLVED 2026-10-09: it advertises a correct BLE HID
+   keyboard profile** (`HARDWARE.md`); the earlier uncertainty was a search-miss,
+   not a fault.
+
+The defect-4 fix wrote *at* the seam (switch level → both selectors); holes 1–4
+were then closed so the seam disappears.
+
+### The resolution (2026-10-09)
+
+Every hole above is now implemented. The mapping, for anyone tracing a symbol that
+no longer exists:
+
+| Hole | Resolution |
+| --- | --- |
+| 1. 2.4 GHz unrepresented | `drivers/wireless/wireless_2p4ghz.{c,h}` (weak contract mirroring `bluetooth.h`), `w2p4_driver` + `CONNECTION_HOST_2P4GHZ` cases in `host.c`, `#if 0`→`#ifdef WIRELESS_2P4GHZ_ENABLE` in `connection.c` `host_candidates[]`, `WIRELESS_2P4GHZ_ENABLE` feature in `builddefs/common_features.mk`. Board adapter: `wls/wls_2p4ghz.c`. |
+| 2. Cannot express "which BT1–5" | `bluetooth_select_profile(profile, reset)` / `bluetooth_get_profile()` in `wls/wls_bluetooth.c` — the sub-index is now driver-owned and applied through `wireless_devs_change(current, profile, reset)` (which sets `wls_devs`, drives the LED, and pushes to the module via `md_devs_change`). `confinfo.devs` is no longer a transport *authority* (it survives only as the vendor device index the module protocol itself uses). |
+| 3. Persistence semantics | Switch-driven changes call `connection_set_host_noeeprom()` (boot switch read in `keyboard_post_init_kb()` and the 100 ms `wireless_post_task()` pass); only the user keycode path persists, via `connection_set_host()` + `wls_persist_devs()`. |
+| 4. Two sink choosers | `set_transport()`/`host_set_driver()`/`get_transport()`/the `transport_t` enum deleted from `keyboards/linker/wireless/transport.c`; `host_get_active_driver()` is the sole chooser. USB connect/disconnect is now the board hook `wls_usb_connect()` called from `connection_host_changed_kb()`; the raw path branches on `usb_connected_state()`. Resolves invariant I2. |
+| 5. Module unmodeled | `wls_bluetooth.c` / `wls_2p4ghz.c` are the modeled peers: inputs = the vendor device index, outputs = the `md_send_*` UART sinks and `md_info.state`. **The module advertises a correct BLE HID keyboard profile** (resolved 2026-10-09; `HARDWARE.md`) — the earlier "never advertises" was a search-miss. |
+
+**Still live from this finding:** the boot-order rule. `connection_init()`
+(`quantum/keyboard.c:478`) reads EEPROM *before* `keyboard_post_init_kb()`, so the
+switch level is seeded into `config.desired_host` in `keyboard_post_init_kb()`
+(`_noeeprom`) to guarantee no report precedes the switch read now that the vendor
+`driver` pointer no longer masks the ordering.
+
+**Not done (deliberately optional):** the `md_raw.h` line-pinned
+`raw_hid_send`→`replaced_hid_send` remap was left in place; `replaced_hid_send()`
+still exists (routing through `host_raw_hid_send()` — the single driver chooser),
+so the battery push and the remapped callers keep working.
+
+### Post-collapse design review — claims verified and remediated (2026-10-09)
+
+A review of the 14a–14e change set raised four claims; all four were checked
+against the source and three were found valid (one classed HIGH, one narrow
+HIGH, one MEDIUM) plus one doc-only fix:
+
+1. **`connection_host_changed_kb()` keyed off the raw host argument — VALID,
+   FIXED.** `handle_host_changed()` forwards `config.desired_host`
+   (`connection.c:62-64`), which can be `CONNECTION_HOST_AUTO` (the board never
+   overrides `CONNECTION_HOST_DEFAULT`, so `AUTO` is the blank-EEPROM default,
+   and `host_candidates[0] == AUTO` is reachable via `QK_OUTPUT_NEXT`). Testing
+   the raw value tore the USB line down whenever the host was `AUTO`, even when
+   `AUTO` resolved to USB. Now tests the resolved host
+   (`connection_get_host() == CONNECTION_HOST_USB`), matching
+   `host_get_active_driver()`.
+2. **Boot seed depended on the hook firing — VALID (narrow), FIXED.**
+   `connection_set_host_noeeprom()` early-returns **without** calling
+   `handle_host_changed()` when the host is unchanged (`connection.c:70-78`), so
+   when EEPROM already equalled `boot_host` the USB line kept its reset default
+   (connected) on a non-USB host. The boot seed now drives `wls_usb_connect()`
+   directly from `boot_host`, removing the dependence on the early-return path.
+   Note the pre-change vendor code deferred the same line change to
+   `wireless_post_task()` at +100 ms, so the new code was already **earlier**,
+   not a regression.
+3. **`replaced_hid_send()` keyed off the USB bus state — VALID, FIXED.** It
+   branched on `usb_connected_state()`, which diverges from every other report
+   path (all key off `connection_get_host()`) and from its own stated intent.
+   Now routes through `host_raw_hid_send()` — the single driver chooser — which
+   on USB reaches `chibios_driver.send_raw_hid` (`send_report(USB_ENDPOINT_IN_RAW)`)
+   and on Bluetooth/2.4 GHz reaches the module sink via the driver's
+   `send_raw_hid`. Behaviourally equivalent on both callers (`kb_battery_push_task`
+   already gates on link-up; `raw_hid_receive` only arrives on USB). This also
+   removes the `usb_util.h` dependency from `md_raw.c`.
+4. **Stale comment in `wls_bluetooth.c` describing the deleted `set_transport()`
+   as current — VALID, FIXED** (past tense); same wording corrected in the
+   header comment.
+
+**Verified sound (no change):** the four claims did **not** include any fault in
+the driver adapters (`wls_bluetooth.c`/`wls_2p4ghz.c`) — the link-up gating,
+`select_profile` clamping, NKRO-collapse parity, and per-device poke are all
+correct; `usb_connected_state()` is genuinely implemented for ChibiOS
+(`tmk_core/protocol/chibios/usb_util.c` → `usbGetDriverStateI == USB_ACTIVE`),
+not the always-true weak stub; and the deletion of the vendor swap is complete
+(`nm` shows no `set_transport`/`get_transport`/`wireless_driver`).
+
+**Re-verified after remediation:** `:default` 61,488 B (+8), `:nathan` 63,532 B,
+`qmk format-c -n` clean, `qmk lint` unchanged (4 pre-existing duplicates),
+`host_raw_hid_send` linked, tests `transport_logic` 6/6, `lowpower_logic` 8/8,
+`wireless_nkro_parity` 8/8.

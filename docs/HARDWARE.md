@@ -114,6 +114,353 @@ One LED, on the **right half** bottom row. Its index is into
 - On USB the module does not answer the level inquiry, so `md_info.bat` keeps its
   compile-time init of `100` (see `TODO.md` defect 1).
 
+## The wireless module (public information)
+
+The radio side of this board is **not an Epomaker invention**. The module UART
+protocol the vendor stack speaks is the **WCH CH582F** tri-mode keyboard protocol
+(Nanjing Qinheng), and the host side of it is a widely shared body of firmware.
+This is now documented publicly, so it is *objective* hardware knowledge, not
+inference — it can be cited instead of re-derived.
+
+- **The chip.** `CH582F` — a BLE 5.0 / 2.4 GHz SoC from WCH. In a tri-mode
+  keyboard it owns Bluetooth and 2.4 GHz RF while the main MCU (our WB32FQ95)
+  owns the matrix, RGB and USB HID. The vendor implements only the host side of
+  the UART protocol; the module's own product image is WCH's, but the **stack it
+  is built on is not opaque** — see "The BLE stack is a symbolized library, not a
+  blob" below.
+- **The protocol is shared across manufacturers.** The reference doc states it is
+  used by "GMMK, Akko, MonsGeek, Neo, Shortcut Studio, and others" — i.e. this is
+  a common Chinese-OEM module stack, not a per-board secret.
+- **Our firmware is byte-identical to the documented protocol.** Verified against
+  `keyboards/linker/wireless/module.h`: command bytes `0xA1` (KB) / `0xA2` (NKRO)
+  / `0xA3` (consumer) / `0xA4` (system) / `0xA8` (mouse), `0xA6` device-control
+  with sub-commands `0x11` (USB) / `0x30` (2.4G) / `0x31..0x35` (BT1–BT5) /
+  `0x51` (pair) / `0x52` (unpair) / `0x53` (query battery), replies `0x5A`
+  (indicator) / `0x5B` (device-control status) / `0x5C` (battery percent), the
+  8-bit additive checksum, the `0x61 0x0D 0x0A` ACK, and the 3000 ms battery poll
+  (`WLS_INQUIRY_BAT_TIME`) all match.
+- **The state machine is documented.** `MD_STATE_NONE/PAIRING/CONNECTED/
+  DISCONNECTED/REJECT`, driven by `0x5B` sub-codes `0x31` pairing / `0x32`
+  connected / `0x33` disconnected / `0x36` rejected. HID reports are only
+  transmitted in `MD_STATE_CONNECTED`; a report sent in any other state triggers a
+  reconnection attempt. (This is what the `wls_bluetooth.c` link-up gate assumes.)
+- **Battery semantics are documented.** The host polls (`0xA6 0x53`) and the
+  module answers `0x5C <percent>`. Some firmwares also emit unsolicited `0x5B`
+  threshold sub-codes (`0x21` very-low, `0x22` first-read, `0x23` normal) — a
+  candidate explanation for a stale/placeholder reading that only needs handling,
+  not decoding, on the `0x5C` path.
+- **Sleep/wake opcodes are documented.** `0x55`/`0x56` (BT sleep-timeout
+  enable/disable), `0x57`/`0x58` (2.4G), `0x60 0x00`/`0x01` (host
+  suspend/resume) — matching the vendor `lowpower` design.
+- **The MAC is fixed per chip** (from WCH's factory UUID; no UART command sets
+  it). The host can only set the BLE name (`0xA9`), the dongle manufacturer /
+  product strings (`0xAB`/`0xAC`) and the dongle VID/PID (`0xAD`).
+
+Reference: `emolitor/WestberryTech-WB32`, `docs/wireless/ch582f-protocol.md`.
+
+### Sibling-board pinout (cross-check, not our netlist)
+
+An independent reverse-engineering of a **different** WB32FQ95 board
+(`ozboar/zoom65v3-re`) published a concrete pin map. It is a useful cross-check
+for our own pin facts, but it is **not** the Split65 netlist — treat it as a
+sibling, and keep our own pin facts sourced from our board files.
+
+- Wireless module UART: `A9` TX / `A10` RX (sibling).
+- USB cable detection: `B9` (high when plugged).
+- Battery-level signal: `B8` (low charging, high full).
+- USB data enable: `A14`.
+- On/off switch: `C1` (`BT-2.4G IO`, high = wireless).
+- LED rails: `B7` (`LED-V`), `B12` (`LED-V1`).
+- Ribbon/one-key column + encoder: `C10`/`C11` (UART3 RX/TX), `C14`/`C13`.
+
+**Important divergence — do not copy the sibling's module-UART pins.** The
+sibling runs the module over `A9`/`A10` (UART1). **Our Split65 runs the module
+over `C10`/`C11` (UART3, `SD3`) and the *split link* over `A9`/`A10` (UART1,
+`SD1`)** — see `config.h` (`UART_DRIVER SD3` / `UART_TX_PIN C10` vs
+`SERIAL_USART_DRIVER SD1` / `SERIAL_USART_TX_PIN A9`). This is exactly the
+collision the board-local comments warn about: reusing the sibling's pin map
+would put the module on the same UART as the split link (symptom: master types,
+slave does not). The sibling's value is the *shape* of the map (which classes of
+pin a WB32 tri-mode board uses) and confirmation of the cable/battery/LED
+pin roles, not the literal module-UART assignment.
+
+**Module-side UART (CH582F QFN28 pinout, from the WCH datasheet).** On the
+CH582F side, `UART1` is `PA8`/`PA9` (RXD1/TXD1) and `UART3` is `PA4`/`PA5`
+(RXD3/TXD3); the WCH EVT firmware's default console is UART1 (`PA8`/`PA9`). So
+the module exposes several UARTs, and a board may pick any of them — which is
+why the sibling and the Split65 can both talk the same protocol over different
+MCU pins.
+
+### The BLE stack is a symbolized library, not a blob
+
+Earlier records called the module BLE stack a "binary blob" and treated it as
+unreadable. That was **too strong**. WCH's own SDK (`openwch/ch583`, `EVT v2.4`)
+ships the stack as `EVT/EXAM/BLE/LIB/LIBCH58xBLE.a` — a genuine `ar` archive of
+**67 separate object files**, one per subsystem, compiling the whole link layer
+and host stack:
+
+- Link layer: `ll.o`, `ll_advertise.o`, `ll_connect.o`, `ll_core.o`, `ll_scan.o`,
+  `ll_slave.o`, `ll_master.o`, `ll_pdu.o`, `ll_hop.o`, `ll_whitelist.o`,
+  `ll_resolvinglist.o`, `ll_periodic .o`, `ll_sync.o`.
+- Controller/radio: `bb.o` (baseband), `lle.o` (link-layer engine), `rf_fh.o`
+  (frequency hopping), `rfend.o`, `ip.o`, `aes.o`, `aes_soft.o`.
+- Host stack: `hci*.o` (HCI + SLIP + UART transport), `l2cap*.o`, `att*.o`,
+  `gatt*.o`, `gap*.o`, `gap_central/peripheral.o`, `gapbondmgr.o`, `sm*.o`
+  (security manager), `linkdb.o`, `role.o`, `api_c.o`, `ctl_input/output.o`.
+- Scheduler: `tmos*.o` (TMOS task/event kernel), `memory.o`, `message.o`.
+
+**It is unstripped and disassemblable.** It exports **10,410 named global
+functions** — `LL_Init`, `LL_AdvertiseEnalbe`, `HCI_LE_CreateConnCmd`,
+`API_LE_SetAdvParamCmd`, `GAP_EstablishLinkReq`, `SM_StartPairing`, … — and
+carries the original per-object source filenames (`gap.c`, `ll_advertise.c`,
+`tmos.c`). Compiled by `xPack GNU RISC-V Embedded GCC 8.2.0` (`.comment`), with
+no DWARF (`-g` off), so function *bodies* are readable but line numbers are not.
+
+Disassembly works today with tools already installed: `llvm-objdump -d` decodes
+it cleanly (RISC-V RV32IMAC + C extension). GNU `objdump` reports "architecture
+UNKNOWN" only because binutils tags the file `riscv32` while WCH emits the
+`riscv32imac_zicsr` arch tag — reading the ELF header shows `Machine: RISC-V`,
+`Flags: 0x1, RVC, soft-float ABI`.
+
+The remaining genuinely-proprietary piece is:
+- the module's **shipped factory product image** (the `.hex` flashed onto the
+  CH582F in the keyboard) — no vendor publishes its own customer firmware.
+
+The `CH58xBLE_ROM.hex` / `CH58xBLE_ROMx.hex` files are **not** a chip mask ROM.
+Despite the name, the CH582/583 has **no BLE stack in silicon ROM**; "ROM" here
+means "the protocol stack compiled separately, flashed to a fixed Flash region and
+called through a jump table":
+
+- `CH58xBLE_ROM.h` defines `FUNCITON_BASE_ADDRESSS = LIB_FLASH_BASE_ADDRESSS+0x34`
+  and `#define BLE_LIB_JT(n) (*(uint32_t*)(FUNCITON_BASE_ADDRESSS+n*4))` — the API
+  is a **flash-resident jump table** at a fixed address, with a `VER_LIB` version
+  word at the head (`BLE_LIB_JT(0)`, base+0x08 UUIDs, base+0x34 function table).
+- The `_ROMx` variant differs **only in load address** (`0x10000` vs `0x40000`);
+  three files exist (`_ROM` / `_ROMx` / `_ROM_MESH`) differing solely in
+  `LIB_FLASH_BASE_ADDRESSS`. A mask ROM could not be relocatable.
+- The CH583 datasheet's CodeFlash map (`0x00000000-0x0006FFFF` app, `0x00078000`
+  BootLoader, `0x0007E000` InfoFlash) has **no ROM region**; the "ROM" image
+  occupies user CodeFlash. The `CFG_ROM_READ` InfoFlash bit is a *FlashROM*
+  read-protect flag, not a mask-ROM concept.
+- WCH's own forum answer: 这个 hex 文件是协议栈单独编译生成的文件 — the protocol
+  stack compiled as a standalone file, so the app stays ~10 KB and several
+  firmwares share one stack.
+
+So it is **not a hidden artifact**: WCH publishes it as a first-class download
+(`wch.cn` EVT package, `EVT/EXAM/BLE/LIB/`; there is also a separate
+`WCHBleLib_MultiOS.ZIP` distribution) and it is mirrored in `openwch/ch583` on
+GitHub — the same place `LIBCH58xBLE.a` came from. Local dumps already taken:
+
+```
+CH58xBLE_ROM.hex  -> CH58xBLE_ROM.bin   180115 bytes  md5 c34e6ddb790199bfeb975a9f09a8b078  base 0x10000
+CH58xBLE_ROMx.hex -> CH58xBLE_ROMx.bin  180115 bytes  md5 df9367c2f532497004fed7bc18bc45ef  base 0x40000
+# objcopy -I ihex -O binary CH58xBLE_ROM.hex CH58xBLE_ROM.bin
+```
+
+`CH58xBLE_ROM.bin` is the **linked form** of the same stack the `.a` archive
+builds — a flat 180 KB RISC-V image. It disassembles with
+`llvm-objdump -b binary -m riscv` (symbols resolved by matching jump-table offsets
+against `CH58xBLE_ROM.h`). This is the artifact the vendor most plausibly actually
+flashed, so it is the best single target for fingerprinting the SDK revision the
+module corresponds to.
+
+Neither the ROM image nor the archive is needed to read *how the stack behaves*,
+because the SDK's app layer is **full C source**: every profile and example
+(`HID_Keyboard`, `HID_Consumer`, `BLE_UART`, `BLE_USB`, OTA, `Central`/`Peripheral`,
+…) is present as `.c` files.
+
+**Why this matters — reverse engineering is a real avenue here, not a dead end.**
+The vendor stack is what our board actually talks to, and we own only the *host*
+side of the UART protocol. Three things the disassemblable library can settle
+that the protocol doc and our hardware cannot:
+
+1. **Close the `0x5B`/`0x5C` semantics gap from the source of truth.** Our
+   `wls_bluetooth.c` link-up gate assumes `0x5B 0x32` (connected) ⇔ *module*
+   `GAP` link established. The module emits that byte from its own GAP/LL event
+   handling; disassembling `gap.o`/`ll_connect.o` (and matching against the
+   open `HID_Keyboard` example's `GAP_LINK_ESTABLISHED_EVENT` handling) shows
+   exactly which internal event produces each sub-code, turning an inference into
+   a traced fact. The same applies to the `0x21`/`0x22`/`0x23` battery-threshold
+   sub-codes that could explain our stale/placeholder reading (defect 1).
+2. **Explain behavior with no hardware access.** The 2.4 GHz dongle does not
+   enumerate here and no second machine is available; the module's MAC is fixed
+   per chip and the pairing/sleep decisions (`0x51` pair, `0x54` sleep, `0x55`/
+   `0x56`/`0x57`/`0x58` timeouts) are made *inside* this library. Reading the
+   pairing state machine and the TMOS sleep path is the only way to reason about
+   them without a second device or a probe on the module UART.
+3. **Validate our assumptions against the vendor image's provenance.** If a
+   factory image for a sibling board ever surfaces, matching its code against
+   `LIBCH58xBLE.a` object-by-object identifies the exact SDK version the ODM
+   built from — bounding how much of the protocol doc actually applies to our
+   module's revision.
+
+**SDK-revision fingerprints to capture from hardware.** Our own stack already
+branches on the module's reported firmware version: `module.c` `md_devs_change()`
+gates Unicode descriptor handling on `md_get_version() < 48` ("Add Unicode
+character support starting from v48"), reading the version from the `0x5D`
+(`MD_REV_CMD_MD_FW_VERSION`) reply. So the first hardware read of `0x5D` is
+directly interpretable, and the fingerprints below turn that byte into an SDK
+identity:
+
+| Fingerprint | Value | Where |
+| --- | --- | --- |
+| compiler | `xPack GNU RISC-V Embedded GCC 8.2.0` | `LIBCH58xBLE.a` `.comment` |
+| ROM image (load base `0x10000`) | 180115 B, md5 `c34e6ddb790199bfeb975a9f09a8b078` | `CH58xBLE_ROM.bin` |
+| ROMx image (load base `0x40000`) | 180115 B, md5 `df9367c2f532497004fed7bc18bc45ef` | `CH58xBLE_ROMx.bin` |
+| version word | `VER_LIB = BLE_LIB_JT(0)` at `LIB_FLASH_BASE_ADDRESSS+0x34` | `CH58xBLE_ROM.h` |
+| SDK revision host-gate already in-tree | `v48` (Unicode names) | `keyboards/linker/wireless/module.c` |
+
+The `0x5D` byte read over hardware maps to a known SDK build via these, which is
+what bounds the protocol doc's applicability (item 3).
+
+Tooling is already sufficient: `llvm-objdump` for disassembly, `nm`/`readelf` for
+symbols, and the open `ArcaneNibble/project-nanjing` (WCH BLE RE), `ch58x-hal`
+(Rust HAL), and `fossasia/badgemagic-firmware` (CH582 pinout RE) projects as
+prior art. Nothing here needs the SWD pads this board hides.
+
+Reference artifact: `openwch/ch583` `EVT/EXAM/BLE/LIB/LIBCH58xBLE.a`.
+
+### The ODM and its public sibling boards
+
+The board's likely origin is **MATHEW TECHNOLOGY LIMITED** (`mathewkb.com`,
+Shenzhen), an ODM that publishes raw QMK firmware source archives (`.7z`) for its
+product family. Its own brand **ZUOYA** ships the same vendor stack: the **GMK70**
+is a sibling of our Split65 — same **VID `0x342D`**, same `manufacturer: "LEO"`,
+same vendor VIA-JSON generator (`BT DEV1..5 / 2.4G / USB`), and a board source
+that is `upstream/tri-mode`'s `epomaker_split65` source with board-local edits.
+The GMK family (`61/70/81/87/104`) and the `MK*`/`MT*`/`NK*`/`HW*` lines are the
+same platform at different key counts.
+
+**Caveat — this is circumstantial, not a proven OEM→Split65 link.** `mathewkb.com`
+self-identifies as MATHEW and tags its pages `oem-odm`, but no archive, page, or
+string ties it to Epomaker or to the Split65 by name; the shared-ancestor source
+snapshot proves *one hand wrote both trees*, and MATHEW is the strongest candidate
+for that hand — a distributor/reseller reading the same upstream is not excluded.
+The negative result (no 65% split in the library) fits either story. Closing it
+needs the dongle descriptors, module ODM string, PCB silkscreen, or a vendor
+reply. See `docs/FINDINGS.md` for the full reasoning. Schematics and PCB files are
+still unpublished; the archives are firmware source only.
+
+### Certification filings — the one public hardware artifact
+
+The board is a **radio device, so it is certified**. Two filing bodies publish
+documents that carry real hardware evidence, and both name the **manufacturer**
+(the OEM/ODM factory), which the retail branding does not.
+
+- **FCC (US) — FCC ID `2A5D2-RT100-010`.** Grantee `2A5D2` = **SHENZHEN CHANGYUN
+  TECH CO., LTD** (the manufacturer; contact `Peter Wang, Certification Engineer`).
+  Grant **2024-12-13**, test firm Shenzhen CCUT Quality Technology, report
+  `SSP24100235-1E`, sample `Hardware Version V0.2 / Software Version V108`. The
+  cert covers the **RT100 as the "main model" with the Split65 added by a *Model
+  Difference Statement***: `... Hack 59, Alice 66, **Split 65**` — "the circuit and
+  the electronic construction are the same, declared by the manufacturer." So the
+  Split65 is certified **by family declaration**, not photographed in its own right.
+  Documents live at `fccid.io/2A5D2-RT100-010` (and mirrors `fcc.id`,
+  `fccid.ai`, `fcc.report`). The **Internal Photos** annex
+  (`/Internal-Photos/Internal-Photos-7897160.pdf`, 5 pages) is a teardown of the
+  RT100 sample: it shows the **wireless daughter module with an on-board PCB
+  antenna** (silkscreen `PCB ANT`) over the main matrix PCB, plus the battery
+  pouch cell (`5565114 5000mAh 3.7V 18.5Wh` — the RT100's 5000 mAh, not the
+  retail 3000 mAh). The **Antenna Report** confirms the 2.4 GHz PCB antenna.
+  Note the confidentiality flag: `Long-Term Confidentiality: Yes`, so the block
+  diagram / schematic, if it exists, is withheld.
+- **CE / EU — the manufacturer is named explicitly.** The retail conformity
+  annex (Epomaker EU packaging / `manuals.plus`) gives: `Made in China;
+  Manufacturer: **Shenzhen Changyun Technology Co., Ltd.**; Address: Seventh Floor,
+  Kai Daer Building, No.168 Tongsha Road, Xili Street, Nanshan District, Shenzhen,
+  Guangdong, CN; Email: support@epomaker.com`. **`Shenzhen Changyun Technology
+  Co., Ltd.` is the same entity as the FCC grantee `SHENZHEN CHANGYUN TECH CO.,
+  LTD`** — the same address cluster (`Kai Daer Building 2, No.168 Tongsha Road`).
+  The EU responsible party is a CE representative (`CE SPECIALISTS GMBH` /
+  `APEX CE SPECIALISTS LIMITED`).
+- **Japan — TELEC (技適).** The retail box prints the 技適 mark and Epomaker's JP
+  site claims TELEC/無線 certification; Japanese reviews note the mark is on the
+  **box, not the keyboard**, and question whether certification was actually held
+  at launch. TELEC certification bodies (e.g. Telecom Engineering Center) do
+  publish grant numbers, but no Split65 TELEC grant number was found.
+- **Korea (KC) / UKCA / other** were not separately located.
+
+**What certification gives us that no firmware source can:** the *manufacturer
+identity* (`Shenzhen Changyun Technology Co., Ltd.`), and a **teardown-level photo
+of the module architecture** (wireless daughterboard + PCB antenna + main matrix
+PCB). What it does **not** give: the netlist/schematic (FCC holds schematics as
+`Long-Term Confidential`), or the Split65's *own* board photos.
+
+### What is deliberately *not* public
+
+- **No Split65 schematic exists on the open internet** (searched in English,
+  Japanese, and Chinese). The `Epomaker` GitHub account has 33 public repos and
+  **every one is QMK firmware**, not hardware; there is no schematic, PCB, or
+  netlist repo. The board-specific netlist remains unavailable — but the board
+  is not entirely absent from the public record: the FCC grant `2A5D2-RT100-010`
+  and the EU CE annex both exist (see "Certification filings" above), a
+  same-family board's **pin map** is published (`ozboar/zoom65v3-re`), and
+  third-party CH582F tri-mode keyboard **schematics** are public (see the list
+  below). None of them is *this* board's netlist.
+- The WB32 **reference-board** schematic (a dev board, not this keyboard) and the
+  **WCH module** vendor docs are public; the Split65 board wiring is not.
+- **Schematics for *related* boards do exist publicly** — just not for the
+  Split65. What is findable, and what each is good for:
+  - **`ozboar/zoom65v3-re`** — a WB32FQ95 keyboard (Meletrix Zoom65 v3,
+    `HFD22001A` = rebadged WB32FQ95). Publishes a full reverse-engineered
+    **pin map** (matrix rows/cols, ribbon pinout, module-UART / cable / battery /
+    LED / power-enable pins) — *not* a KiCad netlist, but a concrete wiring map
+    for a same-family board. This is the closest published analogue to a Split65
+    netlist and the reason the "sibling pinout" section above exists.
+  - **`emolitor/WestberryTech-WB32`** — the WB32 **reference-board** schematic
+    (`vendor-docs/schematics/Schematic_wb32f10x_48pin_Mini_v1.1.pdf`, a bare
+    48-pin dev board: USB, power, SWD, headers) plus the full datasheet/reference
+    manual and the **CH582F module protocol reference**. Good for chip-level
+    facts, not board wiring.
+  - **Chinese open-hardware (`oshwhub.com`)** — third-party CH582F *tri-mode
+    keyboard* projects with published schematics: a wired→BT converter module
+    ("HH90"), several CH582M 3-mode pads / 61-key boards, and a CH582F **2.4 GHz
+    receiver** design. These are *different* boards (different matrix, different
+    MCU-side pins) but they document the **same WCH CH582F module architecture** —
+    i.e. how a keyboard-side MCU + CH582F + battery/charge/boost LDO + antenna
+    is actually wired. `oshwhub.com` blocks direct fetch (HTTP 418) but the
+    project descriptions and attachments are reachable via search.
+  - **Neither the Split65 nor any 65% *split* appears in any of these.** The
+    family trees are single-board (or 2.4 G-only) and the split variant is never
+    published. See `docs/FINDINGS.md` for the lineage.
+  - **WCH's own `CH583EVT.ZIP` / `SCHPCB.ZIP`** (the module vendor's official
+    evaluation-board schematic/PCB) are **not freely downloadable** — the
+    download pages say "contact sales". The BLE *stack*, however, is not the
+    blocker it was once recorded as — see below.
+
+#### Where the schematic was looked for, and why each channel came up empty
+
+A deliberate "possibility-eliminating" sweep, so a later agent does not repeat
+it. The OEM is **Shenzhen-based** (`© EPOMAKER · Shenzhen, China`) and publishes
+**only firmware, VIA JSON, drivers and manuals** — no hardware.
+
+| Channel | Result |
+| --- | --- |
+| `github.com/Epomaker` (33 repos) | all QMK firmware; no HW repo |
+| OEM downloads (`/blogs/firmware`, `/blogs/software`, `/blogs/via-json`, `/blogs/manuals`) | firmware/HEX/ZIP, drivers, PDFs only |
+| `hub.epomaker.com` | web configurator, no docs |
+| ODM `hangshengkeji/qmk_firmware#tri-mode` | the firmware tree only (`linker/wireless/`) |
+| `WestberryTech/qmk_westberry#tri-mode` | vendor firmware fork only |
+| Chinese open-hardware `oshwhub.com` search "split65" | **0 projects** |
+| `gitee.com` search "split65" | **no relevant repos** |
+| Forums / group buys (`zfrontier.com`) | a *different* 2.4 G-only "Split65" kit by Block boy studio — not this board |
+| Community RE (`ozboar/zoom65v3-re`, `zolw.) | **hit (partial)** — sibling WB32FQ95 board **pin map** (matrix/ribbon/MCU pins), not a netlist |
+| WB32 reference board (`emolitor/WestberryTech-WB32`) | dev-board schematic + datasheet/RM + CH582F module protocol; chip-level, not board wiring |
+| Chinese open-hardware `oshwhub.com` (CH582F tri-mode KBs) | **hit** — third-party CH582F keyboard / 2.4 GHz-receiver **schematics** (different boards, same module architecture); direct fetch blocked (HTTP 418) |
+| WCH vendor `CH583EVT.ZIP` / `SCHPCB.ZIP` | not freely downloadable ("contact sales"); the BLE stack, however, is a symbolized library, and its `CH58xBLE_ROM*.hex` "ROM" image is a normal public download (not mask ROM) |
+| Chinese vendor portals (eefocus, sekorm) | the **WCH CH582 reference *solution*** (a different chip-on-board design, not our module board) |
+| **FCC (`fccid.io` / `fcc.id` / `fcc.report`)** | **hit** — grant `2A5D2-RT100-010` (Split65 as a series model under RT100); internal teardown photos + antenna report; **no schematic** (confidential) |
+| **EU CE conformity annex (retail packaging / `manuals.plus`)** | **hit** — names the manufacturer `Shenzhen Changyun Technology Co., Ltd.` and the CE rep; no schematic |
+| **Japan TELEC 技適 (Telecom Engineering Center)** | box mark + Epomaker JP claim; **no grant number found** |
+| Korea KC, UKCA | not separately located |
+
+The pattern: this is a **white-label ODMed board** assembled from a WCH module
+reference design plus a vendor QMK tree. The schematic never leaves the ODM's
+internal tooling, and the OEM distributes firmware only — so the "accidentally
+left on a public web server" hypothesis did not bear out for the **schematic**,
+though **certification filings did** put the manufacturer's name and a family
+teardown into the public record.
+
 ## Halves and handedness
 
 - Both halves run **identical firmware**; there is no left/right build variant.
@@ -144,10 +491,12 @@ One LED, on the **right half** bottom row. Its index is into
   Fn-layer `QK_BOOT` is on the Fn layer; the WB32 bootloader samples the boot pin
   only at reset, so a warm keypress may not enumerate). The right half has a
   hidden **toggle switch** — found by removing the `R_Shift` **keycap** (not the
-  case), it is exposed underneath. Flip that toggle to the flashing position,
-  then remove the spacebar, short the two metal-plated holes the spacebar
-  switch's feet sit in, and plug in USB-C **while still shorting**. Restore the
-  toggle and keycaps afterwards.
+  case), it is exposed underneath. **Toggle it DOWN (toward the bottom) to arm
+  DFU**, then remove the spacebar, short the two metal-plated holes the spacebar
+  switch's feet sit in, and plug in USB-C **while still shorting**. **Toggle it
+  back UP afterwards.** (Direction from the ODM's own maintainer reply in
+  `Epomaker/Split65` issue #2, 2025-04-29: "Switch it to the bottom … make sure
+  the switch is toggled back to the top".)
 - **Cold-plug rule (both halves):** the reset and the enumeration window must
   coincide. Short first, plug second, hold the short until enumeration completes;
   bridging an already-powered board does nothing. If the device does not appear as
@@ -166,6 +515,11 @@ One LED, on the **right half** bottom row. Its index is into
   actually wakes it still needs a flash and a keypress-wake test (`TODO.md`,
   defect 2). Until then, waking the right half relies on toggling its 2.4 GHz/BT
   mode switch or replugging its USB cable.
+  - **Precondition to run the test (as of 2026-10-09):** the board will not sleep
+    while charging/USB — the sole permitted stop is the low-battery ordered path
+    (`lower_sleep` set only at `bat_level <= BATTERY_CAPACITY_STOP`, i.e. 0%, not
+    charging). So the wake test needs a run on battery with the low-battery stop
+    reached, not a simple idle timeout. Currently deferred.
 - The master wakes the slave over the inter-half UART, which *is* an accepted
   cause.
 - Sleep is a decision only the master may take, and only through the ordered path
@@ -180,6 +534,167 @@ One LED, on the **right half** bottom row. Its index is into
 - Keycap legends do **not** reliably match the matrix positions, so physical key
   identification on this unit must be positional: "right half, matrix `[11,4]`".
   Never identify a key by its legend. See `DEVICE.md` "Nomenclature".
+
+## The known/unknown boundary (no schematic)
+
+There is no Split65 netlist (`FINDINGS.md`). The substitute is not a guess at the
+schematic but a **precise box around what we do not know**: for each unknown, what
+it is bracketed by, so the residual risk is small and named. This section is that
+box. It is a *map of ignorance*, not a claim of completeness.
+
+Read it as three tiers:
+
+1. **Known (measured or source-attested).** Safe to build on.
+2. **Bounded unknown (a named gap with a known ceiling).** Tractable today; the
+   bound says how wrong we can be.
+3. **Open unknown (no bound yet).** The genuine blockers.
+
+### 1. Known
+
+| Fact | Basis |
+| --- | --- |
+| MCU `WB32FQ95`, Cortex-M3; app flash region **128 K** at `0x08000000` | part marking + the build's link script `WB32FQ95xB.ld` (`flash0 … len = 128k`); the *part's* total flash is not established, only the region firmware uses |
+| USB IDs — app `342d:e4c6` (enumerated live, master/left half), bootloader `342d:dfa0` | live enumeration; `HARDWARE.md` "Identity" (bootloader expected on both halves) |
+| Matrix `MATRIX_ROWS 12`, `MATRIX_COLS 9`; both halves use the **same 6 row pins** (`A0..A4`, `C13`) with **different column pins** per half (left `C0..C3`,`A6`,`B10`,`B11`; right `B12..B14`,`C6..C9`,`C4`,`C5`), so rows 0–5 = left and 6–11 = right | `keyboard.json` `matrix_pins` + `split.matrix_pins.right` |
+| Module UART on `C10`/`C11` (`UART_DRIVER SD3`); split link on `A9`/`A10` (`SD1`) | `config.h`, and the collision it prevents is a documented past symptom |
+| Module chip is `CH582F`; the UART protocol is public | `FINDINGS.md` "the module is a WCH CH582F" + `emolitor/WestberryTech-WB32` |
+| Mode switch pins `C14` (BT) / `C15` (2.4G); switch reads correctly | live `0xA4` transport byte tracked the switch USB↔BT |
+| Cable-detect `A7`, full-charge `A15`, handedness `B9`, encoder `B7`/`B6`, WS2812 `B15` | `config.h` + `DEVICE.md` |
+| LED count 68, per-half column maps | `keyboard.json`, `config.h` |
+| The module's **BLE stack and its linked "ROM" image are public and disassemblable** | `HARDWARE.md` "The BLE stack is a symbolized library" |
+
+### 2. Bounded unknown
+
+Each row is a gap whose *ceiling* is known, so a design decision can be made
+without the schematic.
+
+- **Trace-level wiring of the charge/boost/level-shift stage.** Unknown netlist,
+  but **bounded** by the public same-family topology (`oshwhub` CH582F boards:
+  keyboard MCU + CH582F + TP4056-class charge + boost LDO + PCB antenna — see
+  `FINDINGS.md`). The firmware only *observes* two pins of this stage (`A7`,
+  `A15`); it never drives it, so the wiring cannot change firmware behavior beyond
+  those two inputs.
+- **Whether the module UART is direct or passes through a level shifter.** Unknown
+  netlist, but bounded by behavior: the WB32 drives and reads this link with **no
+  firmware-visible translator** and the protocol works continuously (USB `0xA4`
+  answers; the vendor stack ran on stock), so any shifter present is transparent
+  to firmware. A wrong assumption here would surface as a UART fault, which is
+  absent. (The line voltage itself is **not** measured — do not record one.)
+- **The module's shipped factory image / BLE pairing policy.** Unknown, but
+  bounded: the *stack* it is built from is public (`LIBCH58xBLE.a`) and the
+  protocol is spec'd; the pairing-related frames (`0x51`/`0x52`) are part of the
+  byte-for-byte match with the public protocol doc (`FINDINGS.md`), so the
+  behavior is spec'd even though the exact shipping image is not.
+- **Whether the CH582F forwards raw HID over BLE.** Unknown, **bounded** by two
+  mutually exclusive outcomes: either the BLE HID descriptor exposes the
+  `0xFF60`/`0x61` collection (then our `bluetooth_send_raw_hid` → `md_send_raw`
+  path carries `0xA4` over BT), or it does not (then BT battery output must be the
+  **BLE Battery Service `0x180F`/`0x2A19`**). Both are testable; neither needs the
+  netlist.
+- **Right-half keypress wake.** Unknown, bounded: the tree arms the right rows and
+  the board accepts `LPWR_WAKEUP_MATRIX`; only the *observation* is missing, and
+  its test precondition is known (a battery run to the low-battery stop). See
+  "Sleep and wake".
+
+### 3. Open unknown (unbounded or hardware/world-blocked)
+
+- **No Split65 schematic or netlist exists publicly** (English/Japanese/Chinese;
+  `FINDINGS.md`). Bounded only by "measured by hand" — the Tier-1 continuity /
+  voltage / dynamic probe in `TODO.md` for a physical session.
+- **The 2.4 GHz dongle does not enumerate on this host** — zero USB events on
+  both ports, no kernel line. Not bounded to our firmware (a keyboard change
+  cannot silence a separately-plugged dongle), but **not testable on a second
+  machine** (none available). Blocker for every 2.4 GHz measurement.
+- ~~**Whether the module advertises over BLE at all.**~~ **RESOLVED 2026-10-09:
+  it advertises, and correctly.** Earlier scans found nothing because they hunted
+  the wrong identity — the primitive `PRODUCT " BTn"` default, not the board's
+  `MD_BTn_NAME` override (`config.h`), and a name search cannot match a random
+  address. A `bluetoothctl` LE scan for the real names found the module reliably,
+  per profile: `Split65-2` at `C8:02:09:B0:56:5E` and `Split65-3` at
+  `C8:03:09:B0:56:5E` (**random** addresses, third octet = profile index).
+  `bluetoothctl info` on the live entry: **Appearance `0x03c1` (HID keyboard)**,
+  **Icon `input-keyboard`**, **UUID `0x1812` (HID service)**, AdvertisingFlags
+  `0x06` (LE General Discoverable, BR/EDR not supported) — a fully-formed,
+  connectable BLE HID keyboard advertisement. The Layer-0 premise that the module
+  never advertises is **disproven**; the remaining question is why a host does not
+  *bond/connect*, which is no longer a module-silence fault.
+- **Why a host does not connect — RESOLVED 2026-10-09: the module pairs and bonds,
+  but its HID GATT server rejects the notification-enabling writes.** On the BT2
+  profile (`Split65-2`) against a BlueZ 5.87 host:
+  - With a pairing agent registered (`bluetoothctl agent KeyboardDisplay` + a
+    confirm-capable agent), the module **pairs and bonds**: `Pairing successful`,
+    `Paired: yes`, `Bonded: yes`. The first attempt failed with
+    `org.bluez.Error.AuthenticationFailed` purely because **no agent was
+    registered** — `bluetoothd: src/device.c:new_auth() No agent available for
+    request type 2`, `device_confirm_passkey: Operation not permitted`. The module
+    requests **SMP numeric-comparison confirm (request type 2)**, not Just Works,
+    so a host with no agent cannot answer and the bond never forms. **This is a
+    host-side requirement, not a module fault.**
+  - The module's GATT tree is real and complete: `0x1812` **HID**, `0x180f`
+    **Battery**, `0x180a` Device Info, and a vendor service `02f00000-…-fe00`;
+    the full characteristic/descriptor tree (handles up to `0x005a`) enumerates.
+  - After bonding, the host attaches **HID-over-GATT** and enables notifications,
+    then fails at the **CCC descriptors**:
+    `profiles/input/hog-lib.c:ccc_read_cb() Error reading CCC value: Request
+    attribute has encountered an unlikely error` and
+    `hog-lib.c:report_ccc_written_cb() Write report characteristic descriptor
+    failed: … unlikely error` (ATT `0x0E`, `ATT_ERROR_UNLIKELY_ERROR`), plus
+    `battery.c:batt_io_ccc_written_cb() Battery Level: notifications not enabled`.
+    So the module's **GATT server rejects the descriptor writes that would turn on
+    input reports** — the peripheral side errors out, not the host.
+  - `bluetoothd: profiles/gap/gas.c:read_ppcp_cb() GAS PPCP: Invalid Connection
+    Parameters values` — the module's advertised **Peripheral Preferred Connection
+    Parameters** are malformed, which the host also rejects.
+  - Net: **advertise → bond works; the HID enable path fails inside the module.**
+    Binding to a host is blocked by the module's own GATT/connection-parameter
+    behaviour, which is **Layer 0** — not addressable from our firmware.
+  - **A/B against stock vendor firmware — DONE 2026-10-09: the vendor build fails
+    identically, so this is not our firmware.** The stock `split65-vendor-overlay`
+    (`d68e3152`) build, flashed to both halves, was put through the same gesture
+    and scan:
+    - It advertises the same identities (`Split65-1`/`Split65-2`, `Appearance
+      `0x03c1``, `UUID `0x1812``, flags `0x06`) and **pairs + bonds** the same way
+      (`Pairing successful` / `Paired: yes` / `Bonded: yes`).
+    - It then produces the **same ATT-level failure, byte-for-byte**: at 17:04
+      (vendor) the journal shows `GAS PPCP: Invalid Connection Parameters values`
+      and `hog-lib.c:ccc_read_cb() Error reading CCC value: … unlikely error`
+      (×7), and the module itself dropped the link —
+      `LE.Disconnected … Connection terminated by remote user`. This is the exact
+      signature our firmware produced at 16:35–16:36.
+    - Its address rotates the same way: `Split65-1` appeared as `C8:06` then
+      `C8:08` in one session.
+    - **Conclusion:** both blockers (the HID-CCC rejection and the non-resolvable
+      address rotation) are **the module's own firmware (Layer 0)**, reproduced
+      independent of our code. Our firmware is exonerated; no change we make to
+      the WB32 side can address them. The remaining levers are the wired UART
+      (`C10`/`C11`) probe and a possible module-firmware update over that UART.
+  - **The address rotates per advertising session, which is a second, independent
+    obstacle.** The module re-advertises under a **new random address each time**
+    (observed `C8:02`, `C8:03`, `C8:06`, `C8:07` for the same `Split65-2`
+    identity). A bonded host can silently reconnect across such rotation **only if
+    the address is a resolvable private address (RPA)** that the host can match to
+    the stored bond via the IRK. Here it does not: after the pair, a fresh
+    advertising session appeared as a brand-new device, the host could not match
+    the bond, and it fell back to a fresh pairing that the peripheral rejected —
+    `bluetoothd: No matching connection for device`, and
+    `hog-lib.c:info_read_cb() HID Information read failed: Attribute requires
+    authentication before read/write` (the HID service needs an **encrypted** link,
+    which the unmatched session does not have). Reconnect therefore fails after a
+    successful initial bond, and only the LED shows pairing mode (no passkey
+    display), so **pairing must be re-done from the keyboard each session**. The
+    address policy (RPA vs non-resolvable random) is set **inside the module** and
+    is Layer 0.
+- **What `0xA4` byte 1 means off-USB.** Every value seen on USB is the module's
+  init constant; only the radio path is known to be live. Cannot be bounded until
+  2.4 GHz or BT works.
+
+### How to keep the boundary honest
+
+When a new fact lands, put it in tier 1, move its bound out of tier 2/3, and
+**delete the bound** rather than leaving it as folklore. When a design decision
+depends on a tier-2 item, cite the bound next to the decision so a future reader
+knows the ceiling it was made under. `FINDINGS.md` holds the *reasoning*; this
+table holds the *state*.
 
 ## Flash targeting
 

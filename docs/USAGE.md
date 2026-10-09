@@ -26,13 +26,16 @@ switches which one while held (or, for `TO()`, makes it the standing default).
 | # | Layer | How you get there | Sticky? |
 |---|---|---|---|
 | 0 | `_BL` — base (Windows) | default; nothing held | — |
-| 1 | `_FL` — Fn (Windows) | **hold either spacebar** | no (momentary) |
+| 1 | `_FL` — Fn (Windows) | **hold the RIGHT spacebar** | no (momentary) |
 | 2 | `_MBL` — Mac base | **Fn + `S`** | yes (survives reboot) |
-| 3 | `_MFL` — Mac Fn | **hold either spacebar** while on `_MBL` | no |
+| 3 | `_MFL` — Mac Fn | **hold the RIGHT spacebar** while on `_MBL` | no |
 | 4 | `_RST` — recovery | **hold Fn + the top-right corner key** | no |
 
-**Fn is on both spacebars.** Tap a spacebar = space; hold it = Fn. Either hand
-can engage the layer.
+**Fn is on the RIGHT spacebar only** (`nathan` base layer: left space `[5,5]` is
+plain `KC_SPC`; right space `[11,1]` is `LT(_FL, KC_SPC)`). Tap the right space =
+space; hold it = Fn. Holding the **left** space does **not** engage Fn — it types
+space, so e.g. left-space + `Q` yields a literal `q`, not `KC_BT1`. (An earlier
+version of this guide said "either spacebar"; that was wrong.)
 
 `TO(_MBL)` and `TO(_BL)` are *sticky*: they change the standing default layer
 and the choice is stored in EEPROM, so it survives a power cycle. To go back to
@@ -55,7 +58,7 @@ knob (the knob is volume on every layer; see §7).
 
 ### From the Fn layer
 
-Hold a spacebar, then:
+Hold the **right** spacebar, then:
 
 | Key (Fn layer) | Effect |
 |---|---|
@@ -121,7 +124,7 @@ half — do not read "master" as "left" (see `DEVICE.md`'s naming rule).
 | 2.4 GHz dongle | switch to the 2.4 GHz position; plug the dongle into the host |
 | Bluetooth | switch to the BT position |
 
-On the Fn layer (hold a spacebar):
+On the Fn layer (hold the **right** spacebar):
 
 - **`BT1` / `BT2` / `BT3`** (`Fn` + `Q`/`W`/`E`) — pair or switch Bluetooth
   device 1/2/3. (Hold for the long-press re-pair/reset behaviour.)
@@ -152,6 +155,16 @@ separated so a single fumble cannot hit both.
 > `default` keymap has no `_RST` layer; do not expect these chords on stock
 > firmware.
 
+> **`EE_CLR` is the only non-flashing way out of a stuck transport.** The
+> wireless mode keys (`Fn`+`Q`/`W`/`E` = BT 1/2/3, `Fn`+`R` = 2.4 GHz) do **not**
+> just pair — they persist the chosen host to EEPROM, and at the next boot the
+> firmware restores that stored choice *instead of* the physical mode switch. So
+> if you select a wireless mode whose link is not up and then plug in USB, the
+> keyboard can enumerate but type nothing, and flipping the switch back does
+> **not** recover it. `EE_CLR` clears the stored choice and restores USB. (Hold
+> Esc at plug-in does **not** help — bootmagic enters the bootloader rather than
+> clearing settings.) See `TODO.md` defect 4.
+
 | Combo | Effect |
 |---|---|
 | **Fn + top-right corner key, tapped** | nothing (the recovery layer is hold-only) |
@@ -172,7 +185,8 @@ separated so a single fumble cannot hit both.
 back. Note the two halves are flashed **separately**, and **neither half needs
 its case opened**: both enter DFU by shorting the two metal-plated holes under
 the spacebar while plugging in USB-C (the right half also needs its hidden
-toggle flipped first, exposed by removing the `R_Shift` keycap). See
+toggle — exposed by removing the `R_Shift` keycap — flipped **down** first, and
+back **up** afterwards). See
 `docs/HARDWARE.md`.
 
 ---
