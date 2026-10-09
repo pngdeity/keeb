@@ -65,10 +65,11 @@ One LED, on the **right half** bottom row. Its index is into
   hidapi still requires the leading byte. A bare 32-byte write is silently
   accepted and never answered.
 - Each half exposes three interfaces; the raw collection is **interface 1** on a
-  half. The dongle's interface mapping is **unverified** — no dongle has ever been
-  confirmed on the bus in this project (see `TODO.md` defect 3), so any
-  dongle-side interface number is assumption, not measurement. With both attached,
-  selecting by usage page alone picks the wrong one.
+  half. The dongle's raw collection is **interface 2** — now **verified on
+  hardware (2026-10-09)**: with the dongle attached the composite is three
+  interfaces and the `0xFF60`/`0x61` collection lands on interface 2
+  (`/dev/hidraw5`). With both attached, selecting by usage page alone picks the
+  wrong one.
 
 ## Split-link power
 
@@ -693,10 +694,20 @@ without the schematic.
 - **No Split65 schematic or netlist exists publicly** (English/Japanese/Chinese;
   `FINDINGS.md`). Bounded only by "measured by hand" — the Tier-1 continuity /
   voltage / dynamic probe in `TODO.md` for a physical session.
-- **The 2.4 GHz dongle does not enumerate on this host** — zero USB events on
-  both ports, no kernel line. Not bounded to our firmware (a keyboard change
-  cannot silence a separately-plugged dongle), but **not testable on a second
-  machine** (none available). Blocker for every 2.4 GHz measurement.
+- ~~**The 2.4 GHz dongle does not enumerate on this host**~~ — **RESOLVED
+  2026-10-09: it does, and 2.4 GHz works.** The earlier "zero USB events" was a
+  **trigger artifact**: the dongle stays USB-silent until it is powered and the
+  keyboard is actively on the 2.4 GHz link. With the keyboard in 2.4 GHz mode it
+  enumerates as `342d:e4c6` (`bcdDevice 20.04`, product "2.4G Dongle", mfr
+  "MILE"), exposes the QMK raw-HID collection at **interface 2**
+  (`/dev/hidraw5`, usage page `0xFF60`/usage `0x61`), and a `0xA4` pull
+  round-trips — reply `a4 64 00 00 00 04 01 00 …` = level 100, discharging,
+  **transport `0x04` (2.4 GHz)**, model 1. So 2.4 GHz is a **working second
+  transport**, and unlike BLE it does not depend on the module's broken GATT
+  server. Cosmetic bug recorded: the dongle re-enumerates on its own a few
+  seconds after first attaching, and on the second enumeration its USB string
+  descriptors come out **byte-swapped** (`2.4G Dongle`/`MILE` as garbled
+  UTF-16LE) — a firmware quirk, not a functional fault.
 - ~~**Whether the module advertises over BLE at all.**~~ **RESOLVED 2026-10-09:
   it advertises, and correctly.** Earlier scans found nothing because they hunted
   the wrong identity — the primitive `PRODUCT " BTn"` default, not the board's

@@ -50,33 +50,34 @@ a backwards-compatible extension; hosts must ignore bytes they do not know.
   = **32 bytes**, in both directions, always.
 - USB-wired: host **pulls** (sends the request; keyboard replies).
 - 2.4 GHz dongle: the dongle **shares the keyboard's VID:PID** (`342d:e4c6`) and,
-  when seen, exposes a second raw HID collection with the same `0xFF60`/`0x61`
-  usage page and **32-byte IN and OUT reports** (no report ID). **Unverified:** a
-  dongle has never been confirmed on the bus in this project — its enumeration is
-  documented upstream but was not observed live, so the interface mapping below is
-  *assumed*, not measured (see `TODO.md` defect 3). Host pull over 2.4 GHz is
-  claimed by the vendor to round-trip; it is untested here. Pull is the normal
-  path; push is a fallback (see Push mode).
+  when active, exposes a second raw HID collection with the same `0xFF60`/`0x61`
+  usage page and **32-byte IN and OUT reports** (no report ID). **Verified on
+  hardware (2026-10-09):** the dongle enumerates only once it is powered and the
+  keyboard is on the 2.4 GHz link (before that it is USB-silent); when it does,
+  the raw collection lands on **interface 2** (`/dev/hidraw5`) and a `0xA4` pull
+  round-trips with **transport byte `0x04` (2.4 GHz)**. The mapping below is
+  therefore **measured**, not assumed. Pull is the normal path; push is a
+  fallback (see Push mode).
 - **Host-side interface selection matters.** The keyboard's own raw collection is
   **interface 1** (measured). Because the dongle shares the VID:PID, it cannot be
   told apart from the keyboard by a simple match; `host/battery_polybar.py`
-  enumerates every match and prefers `interface_number == 2` by default as an
-  *assumed* dongle, falling back to the only collection present; `--transport usb`
-  selects interface 1. `split65.py check` reports which collections are present.
-  (This is `TODO.md` defect 3; the code is defensive, but the interface-2 = dongle
-  mapping remains unconfirmed and cannot be tested until a working dongle is
-  available.)
+  enumerates every match and prefers `interface_number == 2` as the dongle (now
+  **verified** on hardware, 2026-10-09), falling back to the only collection
+  present; `--transport usb` selects interface 1. `split65.py check` reports which
+  collections are present.
 - Bluetooth: in scope. Not yet probed on hardware — unknown whether the BT HID
   link exposes the raw HID collection (`0xFF60`/`0x61`) and whether
   `*md_getp_bat()` is populated over BT. The host falls back to the BLE Battery
   Service `0x180F` / Battery Level `0x2A19` (via `bluetoothctl`).
 
-### Dongle raw HID interface (assumed, unverified)
+### Dongle raw HID interface
 
 The descriptor below is **the generic QMK raw HID descriptor, not a live dump** —
-no dongle has been confirmed on the bus, so nothing here was captured with
-`HIDIOCGRDESC`. It is what the dongle would expose if it presents the standard QMK
-raw collection (34 bytes, no report ID):
+it was not captured with `HIDIOCGRDESC`, because the live dongle was probed by
+usage page rather than by descriptor read. It is what the dongle exposes when it
+presents the standard QMK raw collection (34 bytes, no report ID); the collection
+itself **is** now confirmed present on a live dongle (interface 2,
+`/dev/hidraw5`, usage page `0xFF60`/usage `0x61`, 2026-10-09):
 
 ```
 06 60 ff        Usage Page 0xFF60      <- QMK RAW_USAGE_PAGE
@@ -177,9 +178,9 @@ so it is robust against a missed pull. Push is:
 - emitted only while `md_getp_state()` reports `MD_STATE_CONNECTED`.
 
 Hosts reading over a dongle can use either `--listen` (accept push reports) or
-`--pull` (request/reply); the vendor reports the dongle's host→keyboard path as
-working, but it is **unconfirmed here** (no dongle has enumerated in this
-project).
+`--pull` (request/reply). **Both are now confirmed present over 2.4 GHz
+(2026-10-09):** a `--pull` against the dongle's raw collection returned a real
+reply with transport byte `0x04`.
 
 ## Verifying the pull path
 
@@ -192,9 +193,10 @@ To check the battery: put the keyboard in USB or 2.4 GHz mode and run
 `python3 host/battery_polybar.py --pull` (or `--listen` for push reports). The
 host enumerates by usage page `0xFF60` / usage `0x61`. **Verify the interface it
 picked before trusting the transport byte** — with keyboard and dongle both
-attached, a first-match selection returns the keyboard's USB interface
-(`TODO.md` defect 3). A read timeout means the pull did not complete on that
-attempt; the push path then covers it.
+attached, a first-match selection returns the keyboard's USB interface, so the
+tool prefers interface 2 (the dongle, verified 2026-10-09; `--transport usb`
+forces the keyboard's own). A read timeout means the pull did not complete on
+that attempt; the push path then covers it.
 
 Use `python3 host/battery_polybar.py --info` to print the **full** readback —
 battery, the persisted host and BT sub-profile (bytes 7–8), and the module

@@ -128,10 +128,13 @@ sections below.
      (`libmodule.a` and the legacy `keyboards/wireless/` copy are resolved:
      the directory was deleted in the spike — see `## Re-base`.)
 2. ~~**Fix defect 3** (`find_raw_hid_interface()` picks the wrong interface) and
-   **contain it in `split65.py check`.**~~ **DONE** — `find_raw_hid_interface()`
-   now prefers the dongle (interface 2) and accepts `--transport usb`;
-   `split65.py check` reports the collections present. A confirmation run with
-   the dongle attached remains (it needs the dongle and the user).
+   **contain it in `split65.py check`.**~~ **DONE, hardware-confirmed
+   (2026-10-09)** — `find_raw_hid_interface()` now prefers the dongle
+   (interface 2) and accepts `--transport usb`; `split65.py check` reports the
+   collections present. The confirmation run happened: with the dongle attached
+   the raw collection landed on interface 2 and a `0xA4` pull returned
+   **transport byte `0x04` (2.4 GHz)**, so the interface-2 = dongle mapping is
+   verified, not assumed.
 3. ~~**Decide and apply the critical ergonomics changes**~~ **DONE** (on the
    landed re-base; must be flashed with the Tier 1 batch):
   - **`QK_BOOT` / `EE_CLR` placement.** `QK_BOOT` sits on the **Fn** layer at
@@ -248,6 +251,11 @@ sections below.
      machine is available. Prior art: `ArcaneNibble/project-nanjing`,
      `ch58x-hal`, `fossasia/badgemagic-firmware`. Bounds the protocol doc's
      applicability to our module revision.
+     **Correction (2026-10-09):** the premise "the 2.4 GHz dongle does not
+     enumerate" is **false** — with the keyboard in 2.4 GHz mode the dongle
+     enumerates (`342d:e4c6`, raw-HID at interface 2) and `0xA4` round-trips (see
+     the dongle subsection in `docs/HARDWARE.md`). So this route to the module's
+     pairing/sleep state machines is now reachable on this host after all.
 13. ~~**Research: can upstream's split watchdog replace the vendor's hand-rolled
     disconnect handling?**~~ **DONE — decided AGAINST.** The watchdog was enabled
     during the re-base, then proved to reset-loop the slave (~3 s) on hardware:
@@ -603,25 +611,29 @@ keyboard's own USB interface (interface 1) and the 2.4 GHz dongle (interface 2)
 are attached, it grabbed the keyboard's USB interface, so the module reported USB
 while the user was on 2.4 GHz.
 
-**Fixed.** `find_raw_hid_interface(prefer=...)` now enumerates all matching
-collections and prefers interface 2 (assumed to be the dongle — **unverified**;
-see the accuracy defect above) by default, falling back to the
-only collection present when just one exists; `--transport usb` selects the
-keyboard's own collection. `split65.py check` gained a "Raw HID interface
-selection" step that lists the collections found and warns when more than one is
-present. Remaining: a hardware run with a working dongle attached to confirm the
-2.4 GHz read is not silently satisfied by USB.
+**Fixed, and now hardware-confirmed (2026-10-09).**
+`find_raw_hid_interface(prefer=...)` enumerates all matching collections and
+prefers interface 2 by default, falling back to the only collection present, with
+`--transport usb` selecting the keyboard's own. The hardware run that was
+"remaining" has now happened, and it **confirms the interface-2 = dongle mapping**:
+with the dongle attached the composite is three interfaces and the raw collection
+lands on **interface 2** (`/dev/hidraw5`, usage page `0xFF60` / usage `0x61`).
+A `0xA4` pull against `/dev/hidraw5` returns a real reply with **byte 5 = `0x04`
+(2.4 GHz)** — see `docs/PROTOCOL.md` "2.4 GHz dongle" and `docs/HARDWARE.md`.
 
-**Documentation accuracy defect (not yet fixed).** `docs/PROTOCOL.md` states as
-**verified** that the 2.4 GHz dongle is a separate USB device exposing its own
-`0xFF60`/`0x61` collection which lands on **interface 2**. The live hardware run
-showed the keyboard's *own* composite is also three interfaces, with interface 2
-being its mouse/system/consumer/keyboard block — so the doc's interface-2 claim
-was never actually observed for a dongle. Because the dongle shares the
-keyboard's VID:PID (`342d:e4c6`), the two cannot be told apart by a `342d` grep;
-the doc appears to have conflated them. Do not rewrite `PROTOCOL.md` on a guess —
-correct it only once a dongle is confirmed present on the bus. This is why the
-interface-2 preference in defect 3 above is still unconfirmed.
+**Documentation accuracy defect — RESOLVED (2026-10-09).** The earlier caution
+("the interface-2 claim was never actually observed for a dongle; correct it only
+once a dongle is confirmed present") is now satisfied: a dongle *was* confirmed
+present and the interface-2 mapping held. The `PROTOCOL.md` claims have been
+corrected to *verified* rather than *assumed*.
+
+**Related, previously believed impossible.** The long-standing note that "the
+2.4 GHz dongle does not enumerate on this host — zero USB events" was a
+**trigger artifact, not a hardware fault**: the dongle only enumerates once it is
+powered and the keyboard is actively on the 2.4 GHz link. With the keyboard in
+2.4 GHz mode it enumerates (`342d:e4c6`), exposes the raw-HID collection, and
+round-trips `0xA4`. See `docs/HARDWARE.md` "The 2.4 GHz dongle" and the defects
+section below.
 
 ### 4. A BT-profile keycode silently hijacks the transport, and the mode switch cannot undo it
 
@@ -930,8 +942,9 @@ yet unless marked DONE.
   `--transport` flag that belongs to `battery_polybar.py`, not `split65.py`.
 - **`battery_polybar.py`** can raise an unhandled `HIDException` if the device
   vanishes between `enumerate()` and `open()` (breaks the "exit non-zero, no
-  output" contract) and keys its selection on the **unverified** `interface 2 =
-  dongle` assumption (same accuracy defect already flagged at defect 3 above).
+  output" contract). Its `interface 2 = dongle` selection assumption is no
+  longer unverified — it was **confirmed on hardware 2026-10-09** (interface 2
+  carries the raw collection; see defect 3 above).
 - **Rebase fragility:** `md_raw.h` remaps `raw_hid_send` by `__LINE__`
   (`_temp_rhs_29`/`_temp_rhs_489`) — any upstream line shift breaks it (the CI
   guard exists precisely for this); `transport.c:49` reaches into the core
