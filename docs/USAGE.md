@@ -50,18 +50,8 @@ a layer means editing the keymap and reflashing — see `README.md`.
 ## 2. Backlight (RGB) — how to change it
 
 The keyboard has a per-key RGB matrix over a solid-white default (hue 0, sat 0,
-value 128). There are two easy controls and a set of keycode adjustments.
-
-### Easiest: the volume knob
-
-The rotary knob is on the **right half**, top-right corner (turn only, no click).
-
-| Layer | Turn |
-|---|---|
-| base (`_BL` / `_MBL`) | volume down / up |
-| Fn (`_FL` / `_MFL`) | **backlight brightness** down / up |
-
-So: **to dim or brighten the backlight, hold a spacebar (Fn) and turn the knob.**
+value 128). Backlight is changed with the Fn-layer RGB keys below — **not** the
+knob (the knob is volume on every layer; see §7).
 
 ### From the Fn layer
 
@@ -120,8 +110,10 @@ back). Your in-session changes override it until the next power-on.
 
 ## 4. Wireless
 
-There is a physical **mode switch** on the left half; it is the single control
-for which radio is active.
+There is a physical **mode switch** on the **right half** (the same plate as its
+`P3` port — see `DEVICE.md`); it is the single control for which radio is active.
+Note it lives on the right half even though the *master* is normally the left
+half — do not read "master" as "left" (see `DEVICE.md`'s naming rule).
 
 | Want | Do |
 |---|---|

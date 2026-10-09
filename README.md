@@ -106,7 +106,9 @@ If you are new to this project, read in this order:
 5. **`docs/PROTOCOL.md`** — the `0xA4` battery wire format.
 6. **`docs/DEPENDENCIES.md`** — toolchain, flashing, host dependencies.
 7. **`docs/FINDINGS.md`** — why the design is the way it is.
-8. **`CONTRIBUTING.md`** — conventions and the traps in this tree.
+8. **`docs/USAGE.md`** — the end-user guide: layers, backlight, battery, wireless,
+   sleep, and recovery, from the desk.
+9. **`CONTRIBUTING.md`** — conventions and the traps in this tree.
 
 ## Development
 

@@ -52,7 +52,7 @@ charge comes from elsewhere — so "a cable is present" must not by itself mean
 
 **Accepted tradeoff.** The firmware's cable-insert auto-switch (in
 `housekeeping_task_user()`) forces `DEVS_USB` when a cable appears, which would
-defeat requirement 2. Removing it is sanctioned: the left half has a physical
+defeat requirement 2. Removing it is sanctioned: the keyboard has a physical
 mode switch, so mode selection can belong to the switch alone. `hs_modeio_detection()`
 already forces `DEVS_USB` when the switch is in the USB position, and
 `wls_process_long_press()` already makes `KC_BT*`/`KC_2G4` no-ops unless the

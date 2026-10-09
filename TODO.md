@@ -87,12 +87,13 @@ sections below.
    the dongle attached remains (it needs the dongle and the user).
 3. ~~**Decide and apply the critical ergonomics changes**~~ **DONE** (on the
    landed re-base; must be flashed with the Tier 1 batch):
-  - **`QK_BOOT` / `EE_CLR` placement.** `QK_BOOT` stays on the **base** layer at
-    the left half's `Esc` (`[1,0]`); `EE_CLR` moved off Backspace to the
-    hold-only `_RST` layer's right-half **bottom-right corner** (`[11,7]`). The
-    `_RST` layer is armed only by holding Fn + the top-right corner key, so the
-    reset needs a held chord plus a press on the opposite half's far corner —
-    no single stray keypress reaches it. `nathan` `keymap.md` corrected to match
+  - **`QK_BOOT` / `EE_CLR` placement.** `QK_BOOT` sits on the **Fn** layer at
+    matrix `[10,4]` (the Fn-layer top-right corner key), **not** on the base
+    layer; `EE_CLR` moved off Backspace to the hold-only `_RST` layer's
+    right-half **bottom-right corner** (`[11,7]`). The `_RST` layer is armed only
+    by holding Fn + the top-right corner key, so the reset needs a held chord
+    plus a press on the opposite half's far corner — no single stray keypress
+    reaches it. `nathan` `keymap.md` corrected to match
     (it had described an older layout).
   - **Battery indicator made prominent.** The soft indicator now spans **two**
     adjacent right-half bottom-row LEDs (`HS_MATRIX_BAT_SOFT_INDEX` 64 and new
@@ -579,7 +580,7 @@ Rationale / evidence:
   `is_keyboard_master()`, so a `QK_BOOT` key pressed on the right half should jump
   *that half* into its own bootloader.
 - Both halves run identical firmware, so adding `QK_BOOT` to the keymap adds it
-  to both. The `nathan` keymap maps `QK_BOOT` on the base layer at the right
+  to both. The `nathan` keymap maps `QK_BOOT` on the **Fn** layer at the right
   half's matrix `[10,4]`; the left half has **no** keymap route into its own
   bootloader (its rows are 1–5, so a left-half key cannot fire `[10,4]`).
 - Esc-hold (bootmagic) is **broken on our build on both halves** (it works on
@@ -651,11 +652,12 @@ to trim the compiled-in animation list. The remainder stay here.
 - **Keycap legends vs matrix.** Legends do not reliably match matrix positions
   (see `docs/HARDWARE.md`), so any mapping work must identify keys positionally
   ("right half, bottom row, fourth from the right"), never by legend.
-- **`QK_BOOT` / `EE_CLR` placement.** `QK_BOOT` sits on the **base** layer at the
-  left `Esc` position (matrix `[1,0]`) and `EE_CLR` on the Fn layer over the
-  `Bksp` position (right half, matrix `[7,7]`). Both are easy to hit by accident;
-  question whether destructive actions are placed safely, especially given
-  `EE_CLR` sits on the Backspace key position.
+- **`QK_BOOT` / `EE_CLR` placement.** `QK_BOOT` sits on the **Fn** layer at the
+  Fn-layer top-right corner key (matrix `[10,4]`), **not** on the base layer, and
+  `EE_CLR` on the `_RST` layer at the right-half bottom-right corner (matrix
+  `[11,7]`). Reaching `QK_BOOT` takes a held spacebar (Fn) plus that key; `EE_CLR`
+  takes a held Fn-plus-corner chord plus the opposite half's corner, so no single
+  accidental keypress reaches either.
 - **Layers and ergonomics.** `_FL` is reached by holding right Spacebar
   (`LT(_FL, KC_SPC)`); `_MBL`/`_MFL` are the Mac variants. Question reachability,
   whether the held-modifier arrangement is comfortable, and whether the Mac/PC
