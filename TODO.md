@@ -686,6 +686,39 @@ Caution: continuity on a populated board is the slow/lossy part, not the
 electrical part. Record every result as measured vs inferred. Deliverable: a
 `docs/` reverse-engineered interface map a QMK reviewer can trust.
 
+## Debugging capability (probe + tooling prerequisites)
+
+Static ELF inspection is available now (lldb 23.1.1 and gdb 18.1 are installed;
+`target create --arch armv7m <elf>` + `image lookup -rn` + `disassemble -n`) and
+has already paid for itself — it caught the wake-set width-truncation bug in the
+sleep-invariant work. What it cannot do is **runtime** truth: no breakpoints, no
+watching `lpwr_wakeupcd` live, no single-stepping the STOP entry. That needs a
+hardware debug probe, which is absent (`lsusb` shows no ST-Link/J-Link/CMSIS-DAP;
+no `/dev/ttyACM*` or `/dev/ttyUSB*`).
+
+**Software (no AUR, installs cleanly):**
+
+- `arm-none-eabi-gdb` (17.2, `extra`) — target debugger; also what QMK's own
+  debug docs assume. `gdb` 18.1 is already present and multi-arch-capable, so
+  this is a convenience, not a hard requirement.
+- `openocd` (1:0.12.0, `extra`) — the probe server. Useless without a probe, but
+  install it alongside so the probe is plug-and-play when it arrives.
+
+**Hardware (the actual gate):**
+
+- A **CMSIS-DAP** or **ST-Link** probe (~$10–25; e.g. Raspberry Pi Debug Probe).
+  SWO is a bonus for UART/protocol work (favours an ST-Link V3 or J-Link).
+- **SWD pads not yet mapped** — the reverse-engineering probe plan above must
+  locate them (they are likely among the un-enumerated GPIO/test points). A probe
+  is only useful once its SWDIO/SWCLK/GND connections are found.
+- Trust implications: a probe on a connected target permits flash, halt, memory
+  read/write. Treat it as a hard-to-recover operation and confirm with the user
+  before attaching to a powered board.
+
+**Order of value:** (1) the SWD pads must be found (reverse-engineering item 1);
+(2) the probe makes runtime debugging possible; (3) `openocd` + `arm-none-eabi-gdb`
+drive it. Until (1), installing the software changes nothing.
+
 ## Other
 
 - **Wireless while charging (requirement 2)** — now first-class, see `## Priority
