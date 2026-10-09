@@ -405,12 +405,16 @@ timeout-eligible and entered STOP on the plain idle timer
 master stopped unwakeable. Same class as regressions 1–3: a half entering an
 unrecoverable low-power state.
 
-**Fix (minimal, board-level).** `lpwr_is_allow_timeout_hook()` now also refuses
-the timeout when `lower_sleep == false`, so a half may idle-sleep only via the
-*ordered* path (the low-battery case that sets `lower_sleep` first and arms the
-wake sources). Both the slave's self-timeout and the master's un-ordered timeout
-are refused; only wake-armed sleeps remain. See `docs/FINDINGS.md`, "the three
-power-off faults are one defect". Not yet flashed.
+**Fix (upstream-shaped, shared).** Rather than guard yet another entry point, the
+invariant is now enforced once, in the shared state machine. A new wake-source
+contract `lpwr_wakeup_is_armed()` (declared `lowpower.h`, weak default true in
+`lowpower.c`) is implemented by the board (`wls/wls.c`: master && `lower_sleep`)
+and **checked in `lpwr_stop_cb()`**: when it returns false the stop is refused and
+the machine falls back to `LPWR_NORMAL`. The board's `lpwr_is_allow_timeout_hook()`
+is simplified back to its own concern (master, not USB) — the un-armed refusal no
+longer lives at each entry. A half can no longer reach `mcu_stop_mode()` without a
+wake source armed, on any path. See `docs/FINDINGS.md`, "the three power-off
+faults are one defect". Not yet flashed.
 
 ### Process note — anticipatable issues were not anticipated
 

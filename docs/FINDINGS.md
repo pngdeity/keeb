@@ -717,11 +717,15 @@ already has the shape — `LPWR_NORMAL/PRESLEEP/STOP/WAKEUP` and a
 > master orders it (which arms the wake sources first). Before `mcu_stop_mode()`
 > at least one wake source must be armed, or the stop is refused.
 
-Stated once, this subsumes all three masks. Expressed as code it has two homes:
-the **board** (minimal, rebase-safe, enforced for this board) or the **shared**
-`lowpower.c` (upstream-shaped, inherited by every board on the stack — the
-subject of the U1 RFC). The minimal-and-correct fix is the board-level arbiter;
-the upstream-shaped one belongs in the shared file.
+Stated once, this subsumes all three masks. It is expressed in code as the
+**wake-source contract**: `lpwr_wakeup_is_armed()` (declared in `lowpower.h`)
+reports whether a wake source is live, and the shared `lpwr_stop_cb()` refuses
+the stop when it is false, falling back to `LPWR_NORMAL`. The unsafe state is
+therefore unrepresentable at the single point of commitment, regardless of which
+path led there. The board implements the contract (this board: master &&
+`lower_sleep`); the enforcement lives in the shared state machine, so any board
+on the stack inherits it. This is the shape to offer upstream — the subject of
+the U1 RFC.
 
 ## FINDING — upstream has no sleep invariant, and our wireless stack *is* an upstream PR
 
@@ -770,9 +774,9 @@ adapters, `quantum/connection/`, and `process_connection.c`. It adds reconnectio
 "sleep" is the chip's RF sleep opcodes. So the invariant is unaddressed by the
 core work too.
 
-**Consequence for the effort.** The board-level `lower_sleep` gate is the correct
-minimal fix and is *novel* relative to upstream. The upstream-shaped path — the
-invariant inside the shared `lowpower.c` — is genuinely new work, a talking point
-for the wireless-core discussion with `damex` (it could ride alongside #24209 as
-the fix that PR needs). Recorded here so a future agent does not re-search for an
-upstream sleep API that does not exist.
+**Consequence for the effort.** The wake-source contract is the correct fix and
+is *novel* relative to upstream. Because the enforcement now lives in the shared
+`lowpower.c` (the contract is declared in `lowpower.h`, implemented per board),
+it is genuinely new work to offer alongside #24209 / the wireless-core discussion
+with `damex` — it could ride as the fix that stack needs. Recorded here so a
+future agent does not re-search for an upstream sleep API that does not exist.
