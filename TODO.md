@@ -1054,8 +1054,17 @@ one commit each, ordered by risk × provability.
   now uses `wireless_get_current_devs()` via pure `hsm_mode_seed`/`hsm_seed_btdev`.
   Pure-core tests `mode_seed_is_the_live_device_index` and
   `bt_seed_prefers_live_index_and_clamps_fallback` (10/10 pass).
-- **Fixes 4–10 — OPEN** (`docs/AUDIT.md` Tier 1/2):
-  `hs_linker_rgb_timer` two-meaning split; `lower_sleep` one setter;
+- **Fix 4 — DONE.** `hs_linker_rgb_timer` (one timestamp read as *both* the 30 s
+  reconnect timeout and the 60 s sleep timeout, in a fall-through pass) is split
+  into two independent deadlines (`hsm_link_timers_t.reconnect_at`/`.sleep_at`).
+  The policy is the pure `hsm_link_watch()` (arm on entry/change, fire the
+  state's own deadline, clear the other state's) plus `hsm_link_restart()` for
+  activity events; the shell only performs the returned action. The missing
+  `break` that caused the fall-through is gone. Pure-core tests
+  `link_watch_uses_independent_deadlines` and `link_watch_clears_foreign_deadlines`
+  (12/12 pass).
+- **Fixes 5–10 — OPEN** (`docs/AUDIT.md` Tier 1/2):
+  `lower_sleep` one setter;
   `md_info.state`/`.indicator` cross-layer writers; dead-state deletion +
   `bat_indicator_cnt` init; `raw_hid_send` line-pinned macro → real dispatch;
   `md_receive_msg_task` pure framer; `lpwr_*` pure cores
