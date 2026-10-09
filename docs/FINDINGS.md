@@ -910,11 +910,22 @@ was written and then **reverted** — correctly, though for a different reason t
 first stated: that callback is not an ISR, but it is not the architectural home
 for matrix work either (upstream places the call in main-loop task context guarded
 by `USB_SUSPEND_WAKEUP_DELAY > 0`, and on this board that site is compiled out).
-A real leftover oddity: `usb_remote_host()` calls `suspend_wakeup_init()`
-**unconditionally on every action while the bus is suspended** — not gated on a
-wake transition — so the full state-clear + backlight-init + rail re-raise + slave
-RPC `0xCC` re-runs per action. Idempotent for this board's hooks, but wasteful and
-a latent hazard for a non-idempotent hook.
+A real leftover oddity, now fixed: `usb_remote_host()` called
+`suspend_wakeup_init()` **unconditionally on every action while the bus is
+suspended** — not gated on a wake transition — so the full state-clear +
+backlight-init + rail re-raise + slave RPC `0xCC` would re-run per action. It was
+removed: the genuine wake transition is already handled exactly once by the QMK
+USB core (`USB_EVENT_WAKEUP` → `usb_event_wakeup_handler()` → `suspend_wakeup_init()`,
+main loop), so `usb_remote_host()` now only requests the remote wakeup
+(`usbWakeupHost()`). Idempotent before, correct now.
+
+**Behavioural soak (USB).** With the flashed build on USB, a 90 s soak sampled the
+raw-HID `0xA4` battery query on interface 1 every 2 s: **44/44 replies, zero
+failures**, and the kernel log showed **no change** in the `342D:E4C6`
+enumeration-event count (114 before and after) and **no `-71`/`-62`/disconnect/
+reset** after the 19:17:49 clean enumeration. The USB contract (stays enumerated,
+raw HID responsive, no EPROTO storm) held throughout. Runner:
+`/tmp/opencode/usb_soak.py`.
 
 ## FINDING — the sleep decisions are a functional core, and the shell that touches the MCU is not
 
