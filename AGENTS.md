@@ -25,6 +25,12 @@ both halves.
   fails, stop and ask the user rather than committing unsigned.
 - Tooling: `rg` not `grep`, `fd` not `find`, `bun` not `npm`, `uv` not `pip`,
   `pacman`/`yay` for packages. Temp files go in `/tmp/opencode/`.
+- **`rg -r` is `--replace`, not "recursive".** Never write `-rln`/`-rn` — `-r`
+  eats the rest of the cluster as replacement text and silently rewrites every
+  match (`rg -rln 'DEVICE' file` prints `ln`). Use `rg -n` for line numbers and
+  `rg -l` for paths-only. GNU `grep -rln` is harmless, so this bites only `rg`.
+  If matches render as a bare repeated token (`ln`, `n`), the flag was wrong —
+  re-run without `-r` before blaming rtk or "masking".
 
 ## Build, lint, flash
 

@@ -885,21 +885,36 @@ transport change, and a raw-HID `0xA4` responder with no `lpwr_*` references.
 But USB is **not** sleep-free. A separate mechanism, `usb_remote_wakeup()`
 (`keyboards/linker/wireless/transport.c:98-135`), runs on every `wireless_task()`
 while on USB and — when the *host* suspends the bus — calls `suspend_power_down()`
-after `USB_POWER_DOWN_DELAY` (3000 ms). Its mirror `usb_remote_host()` calls
-`suspend_wakeup_init()`, which on chibios is entered from
-`usb_event_wakeup_handler()` — **ISR context**. So "host suspends USB" is a real
-MCU-sleep route that predates our work, and any code added to
-`suspend_wakeup_init()` on this platform runs in an ISR.
+after `USB_POWER_DOWN_DELAY` (3000 ms), once per suspension (`#else` branch;
+`USB_REMOTE_USE_QMK` is undefined). On chibios `suspend_power_down()` is
+`suspend_power_down_quantum()` + `wait_ms(17)` — it powers down backlight/LEDs/OLED
+and sets the RGB suspend state, but **does not enter MCU STOP** (no
+`mcu_stop_mode()`). Its mirror `usb_remote_host()` calls `suspend_wakeup_init()`.
 
-**Consequence.** A tempting fix — calling `update_matrix_state_after_wakeup()` in
-`suspend_wakeup_init()` so the held waking key is suppressed — is **unsafe here**:
-upstream AVR places it in `protocol_post_task()` main-loop context guarded by
-`USB_SUSPEND_WAKEUP_DELAY > 0`, but `suspend_wakeup_init()` on chibios is the USB
-ISR, and `update_matrix_state_after_wakeup()` calls `matrix_scan()`, which runs
-`debounce()` and (under `SPLIT_KEYBOARD`) a blocking `matrix_post_scan()`
-transaction RPC to the other half. It was written, then reverted on discovering
-the ISR context. Any future work on this path must live in a main-loop site, not
-the suspend callback.
+**Context, corrected.** An earlier draft of this note claimed the wake handler runs
+in **ISR context**. That is wrong. The USB ISR `usb_event_cb()`
+(`tmk_core/protocol/chibios/usb_main.c`) only *enqueues* `USB_EVENT_WAKEUP`; the
+dequeue and dispatch to `usb_event_wakeup_handler()` (`→ suspend_wakeup_init()`)
+happen in `usb_event_queue_task()`, called from `protocol_pre_task()`
+(`chibios.c:175`) — **main-loop context**. For this board `NO_USB_STARTUP_CHECK`
+is defined (both `wireless.mk` files), so the *upstream* `protocol_pre_task()`
+suspended loop that would call `update_matrix_state_after_wakeup()` is compiled
+out; USB-suspend handling is entirely the vendor `usb_remote_wakeup()`/
+`usb_remote_host()` path.
+
+**Consequence.** Neither USB-suspend side can reach the WB32 STOP mode, so USB is
+**not** exposed to the unrecoverable-STOP class of fault that bit Bluetooth. It is
+still not sleep-free (LEDs/backlight power down while the host suspends the bus).
+The tempting `update_matrix_state_after_wakeup()`-in-`suspend_wakeup_init()` fix
+was written and then **reverted** — correctly, though for a different reason than
+first stated: that callback is not an ISR, but it is not the architectural home
+for matrix work either (upstream places the call in main-loop task context guarded
+by `USB_SUSPEND_WAKEUP_DELAY > 0`, and on this board that site is compiled out).
+A real leftover oddity: `usb_remote_host()` calls `suspend_wakeup_init()`
+**unconditionally on every action while the bus is suspended** — not gated on a
+wake transition — so the full state-clear + backlight-init + rail re-raise + slave
+RPC `0xCC` re-runs per action. Idempotent for this board's hooks, but wasteful and
+a latent hazard for a non-idempotent hook.
 
 ## FINDING — the sleep decisions are a functional core, and the shell that touches the MCU is not
 
