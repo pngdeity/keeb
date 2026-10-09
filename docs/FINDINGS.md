@@ -838,3 +838,65 @@ comment must stop claiming "no wake source". The deeper structural fix is that a
 wake code must never be *discarded*: every exit from STOP should pass through the
 wake path once. That is the upstream-shaped statement of the invariant, and it
 belongs with the contract, not hidden in a board comment.
+
+## FINDING — the WB32 EXTI aliases pads, and a wake code must be validated as a set
+
+The "unhandled wake code" defect has a hardware root that makes it a *guaranteed*
+fault on this board, not a rare race.
+
+**The WB32 EXTI is pad-numbered and port-discarding.** `PAL_PAD(line) = line & 0x0F`
+(`hal_pal_lld.h`) — the port is dropped. `pal_lld_get_line_event(line)` indexes
+`_pal_events[PAL_PAD(line)]`, and there are only 16 channels. `wb32_isr.c` serves
+channels 5–9 from one handler and 10–15 from another; `_pal_lld_enablepadevent`
+asserts a pad is not already in use. **One EXTI channel per *pad number*, across
+all ports.**
+
+Concretely on this board: **pad 11 is shared by matrix column `B11`
+(`MATRIX_COL_PINS`) and the module UART RX `C11` (`UART_RX_PIN`, `UART_DRIVER
+SD3`)**. `palcallback()` matches on `PAL_PAD(UART_RX_PIN) == 11` with no port
+comparison, so a **matrix column-11 line event is classified `LPWR_WAKEUP_UART`**.
+(Similarly `A12`/`B12` share pad 12, aliasing USB wake with a matrix column.) The
+board deliberately does not arm UART wake — but the classifier does not know that.
+
+**Why a set, not a scalar.** The old `switch (lpwr_get_sleep_wakeupcd())` reads the
+*last* code written. A phantom UART edge and a genuine row edge in the same wake
+window would leave one of them unserved; the fix must test the accumulated set
+against a board-supplied mask:
+
+> `if (lpwr_get_sleep_wakeupcd() & lpwr_wakeup_armed_mask())` → wake, else re-enter
+> STOP — where the board's mask is `MATRIX | CABLE | SWITCH | USB`, never UART.
+
+That is why the wake codes became bit flags, the storage widened to `uint32_t`
+(the mask is 32-bit; an 8-bit store would truncate a future flag), and
+`lpwr_set_sleep_wakeupcd()` became an OR-accumulate. Verified by lldb disassembly:
+board `lpwr_wakeup_armed_mask` is `movs r0, #0x4d` (`MATRIX|CABLE|USB|SWITCH`),
+the setter is a 32-bit `ldr/orrs/str`, and `lpwr_stop_cb` is a single `tst` with
+`ite`/`moveq`/`movne` — no jump table over a multi-bit value.
+
+## FINDING — the USB path has a second, host-initiated sleep route
+
+The static USB-path audit proved the `lpwr_*` wireless sleep machine is
+**structurally unreachable** on USB: one route to `mcu_stop_mode()` (behind
+`lpwr_stop_cb`), a double-gated timeout (`lpwr_is_allow_timeout_hook()`'s
+`DEVS_USB` refusal **and** the generic `DEVS_USB && USB_DRIVER.state == USB_ACTIVE`
+check, both consulted before `manual_timeout`), USB stopped only on a deliberate
+transport change, and a raw-HID `0xA4` responder with no `lpwr_*` references.
+
+But USB is **not** sleep-free. A separate mechanism, `usb_remote_wakeup()`
+(`keyboards/linker/wireless/transport.c:98-135`), runs on every `wireless_task()`
+while on USB and — when the *host* suspends the bus — calls `suspend_power_down()`
+after `USB_POWER_DOWN_DELAY` (3000 ms). Its mirror `usb_remote_host()` calls
+`suspend_wakeup_init()`, which on chibios is entered from
+`usb_event_wakeup_handler()` — **ISR context**. So "host suspends USB" is a real
+MCU-sleep route that predates our work, and any code added to
+`suspend_wakeup_init()` on this platform runs in an ISR.
+
+**Consequence.** A tempting fix — calling `update_matrix_state_after_wakeup()` in
+`suspend_wakeup_init()` so the held waking key is suppressed — is **unsafe here**:
+upstream AVR places it in `protocol_post_task()` main-loop context guarded by
+`USB_SUSPEND_WAKEUP_DELAY > 0`, but `suspend_wakeup_init()` on chibios is the USB
+ISR, and `update_matrix_state_after_wakeup()` calls `matrix_scan()`, which runs
+`debounce()` and (under `SPLIT_KEYBOARD`) a blocking `matrix_post_scan()`
+transaction RPC to the other half. It was written, then reverted on discovering
+the ISR context. Any future work on this path must live in a main-loop site, not
+the suspend callback.

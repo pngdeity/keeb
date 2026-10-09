@@ -411,17 +411,36 @@ low-power state. (The earlier note that this path "arms none of the driver-side
 wake sources" was wrong — the master arms its own rows, the mode-switch pins and
 the cable pin on both paths; see the correcting finding in `docs/FINDINGS.md`.)
 
-**Fix (upstream-shaped, shared).** Rather than guard yet another entry point, the
-invariant is now enforced once, in the shared state machine. A new sleep-policy
-contract `lpwr_stop_is_allowed()` (declared `lowpower.h`, weak default true in
-`lowpower.c`) is implemented by the board (`wls/wls.c`: master && `lower_sleep`)
-and **checked in `lpwr_stop_cb()`**: when it returns false the stop is refused and
-the machine falls back to `LPWR_NORMAL`. The board's `lpwr_is_allow_timeout_hook()`
-is simplified back to its own concern (master, not USB) — the un-ordered refusal
-no longer lives at each entry. A half can no longer reach `mcu_stop_mode()` on a
-path the board has not sanctioned. See `docs/FINDINGS.md`, "the three power-off
-faults are one defect" and the correcting "wake-armed predicate was a proxy"
-finding. Not yet flashed.
+**Fix (upstream-shaped, shared).** Two layers, both in the shared state machine
+so the invariant is enforced once rather than at each entry point:
+
+1. **The stop is refused unless sanctioned.** A sleep-policy contract
+   `lpwr_stop_is_allowed()` (declared `lowpower.h`, weak default true in
+   `lowpower.c`) is implemented by the board (`wls/wls.c`: master &&
+   `lower_sleep`) and **checked in `lpwr_stop_cb()`**: false means the stop is
+   refused and the machine falls back to `LPWR_NORMAL`. The board's
+   `lpwr_is_allow_timeout_hook()` is simplified back to its own concern (master,
+   not USB).
+2. **A wake code is a set, and only an armed one counts.** The wake codes are now
+   bit flags (`LPWR_WAKEUP_MATRIX = 1<<0`, …, `SWITCH = 1<<6`), accumulated by
+   `lpwr_set_sleep_wakeupcd()` and compared **as a set** against a board-supplied
+   `lpwr_wakeup_armed_mask()` (default weak = all). Because the WB32 EXTI is
+   pad-numbered and port-discarding, the module UART RX `C11` aliases matrix
+   column `B11` on pad 11, so a column line event is misclassified as
+   `LPWR_WAKEUP_UART`. The board's mask is
+   `MATRIX | CABLE | SWITCH | USB` (never UART), so a phantom UART-only wake no
+   longer satisfies the test and the half is not sent back to STOP. `lpwr_stop_cb`
+   now reads `if (wakeupcd & armed_mask) → LPWR_WAKEUP else → LPWR_STOP`; the
+   old `switch` on a single code would misread a multi-bit set.
+
+Width note: the wake set storage and getter were widened to `uint32_t` because the
+armed mask is 32-bit; the first build stored the set as a byte and would have
+truncated a future flag (caught by lldb disassembly, not by the compiler).
+
+See `docs/FINDINGS.md`, "the three power-off faults are one defect", "the
+wake-armed predicate was a proxy; the real fault is an unhandled wake code", and
+"the WB32 EXTI aliases pads, and a wake code must be validated as a set". Not yet
+flashed.
 
 ### Process note — anticipatable issues were not anticipated
 
