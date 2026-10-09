@@ -718,14 +718,16 @@ already has the shape — `LPWR_NORMAL/PRESLEEP/STOP/WAKEUP` and a
 > at least one wake source must be armed, or the stop is refused.
 
 Stated once, this subsumes all three masks. It is expressed in code as the
-**wake-source contract**: `lpwr_wakeup_is_armed()` (declared in `lowpower.h`)
-reports whether a wake source is live, and the shared `lpwr_stop_cb()` refuses
-the stop when it is false, falling back to `LPWR_NORMAL`. The unsafe state is
-therefore unrepresentable at the single point of commitment, regardless of which
-path led there. The board implements the contract (this board: master &&
-`lower_sleep`); the enforcement lives in the shared state machine, so any board
-on the stack inherits it. This is the shape to offer upstream — the subject of
-the U1 RFC.
+**sleep-policy contract**: `lpwr_stop_is_allowed()` (declared in `lowpower.h`)
+reports whether the present stop is one the board may take, and the shared
+`lpwr_stop_cb()` refuses the stop when it is false, falling back to
+`LPWR_NORMAL`. The unsafe state is therefore unrepresentable at the single point
+of commitment, regardless of which path led there. The board implements the
+contract (this board: master && `lower_sleep`); the enforcement lives in the
+shared state machine, so any board on the stack inherits it. This is the shape to
+offer upstream — the subject of the U1 RFC. (The predicate was first named
+`lpwr_wakeup_is_armed()`, which overclaimed: see the following finding, which
+corrects both the name and the board's rationale.)
 
 ## FINDING — upstream has no sleep invariant, and our wireless stack *is* an upstream PR
 
@@ -780,3 +782,59 @@ is *novel* relative to upstream. Because the enforcement now lives in the shared
 it is genuinely new work to offer alongside #24209 / the wireless-core discussion
 with `damex` — it could ride as the fix that stack needs. Recorded here so a
 future agent does not re-search for an upstream sleep API that does not exist.
+
+## FINDING — the wake-armed predicate was a proxy; the real fault is an unhandled wake code
+
+Reading the **compiled** copy of `lpwr_wb32.c` (the board keeps its own, the
+shared one is not built) corrects the rationale above, and locates the master
+dark-out precisely.
+
+**What the predicate claimed vs what is true.** The committed
+`lpwr_wakeup_is_armed()` returns `is_keyboard_master() && lower_sleep`, with a
+comment saying the board "has no unconditional wake source". The compiled code
+contradicts that. On the idle path (`lower_sleep == false`), `lpwr_exti_init()`
+arms, for a master: its **own** rows (`MATRIX_ROW_PINS`, FALLING_EDGE,
+unconditional), drives its own columns (`open-drain` low, unconditional — the
+shared copy gates this on `lower_sleep`, the board copy does not), the
+mode-switch pins (`HS_BT_DEF_PIN`/`HS_2G4_DEF_PIN`, master-only but not gated on
+`lower_sleep`), the cable pin, the split-link RX and USB `A12`. So the master is
+wake-armed on **both** paths; `lower_sleep` does not decide whether the master
+has a wake source. The refusal is therefore a **policy** choice (do not take the
+unordered idle sleep), not a hardware necessity — and the `lower_sleep`-gated
+EXTIs are only the *cross-half* column drive and the module-sleep command.
+
+**What `lower_sleep` actually changes** (the whole of it):
+1. `lpwr_stop_hook_pre()` — ordered sends `md_send_devctrl(MD_SND_CMD_DEVCTRL_USB)`
+   and waits 200 ms (module sleep command).
+2. `lpwr_exti_init_hook()` — ordered drives **both halves'** columns high, so a
+   keypress on *either* half pulls a row low (the cross-half wake).
+3. `lpwr_stop_hook_post()` — the board's whole body is wrapped in
+   `if (lower_sleep)`, so on the idle path it is a **no-op**.
+
+**The actual fault — an unhandled wake code.** `lpwr_stop_cb()` interprets the
+wake afterwards:
+
+```c
+switch (lpwr_get_sleep_wakeupcd()) {
+    case LPWR_WAKEUP_UART: lpwr_set_state(LPWR_STOP);   /* straight back to sleep */
+    default:               lpwr_set_state(LPWR_WAKEUP);
+}
+```
+
+Because the board copy deliberately does not arm `UART_RX_PIN` (the module's own
+traffic would defeat the 30-minute sleep), but `palcallback()` still maps the
+UART pad to `LPWR_WAKEUP_UART`, a spurious/aliased edge that resolves to
+`LPWR_WAKEUP_UART` sends the state machine back to `LPWR_STOP` **without ever
+running `lpwr_wakeup_cb()`** — no rail re-raise, no `matrix_init_pins`, no
+`last_matrix_activity_trigger`. With `lower_sleep == false` the board's
+`lpwr_stop_hook_post()` does nothing to compensate. The half re-enters STOP and
+never recovers: dark, no typing — exactly the observed symptom.
+
+**Consequence for the fix.** The one-line refusal (never take the unordered idle
+sleep) is correct as a *mitigation*, and the contract shape (a board-reported
+predicate enforced at the single point of commitment) is right. But the predicate
+must be named for what it truly reports — this board's *sleep policy* — and the
+comment must stop claiming "no wake source". The deeper structural fix is that a
+wake code must never be *discarded*: every exit from STOP should pass through the
+wake path once. That is the upstream-shaped statement of the invariant, and it
+belongs with the contract, not hidden in a board comment.

@@ -401,20 +401,27 @@ because the master was previously exempt (USB-only testing).
 `wireless_get_current_devs() == DEVS_USB`. Off USB the master became
 timeout-eligible and entered STOP on the plain idle timer
 (`hs_rgb_blink_hook()`, `HS_SLEEP_TIMEOUT` = 60 s). That path runs with
-`lower_sleep == false`, which arms none of the driver-side wake sources, so the
-master stopped unwakeable. Same class as regressions 1–3: a half entering an
-unrecoverable low-power state.
+`lower_sleep == false`, so the board's `lpwr_stop_hook_post()` (gated on
+`lower_sleep`) is a no-op, and a wake code of `LPWR_WAKEUP_UART` — which the
+board deliberately does not arm, yet `palcallback()` still maps the pad to —
+returns the machine to `LPWR_STOP` **without running `lpwr_wakeup_cb()`**. The
+half re-enters STOP with no rail re-raise and no matrix re-init: dark and
+unresponsive. Same class as regressions 1–3: a half entering an unrecoverable
+low-power state. (The earlier note that this path "arms none of the driver-side
+wake sources" was wrong — the master arms its own rows, the mode-switch pins and
+the cable pin on both paths; see the correcting finding in `docs/FINDINGS.md`.)
 
 **Fix (upstream-shaped, shared).** Rather than guard yet another entry point, the
-invariant is now enforced once, in the shared state machine. A new wake-source
-contract `lpwr_wakeup_is_armed()` (declared `lowpower.h`, weak default true in
+invariant is now enforced once, in the shared state machine. A new sleep-policy
+contract `lpwr_stop_is_allowed()` (declared `lowpower.h`, weak default true in
 `lowpower.c`) is implemented by the board (`wls/wls.c`: master && `lower_sleep`)
 and **checked in `lpwr_stop_cb()`**: when it returns false the stop is refused and
 the machine falls back to `LPWR_NORMAL`. The board's `lpwr_is_allow_timeout_hook()`
-is simplified back to its own concern (master, not USB) — the un-armed refusal no
-longer lives at each entry. A half can no longer reach `mcu_stop_mode()` without a
-wake source armed, on any path. See `docs/FINDINGS.md`, "the three power-off
-faults are one defect". Not yet flashed.
+is simplified back to its own concern (master, not USB) — the un-ordered refusal
+no longer lives at each entry. A half can no longer reach `mcu_stop_mode()` on a
+path the board has not sanctioned. See `docs/FINDINGS.md`, "the three power-off
+faults are one defect" and the correcting "wake-armed predicate was a proxy"
+finding. Not yet flashed.
 
 ### Process note — anticipatable issues were not anticipated
 
