@@ -282,6 +282,42 @@ public EPOMAKER firmware artifact is the WB32 side we already control. Reflashin
 a *fixed* module image is therefore not a route we can take; the module is only
 reachable over UART/ISP (WCH tooling) if a vendor image were ever obtained.
 
+**Can we dump or update the module's firmware? (2026-10-09, researched).** Three
+facts settle it, and all three are adverse:
+
+1. **The keyboard's own UART cannot do it.** The CH582F UART command set
+   (`module.h`) has **no** firmware-update, bootloader-entry, or flash command —
+   it is HID reports and device control only. The WB32 side has no protocol path
+   to the module's flash.
+2. **ISP entry is the only route, and it is not a keyboard-accessible one.**
+   The CH582/CH583 ISP bootloader is reached over **USB or UART** with WCH tooling
+   (`wchisp`, `WCHISPTool`). Critically, per WCH's own documentation: *"ISP
+   bootloader entry cannot be controlled via external pin state at reset; instead
+   the user application code must instruct the device to enter the bootloader via
+   setting `FLASH_STATR.MODE` and performing a software reset."* On this keyboard
+   the module is a soldered sub-board with no exposed BOOT button and no USB; the
+   only external UART is the host link, and the module's app does not offer ISP
+   entry. Reaching ISP would mean probing the module's own pins (its `PB22`
+   download pin / its boot USB) directly.
+3. **Even if ISP were reached, a readable dump is very likely blocked and a
+   reflash unhelpful.** The CH582 read-protect bit `CFG_ROM_READ` (`USER_CFG[7]`)
+   gates code dump; the WeAct CH582F reference and the FOSSASIA badge both ship
+   with it **0 ("disable the programmer to read out, and keep the program
+   secret")** — the default a vendor module is expected to keep. A dump is only
+   possible if it is 1. And even with a dump, the CH582 code flash is
+   **hardware-scrambled** (reads are not plaintext) and multiple vendors
+   (`bluetooth-keyboard-squad`) additionally **encrypt their images against the
+   chip UID with the key stored in DataFlash** — so an image from another unit is
+   not directly reusable. WCH also publishes no fixed module image, and the
+   defective layer is in the closed app, not the public stack archive, so nothing
+   to reflash *to* exists.
+
+Net: **no, we cannot dump or update this module's firmware** without physical
+access to the module's own ISP pins, and even then only if `CFG_ROM_READ` happens
+to be enabled on our unit — a dump would still be scrambled/possibly UID-encrypted,
+and there is no fixed image to write. This is why the BT fault is recorded as a
+bounded Layer-0 unknown rather than a fixable defect.
+
 The `CH58xBLE_ROM.hex` / `CH58xBLE_ROMx.hex` files are **not** a chip mask ROM.
 Despite the name, the CH582/583 has **no BLE stack in silicon ROM**; "ROM" here
 means "the protocol stack compiled separately, flashed to a fixed Flash region and
