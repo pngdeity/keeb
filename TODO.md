@@ -1038,7 +1038,14 @@ one commit each, ordered by risk × provability.
   **value** at arm time; the shared shadow is deleted. Pure-core test
   `TransportLogic.long_press_target_is_a_keycode_table` (7/7 pass). Submodule
   commit recorded in `docs/AUDIT.md`.
-- **Fixes 2–10 — OPEN** (`docs/AUDIT.md` Tier 1/2): `wls_bt_profile` derived;
+- **Fix 2 — DONE.** The BT profile was a second RAM variable (`wls_bt_profile`)
+  kept in lockstep with the device index only by convention, so a
+  `wireless_devs_change` that bypassed `bluetooth_select_profile` could desync
+  it and make `bluetooth_get_profile()` lie in the `0xA4` reply. The variable is
+  deleted; the profile is **derived** via pure `hsm_profile_of_devs(devs)`.
+  Pure-core test `TransportLogic.bt_profile_is_a_pure_function_of_the_device_index`
+  (8/8 pass).
+- **Fixes 3–10 — OPEN** (`docs/AUDIT.md` Tier 1/2):
   `confinfo.devs`/`.filp` single writer; `hs_linker_rgb_timer` two-meaning split;
   `lower_sleep` one setter; `md_info.state`/`.indicator` cross-layer writers;
   dead-state deletion + `bat_indicator_cnt` init; `raw_hid_send` line-pinned
