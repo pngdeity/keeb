@@ -27,14 +27,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Deep sleep on the split.** The one file that needs changing
-  (`keyboards/epomaker/epomaker_split65/wireless/lpwr_wb32.c`, ported from
-  carlosedp's fix) sizes the wake pin arrays to the per-half matrix, arms the
-  right half's own matrix pins, uses falling-edge events (matching `ROW2COL`),
-  stops arming the UART-RX wake (the module's own traffic was defeating the
-  30-minute sleep), and accepts `SWITCH`/`MATRIX` wake causes. The rest of the
-  stack is sourced from the shared `keyboards/linker/wireless/` via `VPATH`, so
-  board divergence is a one-file diff. Awaiting a hardware keypress-wake test.
+- **Deep sleep on the split — the unrecoverable-STOP class.** Three faults (a
+  slave reset-loop, a slave dark-out, and a master dark-out on Bluetooth) were
+  one defect: a half could enter low power with no guaranteed way back. The fix
+  has two layers in the shared `keyboards/linker/wireless/` stack: a
+  **sleep-policy contract** (`lpwr_stop_is_allowed()`, checked at the single
+  commitment point in `lpwr_stop_cb()`) and a
+  **wake-code set** (wake causes are bit flags accumulated and compared as a set
+  against a board-supplied armed mask, so a phantom event cannot discard a real
+  one). The WB32 EXTI is pad-numbered and port-agnostic, so pads are aliased
+  (e.g. module UART RX `C11` with matrix column `B11`); the set form is what
+  makes that safe. The two decisions are extracted into a dependency-free core
+  (`lowpower_logic.c`) with unit tests (`tests/lowpower_logic/`). The earlier
+  board-local `wireless/lpwr_wb32.c` fix (per-half wake arrays, falling-edge
+  events, UART-RX wake no longer armed) remains. **Not yet flashed.**
+- **Redundant USB wake init removed.** `usb_remote_host()` no longer calls
+  `suspend_wakeup_init()` on every USB action; the QMK USB core already calls it
+  once per real `USB_EVENT_WAKEUP`. Behaviour-preserving (the compiler had
+  already folded the call), now architecturally correct.
 - **EEPROM schema is versioned.** `confinfo_t` gained a `version` field; a
   stored block from an older layout is re-defaulted once instead of being
   patched per-field heuristically.

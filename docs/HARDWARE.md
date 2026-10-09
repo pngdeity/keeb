@@ -36,7 +36,7 @@ One LED, on the **right half** bottom row. Its index is into
 
 | Constant | Index | Matrix | Position | Role |
 |---|---|---|---|---|
-| `HS_MATRIX_BLINK_INDEX_BAT` | 63 | `[11,4]` | 5th from the right | Charging/full colour, and periodic blink at level `<= 15` |
+| `HS_MATRIX_BLINK_INDEX_BAT` | 63 | `[11,3]` | 6th from the right | Charging/full colour, and periodic blink at level `<= 15` |
 
 - Drawn by `bat_indicators()` on the **master half only**, even though the LED is
   physically on the right half.
@@ -47,14 +47,14 @@ One LED, on the **right half** bottom row. Its index is into
 - The red/green charging colours are drawn only while a battery query is active
   (`im_bat_req_charging_flag`, set by `KC_BATQ`); they are not continuously
   shown.
-- This is **not a level display**: no key and no LED renders a percentage bar.
-- The tree **additionally** carries our own always-on "soft" indicator: two
-  adjacent right-half bottom-row LEDs at indices 64 and 65 (`[11,5]`/`[11,6]`,
-  `HS_MATRIX_BAT_SOFT_INDEX`/`HS_MATRIX_BAT_SOFT_INDEX2`) drawn at full channel
-  intensity, alongside the vendor `bat_indicators()` behaviour above. Colours:
-  green ≥50 %, amber ≥30 %, red below 30 % (the vendor's separate `<= 15` blink
-  is a different indicator), green while charging-to-full, blue while charging.
-  It is part of the battery work committed in the submodule (see `TODO.md`).
+- This is **not a percentage bar**: no key and no LED renders a numeric level.
+- Our tree adds an always-on "soft" level indicator inside the same
+  `bat_indicators()`: two adjacent right-half bottom-row LEDs at indices 64 and
+  65 (`[11,4]`/`[11,5]`, `HS_MATRIX_BAT_SOFT_INDEX`/`HS_MATRIX_BAT_SOFT_INDEX2`)
+  drawn at full channel intensity. Colours: green ≥50 %, amber ≥30 %, red below
+  30 % (the vendor's separate `<= 15` blink is a different indicator), green while
+  charging-to-full, blue while charging. It is part of the battery work committed
+  in the submodule (see `TODO.md`).
 
 ## Raw HID interfaces
 
@@ -65,8 +65,10 @@ One LED, on the **right half** bottom row. Its index is into
   hidapi still requires the leading byte. A bare 32-byte write is silently
   accepted and never answered.
 - Each half exposes three interfaces; the raw collection is **interface 1** on a
-  half and **interface 2** on the dongle. With both attached, selecting by usage
-  page alone picks the wrong one (see `TODO.md` defect 3).
+  half. The dongle's interface mapping is **unverified** — no dongle has ever been
+  confirmed on the bus in this project (see `TODO.md` defect 3), so any
+  dongle-side interface number is assumption, not measurement. With both attached,
+  selecting by usage page alone picks the wrong one.
 
 ## Split-link power
 
@@ -130,12 +132,12 @@ One LED, on the **right half** bottom row. Its index is into
 
 - **LEFT half — use the spacebar-hole short, not Esc-hold.** Esc-hold bootmagic
   works on stock firmware but is **broken on any non-OEM build** (a reported
-  failure, not one we introduced; see below). The left half has **no reset
-  switch** — that earlier claim was unverified and wrong. The real route is the
-  spacebar-hole short: remove the spacebar, **short the two metal-plated holes**
-  the spacebar switch's feet sit in, and plug in USB-C **while still shorting**.
-  Every key has such holes; only the spacebar's are metal-plated, which is how
-  you tell them apart.
+  failure, not one we introduced — see `TODO.md`, defect 2 area, and
+  `FINDINGS.md`). The left half has **no reset switch** — that earlier claim was
+  unverified and wrong. The real route is the spacebar-hole short: remove the
+  spacebar, **short the two metal-plated holes** the spacebar switch's feet sit
+  in, and plug in USB-C **while still shorting**. Every key has such holes; only
+  the spacebar's are metal-plated, which is how you tell them apart.
 - **RIGHT half — needs the toggle, but no case opening.** The case never needs
   to be opened to flash either half. Esc-hold does **not** work on the right
   half, and there is no keymap route into its own bootloader (the `nathan`
@@ -146,32 +148,32 @@ One LED, on the **right half** bottom row. Its index is into
   then remove the spacebar, short the two metal-plated holes the spacebar
   switch's feet sit in, and plug in USB-C **while still shorting**. Restore the
   toggle and keycaps afterwards.
-- The WB32 bootloader samples the boot pin **only at reset**, and powering the
-  board *is* the reset. Short first, plug second, hold the short until
-  enumeration completes. Bridging an already-powered board does nothing.
-- DFU therefore requires a **cold plug**: the reset and the enumeration window
-  must coincide. A warm entry (a keypress on an already-powered half, or jumping
-  from a sleeping slave) may not enumerate; if the device does not appear as
+- **Cold-plug rule (both halves):** the reset and the enumeration window must
+  coincide. Short first, plug second, hold the short until enumeration completes;
+  bridging an already-powered board does nothing. If the device does not appear as
   `342d:dfa0`, unplug and replug it.
 - A marginal cable or port shows up as an EPROTO (`-71`) storm in the kernel log
   (`device descriptor read/64, error -71`), not as a clean failure. Retry on a
   different port/cable.
-- The bootloader lives at `0x1FFFE000`, outside the 128 KB application region
-  written at `0x08000000`, so a normal flash cannot damage it.
 
 ## Sleep and wake
 
-- The right (slave) half **is woken by its own keys in the current tree**: the
-  board-local `wireless/lpwr_wb32.c` arms the right half's `MATRIX_ROW_PINS_RIGHT`
-  and `lpwr_stop_hook_post()` (in `wls/wls.c`) accepts `LPWR_WAKEUP_MATRIX` and
-  `LPWR_WAKEUP_SWITCH`. **Verified on hardware**: with both halves cabled the
-  slave types and its backlight is stable; a keypress on the right half wakes it.
+- **Not yet verified on hardware.** The current tree arms the right (slave) half's
+  own rows (`MATRIX_ROW_PINS_RIGHT` in the board-local `wireless/lpwr_wb32.c`) and
+  accepts `LPWR_WAKEUP_MATRIX` in the board's `lpwr_wakeup_armed_mask()`
+  (`wls/wls.c`), which `lpwr_stop_cb()` (`keyboards/linker/wireless/lowpower.c`)
+  checks before committing to a stop. Whether a keypress on the right half
+  actually wakes it still needs a flash and a keypress-wake test (`TODO.md`,
+  defect 2). Until then, waking the right half relies on toggling its 2.4 GHz/BT
+  mode switch or replugging its USB cable.
 - The master wakes the slave over the inter-half UART, which *is* an accepted
   cause.
+- Sleep is a decision only the master may take, and only through the ordered path
+  (`lower_sleep` set, which arms the wake sources); a plain idle timeout is
+  refused. See `FINDINGS.md` "the three power-off faults are one defect".
 - The deep-sleep entry/exit path (`PRE_LP()`/`POST_LP()` in `lpwr_wb32.c`) is a
-  pair of raw-Thumb `uint32_t[]` blobs. They are fully deobfuscated — ANCTL write
-  unlock, a trim-field clamp/sync, and a short analog-settling loop — in
-  `FINDINGS.md` "the deep-sleep `PRE_LP()`/`POST_LP()` blobs are raw Thumb".
+  pair of raw-Thumb `uint32_t[]` blobs, fully deobfuscated in `FINDINGS.md` "the
+  deep-sleep `PRE_LP()`/`POST_LP()` blobs are raw Thumb".
 
 ## Keycaps vs matrix
 
@@ -183,6 +185,4 @@ One LED, on the **right half** bottom row. Its index is into
 
 - Flashing requires **wired USB**. 2.4 GHz and Bluetooth cannot flash.
 - `wb32-dfu-updater_cli -t -s 0x08000000 -D <bin>` then `wb32-dfu-updater_cli -R`.
-- Required udev rules (both in `/etc/udev/rules.d/`):
-  - `50-qmk-wb32.rules`: `SUBSYSTEMS=="usb", ATTRS{idVendor}=="342d", ATTRS{idProduct}=="dfa0", TAG+="uaccess"`
-  - `50-epomaker-split65.rules`: `KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="342d", ATTRS{idProduct}=="e4c6", MODE="0660", TAG+="uaccess"`
+- Required udev rules, toolchain and the full procedure are in `DEPENDENCIES.md`.

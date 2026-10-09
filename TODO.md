@@ -1,5 +1,14 @@
 # TODO
 
+The live record: work, defects, and status. Sections below are marked **LIVE**
+(open work or facts that still bind) or **ARCHIVAL** (closed, kept for rationale
+— do not treat an archival section as an open task).
+
+- **LIVE** — Status, Priority order, Outstanding verification, Defects found on
+  hardware, Right-half DFU, Usability review, Debugging capability, Other.
+- **ARCHIVAL** — Regressions introduced by our own change set, Code audit,
+  Reverse-engineering the board, Re-base.
+
 ## Status
 
 - **The tree holds our battery firmware, committed inside the `qmk_firmware`
@@ -25,9 +34,10 @@
   differ from the host's, so bytes are not comparable across toolchains — CI
   asserts "it builds", not a fixed md5.
 - Both halves enumerate as `342d:e4c6`, manufacturer `LEO` (stock is `MILE`).
-- **Both halves run the current tree's `nathan` build** (watchdog off, module
-  UART on SD3). The hardware and the tree now agree: the slave types, and the
-  backlight is stable. Re-verify after any further firmware change and reflash.
+- **Both halves run an earlier `nathan` build, not the current tree's.** The
+  flashed build predates the sleep-invariant and wake-code changes; regression 4
+  below is source-complete but not flashed. Re-verify after any further firmware
+  change and reflash.
 - Both halves enter DFU by the spacebar metal-plated-hole short while plugging
   in USB-C (no case opening needed on either half; the right half first needs the
   hidden toggle flipped, exposed by removing the `R_Shift` keycap); see
@@ -38,7 +48,7 @@
   resolved by P0). Both repos are pushed and CI is green. Device context and
   vocabulary: `docs/DEVICE.md`.
 - **The ownerless-shared-state defect class is partly closed** (submodule commit
-  `d68e3152c3`). Two contained fixes, board-local, no shared-stack file touched:
+  `d68e3152c3`, superseded by the re-base). Two contained fixes, board-local, no shared-stack file touched:
   `kb_battery_snapshot_t` + `kb_battery_snapshot()` make the battery read atomic,
   so change detection and report assembly see one sample (the value itself now
   comes from upstream `quantum/battery`). The cable-transport arbiter
@@ -68,9 +78,6 @@ sections below.
      mechanical upstream breakages fixed (internal eeconfig header, GPIO API,
      `keyboard_protocol` global, `SD1_*`→`UART_*`, RGB keycodes, keymap-config
      struct); `default` and `nathan` both build; `qmk lint` clean.
-   - **Remaining:** decide the spike's fate — merge the branch into the vendor
-     overlay line, or keep it as a parallel branch; then the hardware
-     verification in Tier 1 runs on the new base, so it is done once.
      (`libmodule.a` and the legacy `keyboards/wireless/` copy are resolved:
      the directory was deleted in the spike — see `## Re-base`.)
 2. ~~**Fix defect 3** (`find_raw_hid_interface()` picks the wrong interface) and
@@ -156,14 +163,8 @@ sections below.
 
 - 1 decides the base everything else lands on; doing it first means Tier 1's
   flash and measurement are done once, on the final tree.
-- 2 blocks 5/6/9 (interface selection is the read path).
-- 4 must come after 3 so the flash is done once, and before 5 so a
-  mid-measurement reflash cannot invalidate the result.
-- 3 must precede 4: every one of those decisions changes bytes that get flashed.
-- 8 changes `housekeeping_task_user()`, so it should land before 4 as well, or it
-  forces a second flash.
-- 13 gates no others but touches the same sleep paths as 3/8; decide its direction
-  before tuning sleep, or the tuning may be wasted.
+- 5/6/9 (the wireless verification) cannot start until the flash, which follows
+  the remaining Tier 1 items.
 
 ## Outstanding verification (the deliverable is not yet proven)
 
@@ -326,6 +327,8 @@ interface-2 preference in defect 3 above is still unconfirmed.
 
 ## Regressions introduced by our own change set (not vendor defects)
 
+> **ARCHIVAL.** All four regressions are fixed; kept for root-cause rationale.
+
 ### 1. Slave backlight flickers then goes dark (split link while cabled) — FIXED
 
 **Symptom.** With both halves joined by the inter-half link cable, the slave's
@@ -453,6 +456,8 @@ any base or feature change, enumerate newly-eligible upstream mechanisms *and* t
 their contracts on this board — not just the compile breaks.
 
 ## Code audit — bespoke payload correctness and upstream-idiom review
+
+> **ARCHIVAL.** Findings fixed or deferred; kept for rationale.
 
 A full read-only audit (three passes: shared wireless stack, board files, host
 tooling/CI) of the ~5,460-line payload we carry. Findings below are **verified by
@@ -665,6 +670,8 @@ from the vendor default. Record findings here and in `docs/FINDINGS.md`.
 
 ## Reverse-engineering the board (no OEM schematic exists)
 
+> **ARCHIVAL.** A plan, not yet executed; kept as the probe-runbook.
+
 Epomaker has not published a schematic, and QMK upstream has flagged the lack.
 The board is in hand and fully USB-powered, so a reverse-engineered
 **interface-level** map is recoverable — enough for a QMK port. What probing can
@@ -764,6 +771,8 @@ drive it. Until (1), installing the software changes nothing.
 
 ## Re-base
 
+> **ARCHIVAL.** Landed; kept for rationale. Current commit/gitlink state is in Status.
+
 The move off the vendor's Oct-2024 core onto current `qmk/qmk_firmware` master,
 promoted to Tier 0. The spike proved it tractable (see below); the remaining work
 is deciding how the spike lands, then doing the Tier 1 hardware verification once
@@ -790,8 +799,8 @@ in the landed branch.**
 
 - Two commits: `11d0bc8` (port the 44 board/shared files) and `35de42afe0`
   (the port fixes). Both signed.
-- **Both keymaps build green**: `default` 64,768 B, `nathan` 66,816 B.
-  `qmk lint` clean (four cosmetic `keyboard.json` redundancy nits).
+- **Both keymaps build green** (`qmk lint` clean — four cosmetic
+  `keyboard.json` redundancy nits).
 - Six upstream breakages fixed, all mechanical, all confined to the board +
   shared stack: moved `EECONFIG_USER_DATABLOCK` internal header; legacy GPIO API
   → `gpio_*`; removed `keyboard_protocol` global → `usb_device_state_set_protocol()`;
@@ -822,8 +831,8 @@ in the landed branch.**
   via a `custom` driver (`wls/wls_battery_driver.c`), and `quantum/connection/`
   owns the user-facing host selection, bridged to the vendor `DEVS_*` enum by
   `connection_host_changed_kb()`. The `0xA4` responder stays board-local. Builds
-  green (`default` 65,252 B, `nathan` 67,296 B). See `docs/FINDINGS.md`,
-  "upstream already ships the battery and connection APIs".
+  green. See `docs/FINDINGS.md`, "upstream already ships the battery and
+  connection APIs".
 
 **Cost note.** A re-base invalidates any hardware verification done on the vendor
 tree, which is exactly why it is now first: do the Tier 1 flash and measurements
@@ -863,8 +872,7 @@ why it is not superseded".
    `damex` before writing more; cite 26203/26207/24365 in the U1 RFC. See
    `docs/FINDINGS.md`, "upstream is already defining the API we would invent".
 4. **`libmodule.a` — RESOLVED, not a blocker.** The prebuilt archive lived only
-   in the obsolete `keyboards/wireless/` copy, which no board linked (no
-   `-lmodule` in any build); the live stack is `keyboards/linker/wireless/` with
-   `module.c`/`smsg.c` as source. The legacy directory is deleted in the spike
-   (commit `f1ee1f3`), so no vendored binary remains in the tree. No design work
-   is needed; the module protocol was always open source.
+   in the obsolete `keyboards/wireless/` copy, which no board linked; the legacy
+   directory is deleted in the spike, so no vendored binary remains. No design
+   work is needed; the module protocol was always open source. See the `## Re-base`
+   record for the full autopsy.

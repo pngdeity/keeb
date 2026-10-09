@@ -7,13 +7,11 @@
 > the wireless module's UART level, and the responder answers
 > `battery_get_percent()` (`quantum/battery/`). The `kb_battery_*` helpers named
 > below survive only as the responder's own framing/push logic; the percentage
-> is no longer computed by them. See `docs/FINDINGS.md`, "upstream already ships
-> the battery and connection APIs".
+> is no longer computed by them.
 >
 > The responder is committed in the `qmk_firmware` submodule as
-> `wls/wls_battery.c` (branch `split65-overlay`). On a stock/vendor build with no
-> responder, the raw HID interface answers with an unhandled `FF` sentinel
-> instead. See `TODO.md` Status for build/hardware state.
+> `wls/wls_battery.c` (branch `split65-overlay`). See `TODO.md` Status for
+> build/hardware state, and `docs/FINDINGS.md` for the design rationale.
 
 Raw HID command used by the host to read the keyboard battery over all
 transports. The command id `0xA4` (`KC_GET_BATTERY_LEVEL`) follows the
@@ -50,8 +48,10 @@ a backwards-compatible extension; hosts must ignore bytes they do not know.
 
 ### Dongle raw HID interface (assumed, unverified)
 
-Report descriptor of the 2.4 GHz dongle (`342d:e4c6`) interface 2, obtained with
-`HIDIOCGRDESC` (34 bytes, no report ID):
+The descriptor below is **the generic QMK raw HID descriptor, not a live dump** —
+no dongle has been confirmed on the bus, so nothing here was captured with
+`HIDIOCGRDESC`. It is what the dongle would expose if it presents the standard QMK
+raw collection (34 bytes, no report ID):
 
 ```
 06 60 ff        Usage Page 0xFF60      <- QMK RAW_USAGE_PAGE
@@ -63,9 +63,10 @@ c0
 ```
 
 Matches `tmk_core/protocol/usb_descriptor_common.h` (`RAW_USAGE_PAGE 0xFF60`,
-`RAW_USAGE_ID 0x61`) and `RAW_EPSIZE 32` (`tmk_core/protocol/usb_descriptor.h`). Because the collection declares
-no report ID, `data[0]` is the first data byte and the host's `0x00` report-ID
-prefix is the correct convention for an unnumbered collection.
+`RAW_USAGE_ID 0x61`) and `RAW_EPSIZE 32` (`tmk_core/protocol/usb_descriptor.h`).
+Because the collection declares no report ID, `data[0]` is the first data byte
+and the host's `0x00` report-ID prefix is the correct convention for an
+unnumbered collection.
 
 ## Request (host → keyboard)
 
@@ -86,7 +87,7 @@ convention, giving a 33-byte write.
 | byte | meaning |
 |------|---------|
 | 0 | `0xA4` (echo) |
-| 1 | battery percentage, `0..100` — **see the caveat below** |
+| 1 | battery percentage, `0..100` — **not yet a measurement: unverified; see below** |
 | 2 | reserved — `0x00` (no voltage source on this hardware) |
 | 3 | reserved — `0x00` |
 | 4 | charging state: `0` discharging, `1` charging, `2` full |
@@ -98,7 +99,14 @@ convention, giving a 33-byte write.
 > ever arrives from the wireless module, and on USB the module does not answer,
 > so `md_info.bat` keeps its compile-time init of `100`. A host cannot
 > distinguish "really 100%" from "never reported" today. Defect 1 in `TODO.md`
-> tracks the fix; until then, treat byte 1 as unverified.
+> tracks the fix; until then, treat byte 1 as unverified. (When fixed, an
+> unreported value will be reported distinctly rather than as `100`.)
+
+If the command is not recognised, the keyboard sends **no reply** (the raw HID
+contract is one report in, at most one report out; an unsolicited response would
+collide with other raw HID clients). The host must tolerate a read timeout. Some
+firmware lineages instead answer with an unhandled `FF` sentinel, but this has not
+been observed on this hardware and is not part of the contract here.
 
 If the command is not recognised, the keyboard sends **no reply** (the raw HID
 contract is one report in, at most one report out; an unsolicited response would
@@ -122,8 +130,9 @@ so it is robust against a missed pull. Push is:
 - emitted only while `md_getp_state()` reports `MD_STATE_CONNECTED`.
 
 Hosts reading over a dongle can use either `--listen` (accept push reports) or
-`--pull` (request/reply); both work now that the dongle's host→keyboard path is
-confirmed.
+`--pull` (request/reply); the vendor reports the dongle's host→keyboard path as
+working, but it is **unconfirmed here** (no dongle has enumerated in this
+project).
 
 ## Verifying the pull path
 

@@ -49,9 +49,10 @@ Unambiguous vocabulary for referring to the hardware. Use these terms exactly.
   The master owns the USB HID device, runs the battery raw HID responder, and
   forwards the slave's matrix; the slave forwards its matrix to the master.
   Role is determined by the handedness pin (`split.handedness.pin` = B9). On this
-  board the firmware **overrides `is_keyboard_master()`** to read that pin, so it
-  is set by hardware/jumper; QMK core instead derives the role from the USB cable
-  (`usb_bus_detected()`), so removing the override would change the semantics.
+  board the **keymap** overrides `is_keyboard_master()` to read that pin (see
+  `default/keymap.c`, `nathan/keymap.c`), so the role is set by hardware/jumper;
+  QMK core instead derives the role from the USB cable (`usb_bus_detected()`), so
+  the override changes the semantics.
 
 **Rule: use the side for location, the role for behaviour.** Never write "master"
 to mean "left" or vice versa.
@@ -158,7 +159,9 @@ Where these disagree, the matrix coordinate wins.
 
 ## Physical layout
 
-69 keys in 5 physical rows: **15 / 15 / 14 / 14 / 11**.
+69 keys in 5 physical rows: **15 / 15 / 14 / 14 / 11**. The `row 0..row 4`
+labels below are **physical** rows, not matrix rows (`[row,col]` is the matrix
+coordinate).
 
 ```
 row 0  (15): [1,0][1,1][1,2][1,3][1,4][1,5][1,6] | [7,0][7,1][7,2][7,3][7,4][7,5]  [7,7]   [7,8]
@@ -166,7 +169,7 @@ row 1  (15): [2,0] [2,1][2,2][2,3][2,4][2,5]   | [8,0][8,1][8,2][8,3][8,4][8,5][
 row 2  (14): [3,0] [3,1][3,2][3,3][3,4][3,5]   | [9,0][9,1][9,2][9,3][9,4][9,5]  [9,7]     [9,8]
 row 3  (14): [4,0]  [4,1][4,2][4,3][4,4][4,5]  | [10,0][10,1][10,2][10,3][10,4] [10,6] [10,7] [10,8]
 row 4  (11): [5,0][5,1][5,2]  [5,5]            | [11,1]  [11,3][11,4][11,5][11,6][11,7] [11,8]
-                 left half (rows 1-5)              right half (rows 7-11)
+                 left half (matrix rows 1-5)          right half (matrix rows 7-11)
 ```
 
 - Row widths and coordinates are generated from `keyboard.json`
@@ -226,8 +229,8 @@ Selected by the `mode switch`; the active mode is reported by firmware as
 | VID:PID | `342d:e4c6` (same as the keyboard) |
 | Manufacturer string | `MILE` |
 | Product string | `2.4G Dongle` |
-| HID interfaces | 3 (keyboard/mouse/consumer/system/LEDs; a 120-key bitmap; the raw HID tunnel) |
-| Raw HID tunnel | usage page `0xFF60`, usage `0x61`, 32-byte IN/OUT — the same collection QMK exposes |
+| HID interfaces | **Unverified** — no dongle has ever been confirmed on the bus in this project (`TODO.md`, defect 3). Reported upstream as 3 (keyboard/mouse/consumer/system/LEDs; a 120-key bitmap; the raw HID tunnel). |
+| Raw HID tunnel | **Unverified** — reported as usage page `0xFF60`, usage `0x61`, 32-byte IN/OUT (the same collection QMK exposes). |
 
 - The dongle and the keyboard share a VID:PID, so they are told apart only by the
   manufacturer/product string and by their interfaces. A raw HID write addressed
@@ -262,7 +265,8 @@ Notes:
   `0xA4` responder, solid-white default). The personal `nathan` keymap is **not**
   in the tree — it is in the sibling userspace repo `../keeb-userspace/`. State
   which firmware a half runs by its manufacturer string (`LEO` = ours, `MILE` =
-  stock); the halves currently run an older `nathan` build.
+  stock); the halves currently run an earlier `nathan` build, not the current
+  tree's (see `TODO.md` Status).
 - The default layer is **persisted in EEPROM** and survives power cycles and
   reflashes; a board can therefore be on a past operator's chosen default layer.
 - **Only the left half has a battery** — observed directly with the right half's

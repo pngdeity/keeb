@@ -12,14 +12,17 @@ Tier 1 item 8.
 
 To serve those modes, the firmware adds host-visible battery reporting via a
 vendor Raw HID command (`0xA4`), so a polybar module can display the keyboard's
-battery level. The transport and wire format are implemented and verified over
-USB and 2.4 GHz, but **the reported percentage is not yet trustworthy** — the
-keyboard's wireless module does not answer the level inquiry on USB, so the
-value stays at its compile-time default (see `TODO.md` defect 1). Bluetooth is
-implemented on the host side but not yet probed on hardware.
+battery level. The transport and wire format are implemented; over USB the
+percentage is **not yet trustworthy** — the keyboard's wireless module does not
+answer the level inquiry on USB, so the value stays at its compile-time default
+(see `TODO.md` defect 1). The 2.4 GHz round-trip cannot be verified because the
+dongle does not enumerate on the host (`TODO.md` defect 3 and the dongle
+section). Bluetooth is implemented but not yet probed on hardware. No real
+battery percentage has ever been observed.
 
-The `nathan` battery firmware is committed in the sibling userspace repo
-`../keeb-userspace/`; both halves now run the current build (see Status).
+The `nathan` keymap lives in the sibling userspace repo `../keeb-userspace/`;
+the firmware sources live in the `qmk_firmware/` submodule. **Both halves run an
+earlier build, not the current tree's** — see Status.
 
 ## Layout
 
@@ -75,7 +78,8 @@ Only the build-required libs are initialized inside it
   `./bin/make epomaker/epomaker_split65:all` and read the hash on demand.
 - Both halves enumerate as `342d:e4c6`, manufacturer `LEO` (stock firmware was
   `MILE`).
-- The 2.4 GHz round-trip works; a real percentage has never been observed.
+- The 2.4 GHz round-trip cannot be exercised: the dongle does not enumerate on
+  this host (`TODO.md` defect 3); a real percentage has never been observed.
 - Bluetooth is unprobed.
 
 ## Quick start

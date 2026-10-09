@@ -27,10 +27,12 @@ both halves.
   `pacman`/`yay` for packages. Temp files go in `/tmp/opencode/`.
 - **`rg -r` is `--replace`, not "recursive".** Never write `-rln`/`-rn` — `-r`
   eats the rest of the cluster as replacement text and silently rewrites every
-  match (`rg -rln 'DEVICE' file` prints `ln`). Use `rg -n` for line numbers and
-  `rg -l` for paths-only. GNU `grep -rln` is harmless, so this bites only `rg`.
-  If matches render as a bare repeated token (`ln`, `n`), the flag was wrong —
-  re-run without `-r` before blaming rtk or "masking".
+  match (`rg -rln 'DEVICE' file` prints `ln`). `rg` is recursive by default and
+  has no `-R`. Use `rg -n` for line numbers (filenames always shown) and `rg -l`
+  for paths-only. GNU `grep -rln` is harmless, so this bites only `rg`, and it
+  survives rtk's rewrite (`rtk rg -rln …` is equally corrupt). If matches render
+  as a bare repeated token (`ln`, `n`), the flag was wrong — re-run without `-r`
+  before blaming rtk or "masking".
 
 ## Build, lint, flash
 
@@ -161,6 +163,25 @@ keymap is **not** in the tree — it lives in the sibling userspace repo
 - Toolchain, flashing, host deps -> `docs/DEPENDENCIES.md`
 - Why the design is as it is -> `docs/FINDINGS.md`
 - Work, defects, status -> `TODO.md` (the live record)
+
+## Searching the git history
+
+Docs describe the current state, not how it got there. When a present fact needs
+its provenance — a removed mechanism, a trimmed finding, why a value is what it
+is — read the history rather than guessing or re-deriving:
+
+```sh
+git --no-pager log --oneline -20                     # recent root history
+git --no-pager log -S 'lpwr_stop_is_allowed' --oneline   # commits that added/removed a string
+git --no-pager log -p -- docs/FINDINGS.md            # full diff of a file's history
+git --no-pager blame -L 100,120 docs/FINDINGS.md     # which commit owns these lines
+git -C qmk_firmware --no-pager log --oneline -20     # the submodule has its own history
+```
+
+`GIT_PAGER=cat` (or `--no-pager`) is required — the shell has no TTY, so a pager
+hangs. Submodule commits are signed too; `git log` in the submodule is how a
+board-source change is traced. Trimmed prose is not lost: it is in the commit
+that trimmed it.
 
 ## Code intelligence
 

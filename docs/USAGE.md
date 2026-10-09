@@ -11,8 +11,9 @@ Audience: the person typing. For how the firmware is built, see `README.md` and
 
 > **Which keymap?** Two keymaps exist: `default` (the vendor layout, in the
 > `qmk_firmware` submodule) and `nathan` (the personal layout, in the sibling
-> `keeb-userspace` repo). This guide describes **`nathan`**, which is what the
-> halves are flashed with. `keymap.md` in
+> `keeb-userspace` repo). This guide describes **`nathan`**, which is the keymap
+> the halves run. (Note the halves are currently flashed with an **earlier**
+> `nathan` build, not the current tree's — see `TODO.md` Status.) `keymap.md` in
 > `keeb-userspace/.../keymaps/nathan/` is the byte-level companion to this file.
 
 ---
@@ -38,10 +39,11 @@ and the choice is stored in EEPROM, so it survives a power cycle. To go back to
 Windows from Mac, press **Fn + `A`** (the switch sits on a different key each
 way; `A` and `S` keep typing normally otherwise).
 
-**VIA / live remapping is not available.** The board does not enable QMK's
-dynamic-keymap (VIA) feature (`features.command` is `false` and there is no VIA
-definition), so there is no host program that can change the layers over USB.
-Changing a layer means editing the keymap and reflashing — see `README.md`.
+**VIA / live remapping is not enabled.** The board does not enable QMK's
+dynamic-keymap (VIA) feature (`features.command` is `false`), so there is no live
+over-USB remapping. A VIA definition JSON ships in `host/` for reference, but the
+firmware does not serve the raw-HID configuration collection VIA needs. Changing
+a layer means editing the keymap and reflashing — see `README.md`.
 
 ---
 
@@ -98,12 +100,11 @@ back). Your in-session changes override it until the next power-on.
 
 ## 3. Battery
 
-- **Battery check — hold Fn and press `BatQ`** (bottom row of the right half,
-  the position under the left spacebar, matrix `[11,1]`). It lights the number
-  keys `1`…`0` to show the percentage. It is **master-only** (the left half
-  answers).
+- **Battery check — hold Fn and press `BatQ`** (on the Fn layer, the left spacebar
+  position, matrix `[5,5]`). It lights the number keys `1`…`0` to show the
+  percentage. It is **master-only** (the left half answers).
 - **Charge indicator LED** — one LED on the right half's bottom row
-  (matrix `[11,4]`): it blinks red when the battery is **low** and shows charge
+  (matrix `[11,3]`): it blinks red when the battery is **low** and shows charge
   colour while charging (green while charging, red when charging *and* full).
 - **Which half has the battery?** Only the **left** half. The right half is
   powered over the link cable.
@@ -142,7 +143,8 @@ switch is on 2.4 GHz or BT leaves the keyboard on that wireless link.
 ## 5. Sleep and waking
 
 - The keyboard has a low-power sleep. On an idle timeout the **master (left)**
-  half decides to sleep; the slave's wake sources arm at that moment.
+  half decides to sleep; the slave's wake sources arm at that moment. The idle
+  timeout is **30 minutes**; the backlight dims off earlier, after **5 minutes**.
 - **To wake it, press a key**, or move the mode switch, or plug/unplug a cable.
 - The backlight goes off in low-power mode and comes back on wake (it returns at
   your saved brightness).
@@ -154,18 +156,25 @@ switch is on 2.4 GHz or BT leaves the keyboard on that wireless link.
 These are the only keys that destroy saved state. They are deliberately
 separated so a single fumble cannot hit both.
 
+> This recovery layer exists in the **`nathan`** keymap only. The vendor
+> `default` keymap has no `_RST` layer; do not expect these chords on stock
+> firmware.
+
 | Combo | Effect |
 |---|---|
 | **Fn + top-right corner key, tapped** | nothing (the recovery layer is hold-only) |
 | **Fn + top-right corner key (hold), then bottom-right corner** | `EE_CLR` — **factory reset**: wipes the emulated EEPROM (default layer, RGB settings, key overrides) |
-| **`Esc` held at plug-in** (left half) | enter the `wb32-dfu` bootloader for flashing; **also clears EEPROM** |
+| **Fn + top-right corner key, tapped alone** | `QK_BOOT` — enter the `wb32-dfu` bootloader for flashing |
 
 - The recovery layer is armed only by a **hold** of Fn + the top-right corner key
   (the base-layer `Mute` key, matrix `[7,8]`). `EE_CLR` sits on the right half's
   bottom-right corner (matrix `[11,7]`) — the far corner, reachable only with a
   held Fn chord from the left hand plus a press on the opposite half.
-- **`QK_BOOT`** (enter the bootloader) is on the **Fn** layer at the right half's
-  third row (matrix `[10,4]`).
+- **`QK_BOOT`** (enter the bootloader) is on the **Fn** layer at the Fn-layer
+  top-right corner key, matrix `[10,4]`. It is **not** on the base layer, so a
+  stray `Esc` tap cannot drop a half into the bootloader.
+- **Bootmagic / `Esc`-hold at plug-in does not work on this build.** It is
+  disabled by the board's own configuration; use the hardware DFU short below.
 
 **If a half drops into the bootloader**, flash it or power-cycle it — it comes
 back. Note the two halves are flashed **separately**, and **neither half needs
@@ -184,7 +193,10 @@ toggle flipped first, exposed by removing the `R_Shift` keycap). See
   BIOS).
 - **`Flip`** on the Fn layer (left half) swaps the Fn-row and the number row
   (OEM behaviour); the left Ctrl LED lights red while it is on.
-- **Encoder** on the base layer = volume; on Fn = backlight brightness.
+- **Encoder** — the knob sends **volume up/down on every layer**. The
+  `encoder_map[]` in the keymap (which would make the Fn layer control backlight
+  brightness) is compiled out because `ENCODER_MAP_ENABLE` is not set, so QMK's
+  default encoder handler runs and the knob is volume everywhere.
 
 ---
 

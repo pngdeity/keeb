@@ -68,6 +68,14 @@ Use the project-local wrappers — no system install is needed.
   uv pip install --python .venv/bin/python -r qmk_firmware/requirements.txt
   ```
 
+- **`bin/compiledb`** generates `qmk_firmware/compile_commands.json` (and a copy
+  at the userspace root) and then does a real build, so the *generated* headers
+  (`info_config.h`) exist on disk for clangd/Serena. Run `./bin/compiledb nathan`
+  (or `default`) after a clean checkout or a build-config change. QMK's own
+  `generate-compilation-database` does a `make clean` first, which removes those
+  headers and defeats clangd — hence the wrapper. Both the DB and clangd's cache
+  are gitignored.
+
 ## Flashing
 
 - `wb32-dfu-updater_cli` (present at `/usr/local/bin/wb32-dfu-updater_cli`).
@@ -76,14 +84,13 @@ Use the project-local wrappers — no system install is needed.
   Bluetooth cannot flash.
 - **Prerequisite:** the wb32-dfu udev rule must be installed or the updater
   cannot claim the device as a normal user. `qmk doctor` reports this as
-  "Missing or outdated udev rules for 'wb32-dfu' boards". QMK's own rule set is
-  distributed with the QMK CLI (installed to `/etc/udev/rules.d/50-qmk.rules`
-  by `util/install_udev.sh`; it is **not** vendored in this tree). The board
-  additionally needs a `uaccess` rule for its VID:PID:
-
-  ```
-  SUBSYSTEMS=="usb", ATTRS{idVendor}=="342d", ATTRS{idProduct}=="dfa0", TAG+="uaccess"
-  ```
+  "Missing or outdated udev rules for 'wb32-dfu' boards". On this host two rules
+  under `/etc/udev/rules.d/` cover both needs, and neither is vendored in this
+  tree:
+  - `50-qmk-wb32.rules` grants the DFU bootloader (`342d:dfa0`) as `uaccess`
+    (QMK's set, installed by `util/install_udev.sh`, ships as `50-qmk.rules`).
+  - `50-epomaker-split65.rules` grants hidraw access for the running keyboard
+    (`342d:e4c6`, `MODE=0660` + `uaccess`), which VIA/QMK keymap editing needs.
 
 - **Both halves run identical firmware** — handedness is pin-based
   (`split.handedness.pin`, read by `is_keyboard_master()`), not EEPROM-based, so
@@ -114,16 +121,19 @@ legend** and the **Fn-layer legend** are listed separately; they differ.
 | Hardware DFU | Short the two metal-plated spacebar holes + plug USB | Always works (both halves) |
 | Bootmagic DFU | Hold Escape + plug USB (left half only) | Broken on non-OEM firmware |
 | Right-half DFU | Remove the `R_Shift` keycap, flip the exposed toggle, then spacebar-pin short + plug USB | Bootloader (see Flashing) |
-| Software DFU | `QK_BOOT` — base layer at left half, matrix `[1,0]` (the left `Esc` position) | Bootloader |
+| Software DFU | `QK_BOOT` — `Fn` (`held` spacebar) + the top-right corner key, matrix `[10,4]` | Bootloader |
 | Factory reset | `EE_CLR` — hold-only `_RST` layer at right half, matrix `[11,7]` (the bottom-right corner key) | Clears EEPROM settings |
 
-> `QK_BOOT` sits on the **base** layer at the left half's `Esc` position, where it
-> is trivially hit — an accidental tap drops the left half into the bootloader
-> (accepted; it is the intended software DFU route). `EE_CLR` was moved off the
-> Fn-layer `Bksp` position to the far corner of a hold-only layer: `_RST` is
-> armed only by `LT(_RST, KC_NO)` on the **Fn-layer top-right corner** key, so a
-> wipe needs a held Fn chord plus a press on the opposite half's bottom-right
-> corner. It is no longer reachable by a single stray hold.
+> `QK_BOOT` sits on the **Fn** layer at the Fn-layer top-right corner key
+> (matrix `[10,4]`), reached by holding either spacebar. It is deliberately NOT
+> on the base layer: the base-layer `Esc` position (`[1,0]`) is a plain `KC_ESC`,
+> so a stray tap cannot drop a half into the bootloader.
+>
+> `EE_CLR` was moved off the Fn-layer `Bksp` position to the far corner of a
+> hold-only layer: `_RST` is armed only by `LT(_RST, KC_NO)` on the **Fn-layer
+> top-right corner key**, so a wipe needs a held Fn chord plus a press on the
+> opposite half's bottom-right corner. It is no longer reachable by a single
+> stray hold.
 
 ### Wireless modes
 
@@ -131,7 +141,7 @@ legend** and the **Fn-layer legend** are listed separately; they differ.
 |---|---|---|
 | `KC_BT1` / `KC_BT2` / `KC_BT3` | `[2,1]` / `[2,2]` / `[2,3]` (left half) | Bluetooth device 1 / 2 / 3 |
 | `KC_2G4` | `[2,4]` (left half) | 2.4 GHz dongle |
-| `KC_BATQ` | `[5,5]` and `[11,1]` (both spacebars) | Request the battery indicator |
+| `KC_BATQ` | `[5,5]` (left spacebar position) | Request the battery indicator |
 
 Notes:
 

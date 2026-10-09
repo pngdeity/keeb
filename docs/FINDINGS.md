@@ -10,6 +10,27 @@ change depends on. What the device is is in `DEVICE.md`; measured hardware facts
 live in `HARDWARE.md`; the wire format is `PROTOCOL.md`; live status and open
 work are in `TODO.md`.
 
+> **Reading order.** `Functional requirements` → `Goal` → `Hardware / firmware
+> base` are the frame. The `FINDING —` sections are self-contained; each states
+> one conclusion and the evidence for it. `Design`, `Build facts` and
+> `Dongle recon` are reference, not findings. Skip by heading.
+
+## Contents
+
+- Functional requirements · Goal · Hardware / firmware base — the frame.
+- **Findings**: the vendor fork is shallow (re-base is a replay) · the battery
+  value already exists in firmware · raw HID is already bridged over the dongle ·
+  the wireless stack is shared · the deep-sleep `PRE_LP()`/`POST_LP()` blobs ·
+  Bluetooth is a dongle-free path · upstream already ships the battery and
+  connection APIs · what stays bespoke · upstream is already defining the API we
+  would invent · shared state has no owner · the vendor split stack is closer to
+  upstream than it looks · the three power-off faults are one defect · upstream
+  has no sleep invariant · the wake-armed predicate was a proxy · the WB32 EXTI
+  aliases pads · the USB path has a second sleep route · the sleep decisions are
+  a functional core.
+- Design · Build facts · Dongle recon — reference.
+- Open questions tied to these findings.
+
 ## Functional requirements
 
 The user-facing requirements, in priority order. These are the end; the battery
@@ -64,50 +85,21 @@ path.
 
 ## FINDING — the vendor fork is shallow, so a re-base is a replay, not a re-import
 
-The vendor tree is **not** a squashed snapshot. It carries full upstream lineage
-(28,110 commits); its last real upstream sync merge is `45caa1174b` (2024-10-30),
-whose `qmk:master` parent is upstream commit **`92afc8198a`** (2024-10-29, "Add
-Singa Kohaku (#24309)"). That is our true base. The vendor then forked to build
-the wireless/tri-mode stack and stopped reconciling against upstream — the normal
-vendor-fork trajectory.
+The vendor tree carries full upstream lineage, not a squashed snapshot; its last
+upstream sync (`92afc8198a`, 2024-10-29) is our true base, after which the vendor
+forked to build the wireless stack. **The conflict surface is almost nil:** of the
+677-file / 81,873-line divergence, only two non-board files differ (`.gitignore`
+dropping `*.a`, plus a stray `.txt`) and three submodules bumped; everything else
+is additive vendor boards plus the shared wireless stack. **WB32 platform support
+is already upstream at the base**, so no platform fork was needed. Our own
+authored payload is ~10 commits confined to `epomaker_split65/` and
+`linker/wireless/` with no core edits — so re-basing is "replay our commits onto
+master", not a fork re-import. It is done and builds green; the `libmodule.a`
+"red flag" was a non-issue (it lived only in the obsolete `keyboards/wireless/`
+copy and held nothing but objects compiled from source we already hold). Record
+in `TODO.md` "## Re-base".
 
-**The conflict surface is almost nil because the vendor never patched core.**
-Of the entire 677-file / 81,873-line divergence from `92afc8198a`, only two
-non-board files differ:
-
-- `.gitignore` — removes `*.a` (one line) so the prebuilt `libmodule.a` can be
-  tracked (that archive lived only in the obsolete `keyboards/wireless/` copy —
-  see below);
-- a stray `.txt`.
-
-Plus three submodule bumps (`lib/chibios`, `lib/chibios-contrib`, `lib/pico-sdk`).
-Everything else is additive: vendor boards under `keyboards/…` and the shared
-wireless stack.
-
-**WB32 platform support is already upstream** at the base —
-`platforms/chibios/boards/GENERIC_WB32_FQ95XX/` and
-`platforms/chibios/bootloaders/wb32_dfu.c` exist — so the vendor needed no
-platform fork, and neither do we.
-
-**Our own authored payload is 9 commits**, confined to
-`keyboards/epomaker/epomaker_split65/` and `keyboards/linker/wireless/`. No core
-edits we authored. (The vendor overlay line also carried a `lib/python/qmk/math.py`
-Python-3.12 fix, but that is the *vendor's* history, not part of the rebase
-payload — and upstream deleted `math.py` before our base.)
-
-**Consequence:** re-basing is "replay our ~10 commits onto `qmk/qmk_firmware`
-master," not a fork re-import. It was proven tractable by the spike, which has
-now landed (branch `split65-overlay`, renamed from `split65-rebase-spike`; the
-root gitlink points at it): both keymaps build green on master (`7a1bbf37c5`,
-2026-10-02, 1,695 commits ahead of base) after six mechanical upstream-breakage
-fixes. The `libmodule.a` "red flag" turned out to be a **non-issue**: the
-prebuilt archive lived only in the obsolete `keyboards/wireless/` copy, which no
-board linked and nothing referenced, and it held nothing but `module.o`,
-`smsg.o` and `assert.o` compiled from source we already hold. That directory is
-deleted in the spike (commit `f1ee1f3`); both keymaps rebuild byte-identical, so
-no vendored binary remains in the build path. Details in `TODO.md` "## Re-base".
-
-## KEY FINDING — the battery value already exists in firmware
+## FINDING — the battery value already exists in firmware
 
 The wireless stack tracks it; the board only had to route it to the host. All
 paths are in `qmk_firmware/keyboards/linker/wireless/`:
@@ -127,7 +119,7 @@ paths are in `qmk_firmware/keyboards/linker/wireless/`:
 - `KC_BATQ` already existed to request the *visual* indicator. The work was to
   route the value to the host.
 
-## KEY FINDING — raw HID is already bridged over the 2.4 GHz dongle
+## FINDING — raw HID is already bridged over the 2.4 GHz dongle
 
 `keyboards/linker/wireless/md_raw.c` (guarded by `RAW_ENABLE`):
 
@@ -174,95 +166,25 @@ static const uint32_t post_lp_code[] = {553863177u, ...};
 #define POST_LP() ((void (*)(void))((unsigned int)(post_lp_code) | 0x01))()
 ```
 
-These are **not** obfuscated or encrypted — they are the compiler's literal output
-for hand-tuned register writes the author needed to pin exactly (no C prologue,
-no register-allocation surprises, no reordering). The bytes are **identical in all
-copies** of the file in the tree (`linker/wireless/`, `epomaker/.../wireless/`,
-`keyboards/epomaker/epomaker_split65/wireless/`, and the ChibiOS demo
-`RT-WB32F3G71-RTC`), which is itself the
-proof they are frozen output rather than generated code.
+These are **not** obfuscated — they are the compiler's literal output for
+hand-tuned register writes the author needed to pin exactly (no C prologue, no
+register-allocation surprises, no reordering). The bytes are **identical in every
+copy** in the tree and in both vendor factory images (`vendor/factory-firmware/`,
+v7 Nov 2024 and v10 Dec 2025) exactly once, byte-identical — proof they are frozen
+output, not something our tree introduced. Both blobs unlock the analog-control
+(ANCTL) write lock, clamp/sync a trim field, omit any settling loop (a short one
+in `POST_LP`), and return; all addresses are documented WB32 peripherals except
+`0x1FFF0000 + 0x310`, an undocumented factory/trim mirror read by raw literal.
 
-Deobfuscated with:
+Deobfuscate with `arm-none-eabi-objdump -D -b binary -m arm -M force-thumb` on the
+`w.to_bytes(4,'little')` stream of the array; the full dual listing lives in the
+git history (`git log -p -- docs/FINDINGS.md`).
 
-```sh
-python3 -c "import struct,sys; sys.stdout.buffer.write(b''.join(w.to_bytes(4,'little') for w in [553863175,554459777,1208378049,4026624001,688390415,554227969,3204472833,1198571264,1073807360,1073808388]))" > /tmp/opencode/pre.bin
-arm-none-eabi-objdump -D -b binary -m arm -M force-thumb /tmp/opencode/pre.bin
-```
-
-**`PRE_LP()` — runs before entering deep sleep** (`lpwr_wb32.c:178`). Literal pool:
-`0x40010000` (PWR), `0x40010404` (ANCTL + `0x04`).
-
-```asm
-ldr  r0, =0x40010000    ; PWR
-movs r1, #3
-str  r1, [r0, #0x28]    ; PWR->ANAKEY1 = 3   -- unlock ANCTL writes (key 1)
-movs r1, #12
-str  r1, [r0, #0x2C]    ; PWR->ANAKEY2 = 12  -- unlock ANCTL writes (key 2)
-ldr  r0, =0x40010404    ; ANCTL + 0x04
-ldr  r1, [r0]
-and  r1, r1, #0x0F
-cmp  r1, #8
-bls  done
-movs r1, #8             ; clamp ANCTL[+4] low nibble to <= 8
-str  r1, [r0]
-done: bx lr
-```
-
-**`POST_LP()` — runs after waking** (`lpwr_wb32.c:186`). Literal pool:
-`0x40010000`, `0x1FFF0000`, `0x40010404`.
-
-```asm
-ldr  r0, =0x40010000
-movs r1, #3
-str  r1, [r0, #0x28]    ; re-unlock ANCTL
-movs r1, #12
-str  r1, [r0, #0x2C]
-ldr  r0, =0x1FFF0000    ; undocumented factory/trim mirror region
-ldrb r0, [r0, #0x310]
-and  r0, r0, #0x0F
-ldr  r1, =0x40010404
-ldr  r2, [r1]
-cmp  r2, r0
-beq  skip
-str  r0, [r1]           ; sync ANCTL[+4] low nibble from SYS[+0x310]
-skip:
-movs r0, #0
-loop: adds r0, #1       ; short analog-settling delay before resuming
-cmp  r0, #0x23          ; 0x23 = 35 iterations
-blt  loop
-bx   lr
-```
-
-At the board's 96 MHz sysclk (`mcuconf.h`: `WB32_PLLDIV_VALUE 2`,
-`WB32_PLLMUL_VALUE 16`) the loop is only ~100–200 ns — a settling margin, not a
-noticeable delay.
-
-So the sequence is: **re-open the analog-control (ANCTL) write lock, clamp/sync a
-trim field, let the analog domain settle briefly, then return.** Every address is
-a documented WB32 peripheral (`PWR_BASE = 0x40010000`, `ANCTL_BASE = 0x40010400`,
-`SYS_BASE = 0x40016400`) with one exception: `0x1FFF0000 + 0x310`, which is not
-`SYS_BASE` and sits in an undocumented address region (a factory/trim mirror the
-vendor reads by raw literal). Its source register has no name in the CMSIS header.
-
-Why the blobs stay as machine code (a deliberate choice, not an artifact):
-
-- **Timing/masking guarantee.** `str`/`ldr` of constants with no compiler-inserted
-  code between them is the whole point; C cannot promise the exact stream.
-- **Register-free.** The code uses only `r0–r2`, so it is safe to call from any
-  context, including the low-power path where the stack may be minimal.
-- **Vendor-tuned and shared.** Since the bytes are identical across every board
-  that uses the stack, rewriting them in C would fork that shared file per board
-  for zero functional gain.
-- **Corroborated by the factory images.** The two vendor release binaries
-  (`vendor/factory-firmware/`, v7 Nov 2024 and v10 Dec 2025) each contain the
-  `PRE_LP`/`POST_LP` byte sequences **exactly once, byte-identical** to ours — as
-  does our own built `.bin`. So this is the vendor's own construction on the same
-  hardware, not something our tree introduced.
-
-Do **not** rewrite them in C as a "cleanup". They work, they are timing-critical,
-and they are the one place where the compiler must not be trusted to schedule.
-The right treatment is the one given here: document the disassembly so the file
-stops being a black box, and leave the bytes alone.
+**Do not rewrite them in C as a "cleanup".** They are timing-critical and use only
+`r0–r2`, so they are safe to call from any context including the low-power path;
+since they are byte-identical across every board on the stack, rewriting them
+would fork a shared file for zero gain. They are the one place the compiler must
+not be trusted to schedule.
 
 ## Design
 
@@ -583,8 +505,10 @@ The board and the wireless stack communicate through **shared mutable globals**
 `wireless_get_current_devs()`; the `confinfo` EEPROM mirror) rather than a
 board-facing API. Nothing enforces who may change what, so correctness depends on
 each caller "knowing" not to fire a transition at the wrong moment. That property
-produced three separate hardware defects (battery `100` on USB, the unwakeable
-slave, the wrong interface pick) — one root cause wearing three hats.
+produced two of the three hardware defects found here (the battery `100` on USB
+and the unwakeable slave); the third (the wrong host interface pick) is a
+separate class, and is fixed separately. (The same root property recurs in the
+power-off faults — see "the three power-off faults are one defect".)
 
 Two of those are addressable *within our files*, without touching the shared
 vendor stack (so upstream divergence stays a one-file diff):
@@ -612,7 +536,7 @@ halves with a hardware-only recovery path.
 
 - **Is byte 1 ever real?** See `TODO.md` defect 1. Until the module answers the
   inquiry on USB, the value is indistinguishable from the init constant.
-- **Which interface did the host pick?** See `TODO.md` defect 3.
+- **Which interface did the host pick?** Resolved — `TODO.md` defect 3 (closed).
 - **Does Bluetooth expose the raw collection at all?** See `TODO.md`, Tier 2.
 
 ## FINDING — the vendor split stack is closer to upstream than it first looks
