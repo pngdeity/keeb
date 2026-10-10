@@ -1098,9 +1098,17 @@ one commit each, ordered by risk × provability.
   frames. It lives in the **shared** tree (not the board `wls/`) because
   `module.c` is shared across ~20 boards and must not include a board header.
   Tested byte-by-byte (`tests/md_frame`, 8/8; `transport_logic` 13/13).
-- **Fix 10 — OPEN** (`docs/AUDIT.md` Tier 2):
-  `lpwr_*` pure cores + side-effect-free `lpwr_is_allow_timeout` +
-  `lpwr_wakeupcd` critical section.
+- **Fix 10 — DONE** (`docs/AUDIT.md` Tier 2). Two defects in the STOP entry:
+  (a) `lpwr_set_sleep_wakeupcd(LPWR_WAKEUP_NONE)` was an accumulate-only setter
+  (`|= 0`), so the wake set was **never cleared** before entering STOP — a stale
+  code could survive into the next window. New `lpwr_clear_sleep_wakeupcd()`
+  clears under `chSysLock()`/`chSysUnlock()` against the ISR `|=`
+  (`lpwr_wb32.c` `palcallback`). (b) `lpwr_is_allow_timeout()` was a *query with
+  a side effect*: it consumed the one-shot `manual_timeout` on every path,
+  destroying a request made while the decision was false (on USB, or hook-forbidden).
+  It is now the pure `lpwr_timeout_allowed_decide()` (`lowpower_logic`), and the
+  caller (`lpwr_task`) consumes the override only when the timeout path is taken.
+  Tested: `lowpower_logic` 9/9 (new `timeout_is_allowed_only_when_a_stop_can_be_taken`).
 - **Tier 3 — ACCEPT + document** (upstream contract: `driver` fallthrough, the
   unconditional `connection_set_host` EEPROM write, the hook-skipped-on-no-op
   gap), plus one genuinely-new incompleteness to fix: `wireless_2p4ghz_init/task`
