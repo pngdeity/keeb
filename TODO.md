@@ -1081,8 +1081,15 @@ one commit each, ordered by risk × provability.
   Host tools consolidated: one `REPLY_INDEX` drives `parse_reply`, one
   `CHARGE_NAMES` table feeds both formatters, the dead `None` interface branch is
   gone, and the stale "UNVERIFIED" interface-2 notes are corrected.
-- **Fixes 8–10 — OPEN** (`docs/AUDIT.md` Tier 2):
-  `raw_hid_send` line-pinned macro (`md_raw.h:8-10`) → real dispatch;
+- **Fix 8 — DONE.** The `raw_hid_send` line-pinned macro (`md_raw.h`, pinned to
+  `__LINE__` 29/489 and force-included into every TU) is **deleted**. Its shim
+  `replaced_hid_send()` had become behaviorally identical to upstream
+  `raw_hid_send()` (both route to `host_raw_hid_send()` → the active driver's
+  `send_raw_hid`), so the alias, the shim, the direct board call, and the
+  `-include md_raw.h` in both `.mk` files are all removed. The board calls plain
+  `raw_hid_send()`; the receive path (`md_receive_raw_cb` → `raw_hid_receive`)
+  stays in `md_raw.c`. A pure deletion (−4 bytes, no new code).
+- **Fixes 9–10 — OPEN** (`docs/AUDIT.md` Tier 2):
   `md_receive_msg_task` pure framer (`feed_byte(state, byte) → {state, frame}`);
   `lpwr_*` pure cores + side-effect-free `lpwr_is_allow_timeout` +
   `lpwr_wakeupcd` critical section.

@@ -61,7 +61,7 @@
 | `lpwr_state` / `lpwr_timestamp` | **VIOLATION** — `md_receive_host_cb` (`lowpower.c:121-133`, UART cadence) writes both alongside `lpwr_task` | **FC/S FIX** |
 | `manual_timeout` | **VIOLATION** — `lpwr_is_allow_timeout()` is a query that *clears* it (`lowpower.c:145,150,155`) | **FC/S FIX** |
 | `lpwr_wakeupcd` reset vs ISR | **VIOLATION** — non-atomic `= NONE` (`lowpower.c:272`) races the ISR `\|=` | FIX (critical section) |
-| `raw_hid_send` line-pinned macro (`md_raw.h:8-10`) | **VIOLATION** — a compile-time alias pinned to `__LINE__` 29/489; adding a line silently breaks it; force-included into every TU | FIX (replace with a real dispatch) |
+| `raw_hid_send` line-pinned macro (`md_raw.h:8-10`) | **DONE (fix 8)** — deleted. `replaced_hid_send()` had become behaviorally identical to upstream `raw_hid_send()` (both route to `host_raw_hid_send()` → active-driver `send_raw_hid`); the alias, the shim, the direct board call, and the `-include md_raw.h` in both `.mk` files are all removed. The board calls plain `raw_hid_send()`; the receive path (`md_receive_raw_cb` → `raw_hid_receive`) is kept in `md_raw.c` | DONE |
 | `md_receive_msg_task` | **VIOLATION** — one function decodes six frame types and carries two coupled statics (`data_count`, `data_remain`) | **FC/S FIX** |
 
 ## Tier 3 — upstream/vendor code we depend on but did not author
