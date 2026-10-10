@@ -25,9 +25,10 @@ nothing useful.
 
 **Interface selection.** `find_raw_hid_interface()` enumerates every
 `0xFF60`/`0x61` collection and returns the one with `interface_number == 2` by
-default as an **assumed dongle** (unverified; the dongle shares the keyboard's
-VID:PID); `--transport usb` selects interface 1, the keyboard's own collection.
-With only one collection attached it uses that one. `split65.py check` lists the
+default — the 2.4 GHz dongle (verified on hardware 2026-10-09; it shares the
+keyboard's VID:PID, so the interface number is the discriminator);
+`--transport usb` selects interface 1, the keyboard's own collection. With only
+one collection attached it uses that one. `split65.py check` lists the
 collections found and warns when more than one is present.
 
 ## Requirements

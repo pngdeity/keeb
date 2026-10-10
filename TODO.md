@@ -1074,11 +1074,18 @@ one commit each, ordered by risk × provability.
   device change). The transition is now expressed once, by the module that owns
   the registers: `md_devs_changed()` (module.c) replaces the two pointer writes,
   so no external writer reaches `md_info`; callers read via the accessors.
-- **Fixes 7–10 — OPEN** (`docs/AUDIT.md` Tier 1/2):
-  dead-state deletion +
-  `bat_indicator_cnt` init; `raw_hid_send` line-pinned macro → real dispatch;
-  `md_receive_msg_task` pure framer; `lpwr_*` pure cores
-  + side-effect-free `lpwr_is_allow_timeout` + `lpwr_wakeupcd` critical section.
+- **Fix 7 — DONE.** Dead state deleted (`inqbat_flag`, `test_white_light_flag`,
+  `start_hsv`, `temp`, `im_test_rate_flag`, `prev_cable_state`), the no-op
+  `hs_transport_arbitrate_cable()` and its two calls removed, and
+  `bat_indicator_cnt`'s initializer corrected (`true`→`0`, a valid ms epoch).
+  Host tools consolidated: one `REPLY_INDEX` drives `parse_reply`, one
+  `CHARGE_NAMES` table feeds both formatters, the dead `None` interface branch is
+  gone, and the stale "UNVERIFIED" interface-2 notes are corrected.
+- **Fixes 8–10 — OPEN** (`docs/AUDIT.md` Tier 2):
+  `raw_hid_send` line-pinned macro (`md_raw.h:8-10`) → real dispatch;
+  `md_receive_msg_task` pure framer (`feed_byte(state, byte) → {state, frame}`);
+  `lpwr_*` pure cores + side-effect-free `lpwr_is_allow_timeout` +
+  `lpwr_wakeupcd` critical section.
 - **Tier 3 — ACCEPT + document** (upstream contract: `driver` fallthrough, the
   unconditional `connection_set_host` EEPROM write, the hook-skipped-on-no-op
   gap), plus one genuinely-new incompleteness to fix: `wireless_2p4ghz_init/task`

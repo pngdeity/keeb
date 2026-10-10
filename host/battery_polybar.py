@@ -13,9 +13,9 @@ Usage:
 
 When both the keyboard's USB collection (interface 1) and the 2.4 GHz dongle's
 (interface 2) are attached, interface 2 is preferred by default; pass
---transport usb to read interface 1 instead. NOTE: the interface-2 = dongle
-mapping is UNVERIFIED -- the dongle shares VID:PID 342d:e4c6 with the keyboard,
-and only interface 1 has ever been observed live (see PROTOCOL.md/TODO.md).
+--transport usb to read interface 1 instead. The interface-2 = dongle mapping is
+VERIFIED (2026-10-09): the dongle shares VID:PID 342d:e4c6 with the keyboard, so
+it cannot be disambiguated by a VID filter; it is selected by interface number.
 
 Exits non-zero with no output when the keyboard is absent, so polybar hides
 the module.
@@ -39,15 +39,31 @@ USAGE = 0x61
 REPORT_LENGTH = 32
 CMD_GET_BATTERY = 0xA4
 
-TRANSPORT_NAMES = {0x01: "USB", 0x02: "BT", 0x04: "2.4G"}
-
 # Raw HID collection interface numbers (see PROTOCOL.md). The keyboard's own
-# collection has been observed on interface 1. A second collection on interface
-# 2 is *assumed* to be the 2.4 GHz dongle, but that is UNVERIFIED: the dongle
-# shares VID:PID 342d:e4c6 with the keyboard, so it cannot be disambiguated by a
-# VID filter, and only interface 1 has been seen live. See TODO.md defect 3.
+# collection is interface 1; the 2.4 GHz dongle's is interface 2. Both share
+# VID:PID 342d:e4c6, so the interface number is the discriminator (verified on
+# hardware 2026-10-09).
 INTERFACE_KEYBOARD = 1
 INTERFACE_DONGLE = 2
+
+# The single source of truth for the 0xA4 reply field meanings (mirrors the
+# firmware's wls.h; see PROTOCOL.md "Reply"). Keep the decode tables next to the
+# byte indices so a change lands in one place.
+REPLY_INDEX = {
+    "percent": 1,
+    "charging": 4,
+    "transport": 5,
+    "model": 6,
+    "host": 7,
+    "btsub": 8,
+    "md_version": 9,
+    "md_state": 10,
+}
+
+TRANSPORT_NAMES = {0x01: "USB", 0x02: "BT", 0x04: "2.4G"}
+CHARGE_NAMES = {0: "discharging", 1: "charging", 2: "full"}
+HOST_NAMES = {0: "AUTO", 1: "NONE", 2: "USB", 3: "BLUETOOTH", 4: "2P4GHZ"}
+MD_STATE_NAMES = {0: "NONE", 1: "PAIRING", 2: "CONNECTED", 3: "DISCONNECTED", 4: "REJECT"}
 
 
 def enumerate_raw_hid_interfaces():
@@ -62,11 +78,10 @@ def enumerate_raw_hid_interfaces():
 def find_raw_hid_interface(prefer=None):
     """Pick the raw HID interface to use.
 
-    Several can match at once (the keyboard's collection on interface 1 and,
-    if present, a second collection on interface 2 assumed -- UNVERIFIED -- to
-    be the 2.4 GHz dongle). Default to interface 2 so a read over 2.4 GHz is not
-    silently satisfied by the keyboard's USB collection; prefer="usb" selects
-    interface 1 instead. See TODO.md defect 3 for the open verification.
+    Several collections can match at once: the keyboard's on interface 1 and,
+    when attached, the 2.4 GHz dongle's on interface 2 (verified 2026-10-09).
+    Default to interface 2 so a read over 2.4 GHz is not silently satisfied by
+    the keyboard's USB collection; prefer="usb" selects interface 1 instead.
     """
     candidates = enumerate_raw_hid_interfaces()
     if not candidates:
@@ -132,24 +147,11 @@ def parse_reply(report: bytes):
     # sentinel some firmware lineages emit, as well as stray HID reports.
     if len(report) < 2 or report[0] != CMD_GET_BATTERY:
         return None
-    # Bytes 2-3 are reserved (this board reports no voltage); skip them.
-    result = {"percent": report[1], "charging": 0, "transport": 0, "model": 0}
-    if len(report) >= 5:
-        result["charging"] = report[4]
-    if len(report) >= 6:
-        result["transport"] = report[5]
-    if len(report) >= 7:
-        result["model"] = report[6]
-    # Extended diagnostics (firmware wls.h): persisted host, BT sub-profile, and
-    # the CH582F module fingerprint. Absent on older firmware; guard by length.
-    if len(report) >= 8:
-        result["host"] = report[7]
-    if len(report) >= 9:
-        result["btsub"] = report[8]
-    if len(report) >= 10:
-        result["md_version"] = report[9]
-    if len(report) >= 11:
-        result["md_state"] = report[10]
+    # Decode every field present, by its index (REPLY_INDEX is the one source).
+    result = {}
+    for name, index in REPLY_INDEX.items():
+        if len(report) > index:
+            result[name] = report[index]
     return result
 
 
@@ -205,29 +207,25 @@ def format_status(result):
     return f"BAT {percent}%"
 
 
-_TRANSPORT_NAMES = {0x01: "USB", 0x02: "BT", 0x04: "2.4G"}
-_HOST_NAMES = {0: "AUTO", 1: "NONE", 2: "USB", 3: "BLUETOOTH", 4: "2P4GHZ"}
-_MD_STATE_NAMES = {0: "NONE", 1: "PAIRING", 2: "CONNECTED", 3: "DISCONNECTED", 4: "REJECT"}
-
-
 def format_info(result):
     """Full readback: battery, selectors, and the module fingerprint."""
     transport = result.get("transport", 0)
+    charging = result.get("charging", 0)
     lines = [
-        f"battery:   {result['percent']}%  charge={result.get('charging', 0)}  "
-        f"transport={_TRANSPORT_NAMES.get(transport, hex(transport))}",
+        f"battery:   {result['percent']}%  charge={charging} ({CHARGE_NAMES.get(charging, '?')})  "
+        f"transport={TRANSPORT_NAMES.get(transport, hex(transport))}",
         f"model:     {result.get('model', 0)}",
     ]
     if "host" in result:
         host = result["host"]
-        lines.append(f"host(raw): {host} ({_HOST_NAMES.get(host, '?')})")
+        lines.append(f"host(raw): {host} ({HOST_NAMES.get(host, '?')})")
     if "btsub" in result:
         lines.append(f"bt profile:{result['btsub']}")
     if "md_version" in result:
         lines.append(f"md fw ver: {result['md_version']}  (0 = module did not answer 0x5D)")
     if "md_state" in result:
         state = result["md_state"]
-        lines.append(f"md state:  {state} ({_MD_STATE_NAMES.get(state, '?')})")
+        lines.append(f"md state:  {state} ({MD_STATE_NAMES.get(state, '?')})")
     return "\n".join(lines)
 
 
