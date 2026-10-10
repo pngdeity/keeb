@@ -1089,8 +1089,16 @@ one commit each, ordered by risk × provability.
   `-include md_raw.h` in both `.mk` files are all removed. The board calls plain
   `raw_hid_send()`; the receive path (`md_receive_raw_cb` → `raw_hid_receive`)
   stays in `md_raw.c`. A pure deletion (−4 bytes, no new code).
-- **Fixes 9–10 — OPEN** (`docs/AUDIT.md` Tier 2):
-  `md_receive_msg_task` pure framer (`feed_byte(state, byte) → {state, frame}`);
+- **Fix 9 — DONE.** `md_receive_msg_task` framed six reply types *and* interpreted
+  them, carrying the in-progress frame in two coupled statics (`data_count`,
+  `data_remain`). The framing half is now the pure, include-free core
+  `keyboards/linker/wireless/md_frame.{c,h}`: state carries the decided grammar
+  and the expected length, `md_frame_feed(state, byte)` returns whether a frame
+  completed and its length, and the shell (`module.c`) only interprets completed
+  frames. It lives in the **shared** tree (not the board `wls/`) because
+  `module.c` is shared across ~20 boards and must not include a board header.
+  Tested byte-by-byte (`tests/md_frame`, 8/8; `transport_logic` 13/13).
+- **Fix 10 — OPEN** (`docs/AUDIT.md` Tier 2):
   `lpwr_*` pure cores + side-effect-free `lpwr_is_allow_timeout` +
   `lpwr_wakeupcd` critical section.
 - **Tier 3 — ACCEPT + document** (upstream contract: `driver` fallthrough, the

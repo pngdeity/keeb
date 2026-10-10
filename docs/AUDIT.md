@@ -62,7 +62,7 @@
 | `manual_timeout` | **VIOLATION** — `lpwr_is_allow_timeout()` is a query that *clears* it (`lowpower.c:145,150,155`) | **FC/S FIX** |
 | `lpwr_wakeupcd` reset vs ISR | **VIOLATION** — non-atomic `= NONE` (`lowpower.c:272`) races the ISR `\|=` | FIX (critical section) |
 | `raw_hid_send` line-pinned macro (`md_raw.h:8-10`) | **DONE (fix 8)** — deleted. `replaced_hid_send()` had become behaviorally identical to upstream `raw_hid_send()` (both route to `host_raw_hid_send()` → active-driver `send_raw_hid`); the alias, the shim, the direct board call, and the `-include md_raw.h` in both `.mk` files are all removed. The board calls plain `raw_hid_send()`; the receive path (`md_receive_raw_cb` → `raw_hid_receive`) is kept in `md_raw.c` | DONE |
-| `md_receive_msg_task` | **VIOLATION** — one function decodes six frame types and carries two coupled statics (`data_count`, `data_remain`) | **FC/S FIX** |
+| `md_receive_msg_task` | **DONE (fix 9)** — the framer is extracted as the pure, include-free core `keyboards/linker/wireless/md_frame.{c,h}` (state carries the decided grammar + expected length; zero-init = idle). The shell `module.c` feeds bytes through `md_frame_feed()` and only interprets completed frames; the two coupled statics (`data_count`/`data_remain`) are gone. It lives in the shared tree (not the board `wls/`) because `module.c` is shared across ~20 boards and must not include a board header. Tested byte-by-byte: 8/8 `md_frame` tests | DONE |
 
 ## Tier 3 — upstream/vendor code we depend on but did not author
 
