@@ -1113,6 +1113,16 @@ one commit each, ordered by risk × provability.
   unconditional `connection_set_host` EEPROM write, the hook-skipped-on-no-op
   gap), plus one genuinely-new incompleteness to fix: `wireless_2p4ghz_init/task`
   mirror the BT contract but `keyboard.c` never calls them.
+  **DONE.** The genuinely-new incompleteness is fixed: `quantum/keyboard.c` now
+  includes `wireless_2p4ghz.h` under `WIRELESS_2P4GHZ_ENABLE` and calls
+  `wireless_2p4ghz_init()` (from `keyboard_init`, mirroring `bluetooth_init()`)
+  and `wireless_2p4ghz_task()` (from `keyboard_task`, mirroring
+  `bluetooth_task()`), so the 2.4 GHz driver contract is a real, driven lifecycle
+  rather than dead endpoints. Verified by symbol: both are now `T` in the linked
+  ELF. The three upstream shapes are **ACCEPTED and documented** in `AUDIT.md`
+  Tier 3 — they are the upstream contract our board works around, not violations
+  we introduced (the `driver` fallthrough is latent, not live; the board seeds the
+  host from the switch level via `_noeeprom` and drives the USB line explicitly).
 
 ## Right-half DFU without hardware shorting
 
