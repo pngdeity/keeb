@@ -11,6 +11,12 @@ The live record: work, defects, and status. Sections below are marked **LIVE**
 
 ## Status
 
+- **All three repos are pushed and clean (2026-10-10).** Root `pngdeity/keeb`
+  `main`, submodule `pngdeity/cleave-keeb` `split65-overlay`, and the sibling
+  userspace `pngdeity/keeb-userspace` `main` are each in sync with `origin` and
+  have no uncommitted work. HEADs at last verification: root `fb83179`,
+  submodule `926345d08a`, userspace `a832a0b` (all signed). The audit is closed
+  (`docs/AUDIT.md`); the remaining project work is one hardware flash.
 - **The tree holds our battery firmware, committed inside the `qmk_firmware`
   submodule.** `qmk_firmware/` is a **pinned submodule** of `pngdeity/cleave-keeb`
   branch `split65-overlay`, which now sits on **`qmk/qmk_firmware` master**
@@ -34,10 +40,13 @@ The live record: work, defects, and status. Sections below are marked **LIVE**
   differ from the host's, so bytes are not comparable across toolchains — CI
   asserts "it builds", not a fixed md5.
 - Both halves enumerate as `342d:e4c6`, manufacturer `LEO` (stock is `MILE`).
-- **Both halves run an earlier `nathan` build, not the current tree's.** The
-  flashed build predates the sleep-invariant and wake-code changes; regression 4
-  below is source-complete but not flashed. Re-verify after any further firmware
-  change and reflash.
+- **Both halves run an earlier `nathan` build; a large verified change set is
+  unflashed.** The flashed image predates: the sleep-invariant and wake-code
+  changes, defect 5 (LED-rail owner), defect 6 (indicator separated from the
+  bookkeeping hook), the keymap brightness fix, and the full ownership/cadence
+  audit (fixes 1–10 + Tier 3; `docs/AUDIT.md`). All of it is build- and
+  test-verified at HEAD but **not yet on hardware**. One flash cycle validates
+  the batch.
 - Both halves enter DFU by the spacebar metal-plated-hole short while plugging
   in USB-C (no case opening needed on either half; the right half first needs the
   hidden toggle flipped **down**, exposed by removing the `R_Shift` keycap, and
@@ -48,20 +57,25 @@ The live record: work, defects, and status. Sections below are marked **LIVE**
   a submodule again (the earlier flatten/prune/`layouts`+`lib/lufa` casualties are
   resolved by P0). Both repos are pushed and CI is green. Device context and
   vocabulary: `docs/DEVICE.md`.
-- **The ownerless-shared-state defect class is partly closed** (submodule commit
-  `d68e3152c3`, superseded by the re-base). Two contained fixes, board-local, no shared-stack file touched:
-  `kb_battery_snapshot_t` + `kb_battery_snapshot()` make the battery read atomic,
-  so change detection and report assembly see one sample (the value itself now
-  comes from upstream `quantum/battery`). The cable-transport arbiter
-  `hs_transport_arbitrate_cable()` was later gutted to a no-op for functional
-  requirement 2 (see the Regressions section). Both keymaps build clean; CI
-  green. The larger board-API layering (replace the
+- **The ownerless-shared-state defect class is closed** — as a *class*, via the
+  ownership/cadence audit (`docs/AUDIT.md`, fixes 1–10 + Tier 3): every piece of
+  mutable state now has a single authority or is derived, and every rule lives in
+  a tested pure core (`transport_logic`, `lowpower_logic`, `md_frame`).
+  Ancestors: `kb_battery_snapshot_t` + `kb_battery_snapshot()` made the battery
+  read atomic (the value now comes from upstream `quantum/battery`), and the
+  cable-transport arbiter `hs_transport_arbitrate_cable()` was gutted to a no-op
+  for functional requirement 2 and later **deleted** (fix 7) along with its
+  dead argument plumbing. Both keymaps build clean; CI green. The larger
+  board-API layering (replace the
   `lower_sleep`/`charging_state`/`bat_full_flag` externs) is deliberately
   deferred — it is upstream-sized and waits on the U1 RFC.
 - **The wireless stack is a documented third-party protocol, not an Epomaker
   black box.** The module is a WCH **CH582F**, and its UART protocol is public
   (`emolitor/WestberryTech-WB32`, `docs/wireless/ch582f-protocol.md`); our
-  `module.h` matches it byte for byte. No Split65 schematic exists publicly, but
+  `module.h` matches it byte for byte. A **local copy of that spec and of the
+  vendor-A/B runbook** is retained at `vendor/wireless-reference/`
+  (gitignored, like all of `vendor/`), so the reference survives without the
+  upstream link. No Split65 schematic exists publicly, but
   the protocol, the module state machine, the battery/sleep opcodes, and our
   firmware's lineage are all published. The module's BLE stack itself is **not an
   opaque blob** — WCH ships it as `LIBCH58xBLE.a`, a symbolized archive of 67
