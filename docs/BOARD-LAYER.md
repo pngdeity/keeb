@@ -95,7 +95,10 @@ Ordered by dependency and by risk (leaf concerns first):
    Behavior-preserving: the binary size is unchanged (63,112 B).
 3. `wls_usb` — move the USB-line actuator out; **this is where the open
    self-detach bug gets a real instrument** (the diag seam from slice 1 records
-   `usb_line` and `switch_pos` at boot).
+   `usb_line` and `switch_pos` at boot). **DONE.** `wls/wls_usb.{c,h}` owns
+   `usb_power_connect`/`usb_power_disconnect` and `wls_usb_connect`; a leaf
+   concern whose caller is `connection_host_changed_kb()`. Behavior-preserving:
+   build 63,120 B.
 4. `wls_split` — move the sync RPC out; the payload becomes a pure function.
 5. `wls_indicator` — move every LED writer out; the sequence becomes a pure
    decision the shell executes.
