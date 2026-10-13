@@ -1681,3 +1681,37 @@ flag; an unsettled read applies **nothing**), read after a settle, collapse the
 two line-actuators to one owner, and give the diagnostic a second exporter that
 does not ride the USB line. The first of these makes the defect *unrepresentable*
 rather than merely absent — which is the bar this project set for itself.
+
+**The remedies as landed** (all four, with their regression guards):
+
+- *Settled-ness in the core.* `hsm_switch_apply()` returns a tagged
+  `hsm_switch_apply_t { kind; devs; host; }` (`HSM_SWITCH_SETTLED` /
+  `HSM_SWITCH_UNREADABLE`), matching the house `wls_blink_out_t` /
+  `filp_action_t` shape; in the unreadable case the payload is **poisoned to
+  0xFF**, not zeroed — `DEVS_USB` is 0, so a zeroed payload would be
+  indistinguishable from a real USB decision. `apply_switch_transport()` applies
+  nothing unless settled. Guarded by `tests/transport_logic` (20/20), which
+  asserts the unreadable case carries no transport for *every* `last_bt`.
+- *Read after a settle.* The boot seed now calls `waitInputPinDelay()` between
+  enabling the C14/C15 pull-ups and the first read (the idiom the sleep path
+  already used); `palSetLineMode` is asynchronous, so the gap is real.
+- *One owner for the USB line.* The shared stack's one-time
+  `static bool usb_initialized` guard in `wireless_task()` was a second enforcer
+  of the same rule (and existed only because `connection_set_host_noeeprom`
+  early-returns when the stored host already matches, so the board handler does
+  not fire for the already-USB case). Deleted; the board's boot seed now covers
+  that case unconditionally on a settled read. The line has exactly one owner:
+  the board's `connection_host_changed_kb()` plus the boot seed.
+- *A second exporter that does not ride the USB line.* `wls/boot_report_logic`
+  encodes the boot decision (switch position, applied host, settled-ness) into a
+  fixed 3-byte block, **retained** in `wls.c` beside the boot counter and exposed
+  on the `0xA4` reply at `KB_BATTERY_IDX_BOOT_REPORT` (17). Because it is
+  retained rather than sampled live, the *next* successful reply is a post-mortem
+  of a boot whose own USB line died — the case the live 6-byte diag block cannot
+  cover. Written by `wls_lifecycle_boot()` at the moment of decision; decoded by
+  `host/battery_polybar.py` (a `BOOT:` line; note its host field is the
+  `HSM_HOST_*` vocabulary, not the raw `CONNECTION_HOST_*`). Tested 7/7.
+
+The remaining piece — a boot-time LED blink of the same record, for a host-less
+read — is deferred to its own slice; it needs an in-sequence blink core, since
+the existing indicator arrays hold flashes concurrently.

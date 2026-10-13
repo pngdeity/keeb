@@ -70,6 +70,15 @@ MD_STATE_NAMES = {0: "NONE", 1: "PAIRING", 2: "CONNECTED", 3: "DISCONNECTED", 4:
 # of the switch/devs/host, readable on whichever channel is up.
 DIAG_INDEX = {"switch": 11, "devs": 12, "host": 13, "bootcnt": 14, "usb_line": 15, "link": 16}
 SWITCH_NAMES = {0: "UNKNOWN", 1: "USB", 2: "BT", 3: "2.4G"}
+# KB_BATTERY_IDX_BOOT_REPORT: the retained boot decision (wls/boot_report_logic).
+# 3 bytes: switch_pos, applied host, then the settled flag in byte-2's high bit.
+# Retained across the boot, so a boot that tore its own USB line down is still
+# readable on the next successful reply.
+BOOT_REPORT_INDEX = 17
+# The boot report's host field is HSM_HOST_* (the pure core's vocabulary), NOT
+# the raw CONNECTION_HOST_* used elsewhere: USB=3, BLUETOOTH=4, 2P4GHZ=5. Keep
+# them apart -- the same number means different things.
+BOOT_HOST_NAMES = {3: "USB", 4: "BLUETOOTH", 5: "2P4GHZ"}
 
 
 def enumerate_raw_hid_interfaces():
@@ -161,6 +170,12 @@ def parse_reply(report: bytes):
     for name, index in DIAG_INDEX.items():
         if len(report) > index:
             result[f"diag_{name}"] = report[index]
+    # The retained boot decision (wls/boot_report_logic): 3 bytes at index 17 --
+    # switch_pos, host, and (on byte 2) the settled flag in the high bit.
+    if len(report) > BOOT_REPORT_INDEX + 2:
+        result["boot_pos"] = report[BOOT_REPORT_INDEX]
+        result["boot_host"] = report[BOOT_REPORT_INDEX + 1]
+        result["boot_settled"] = bool(report[BOOT_REPORT_INDEX + 2] & 0x80)
     return result
 
 
@@ -247,6 +262,16 @@ def format_info(result):
             f"usb_line={result.get('diag_usb_line', '?')}  "
             f"bootcnt={result.get('diag_bootcnt', '?')}  "
             f"link={result.get('diag_link', '?')}"
+        )
+    # The retained boot decision: what the switch read said at boot and whether
+    # the boot actually trusted it. `settled=False` means the boot saw an
+    # unreadable switch position -- the self-detach condition.
+    if "boot_pos" in result:
+        bp = result["boot_pos"]
+        lines.append(
+            f"BOOT:      switch={bp} ({SWITCH_NAMES.get(bp, '?')})  "
+            f"host={result.get('boot_host', '?')} ({BOOT_HOST_NAMES.get(result.get('boot_host'), '?')})  "
+            f"settled={result.get('boot_settled', '?')}"
         )
     return "\n".join(lines)
 
