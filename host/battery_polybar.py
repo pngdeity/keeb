@@ -64,6 +64,12 @@ TRANSPORT_NAMES = {0x01: "USB", 0x02: "BT", 0x04: "2.4G"}
 CHARGE_NAMES = {0: "discharging", 1: "charging", 2: "full"}
 HOST_NAMES = {0: "AUTO", 1: "NONE", 2: "USB", 3: "BLUETOOTH", 4: "2P4GHZ"}
 MD_STATE_NAMES = {0: "NONE", 1: "PAIRING", 2: "CONNECTED", 3: "DISCONNECTED", 4: "REJECT"}
+# The shell-state diagnostic block, mirroring the firmware's `wls_diag_t` and
+# the pure `wls_diag_encode()` layout (wls/diag_logic.c). Six bytes starting at
+# KB_BATTERY_IDX_DIAG: this is the observability seam -- the firmware's own view
+# of the switch/devs/host, readable on whichever channel is up.
+DIAG_INDEX = {"switch": 11, "devs": 12, "host": 13, "bootcnt": 14, "usb_line": 15, "link": 16}
+SWITCH_NAMES = {0: "UNKNOWN", 1: "USB", 2: "BT", 3: "2.4G"}
 
 
 def enumerate_raw_hid_interfaces():
@@ -152,6 +158,9 @@ def parse_reply(report: bytes):
     for name, index in REPLY_INDEX.items():
         if len(report) > index:
             result[name] = report[index]
+    for name, index in DIAG_INDEX.items():
+        if len(report) > index:
+            result[f"diag_{name}"] = report[index]
     return result
 
 
@@ -226,6 +235,19 @@ def format_info(result):
     if "md_state" in result:
         state = result["md_state"]
         lines.append(f"md state:  {state} ({MD_STATE_NAMES.get(state, '?')})")
+    # The shell-state diagnostic block (observability seam): the firmware's own
+    # view of the switch position and transport, plus a boot counter that tells a
+    # reset loop from a mere USB-line drop.
+    if "diag_switch" in result:
+        sw = result["diag_switch"]
+        lines.append(
+            f"DIAG:      switch={sw} ({SWITCH_NAMES.get(sw, '?')})  "
+            f"devs={result.get('diag_devs', '?')}  "
+            f"host={result.get('diag_host', '?')}  "
+            f"usb_line={result.get('diag_usb_line', '?')}  "
+            f"bootcnt={result.get('diag_bootcnt', '?')}  "
+            f"link={result.get('diag_link', '?')}"
+        )
     return "\n".join(lines)
 
 

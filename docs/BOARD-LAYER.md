@@ -78,6 +78,14 @@ Ordered by dependency and by risk (leaf concerns first):
 1. **`wls_diag` first, not last.** Build the observability seam while the code
    is still in one file and the concerns are visible; it is also the tool that
    verifies every later slice on hardware. (Pure encoder + test + exposure.)
+   **DONE.** `wls/diag_logic.{c,h}` is the pure codec (`wls_diag_t`,
+   `WLS_DIAG_ENC_SIZE` 6, `wls_diag_encode`/`wls_diag_decode`), tested in
+   `tests/wls_diag` (4/4). The shell half is `wls_diag_gather()` (`wls.c`),
+   which reads switch/devs/host/boot-count/usb-line/link-state once each; the
+   snapshot rides the `0xA4` reply at `KB_BATTERY_IDX_DIAG` (11), and is decoded
+   by `host/battery_polybar.py` (`DIAG:` line). A boot counter
+   (`wls_note_boot()` from `keyboard_post_init_kb`) distinguishes a reset loop
+   from a mere USB-line drop.
 2. `wls_eeprom` — move storage out; the version gate becomes explicit.
 3. `wls_usb` — move the USB-line actuator out; **this is where the open
    self-detach bug gets a real instrument** (the diag seam from slice 1 records
