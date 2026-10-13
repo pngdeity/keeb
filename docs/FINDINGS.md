@@ -30,7 +30,8 @@ work are in `TODO.md`.
   a functional core · the wireless stack is a documented third-party protocol,
   not an Epomaker invention · the board is an ODM product (MATHEW candidate /
   Shenzhen Changyun named by certification) · the boot switch read is
-  un-settled, and UNKNOWN is silently applied.
+  un-settled, and UNKNOWN is silently applied · the low-power presleep hook cut a
+  live USB line, giving a periodic reset loop.
 - Design · Build facts · Dongle recon — reference.
 - Open questions tied to these findings.
 
@@ -1727,3 +1728,65 @@ rather than merely absent — which is the bar this project set for itself.
 So both halves of Measure D are in place: the retained record (readable on the
 next successful reply) and the blink (readable with no host at all). The
 self-detach now has an instrument that survives the failure it diagnoses.
+
+## FINDING — the low-power presleep hook cut a live USB line, giving a periodic reset loop
+
+**Symptom.** On the USB switch position the keyboard re-enumerated repeatedly —
+27 times in 60 minutes, the device number climbing every cycle, each cycle
+re-emitting the full descriptor set and re-binding all three interfaces on the
+host. Intervals were bimodal: many re-enumerations within **1 s**, interleaved
+with stable windows of 10 s, 26 s, ~2 min and ~4 min, and finally a settle that
+lasted. It correlated with host activity, not a free-running timer.
+
+**What it was not.** Not a hard fault: every fault handler on this build resolves
+to the same weak `_unhandled_exception`, which is `b.n` to itself — an infinite
+self-branch that would *hang* the MCU, not reset it. Not a watchdog: no
+IWDG/WWDG is linked and `SPLIT_WATCHDOG_ENABLE` is deliberately undefined. Not
+the boot seed: with the switch read UNKNOWN, `apply_switch_transport()` applies
+nothing, so the boot path is inert.
+
+**What it was.** `wls_lifecycle_lpwr_allow_presleep()` ended with
+
+```c
+if ((wireless_get_current_devs() == DEVS_USB) && (!charging_state)) {
+    if (USB_DRIVER.state != USB_STOP) { usb_power_disconnect(); usbDisconnectBus(&USBD1); usbStop(&USBD1); }
+}
+```
+
+— byte-identical to the pre-refactor vendor/board code, so a **pre-existing
+latent bug**, not one our rewrite introduced. It became reachable through two
+compounding conditions:
+
+1. The switch read comes back **UNKNOWN**, so nothing is applied and
+   `wireless_get_current_devs()` keeps its prior value — which in the USB
+   position *is* `DEVS_USB`. The guard therefore reads a **stale** transport the
+   boot refused to apply.
+2. `!charging_state` is not a "we are on battery" test. `HS_BAT_CABLE_PIN` (A7)
+   is a **shared "power present" bit**, not a charger detect (docs/HARDWARE.md,
+   "Split-link power"), so on a host's own port it can read either way for
+   reasons unrelated to whether the host is *using* the data line.
+
+Together those make the guard hold for the whole session, so **every time the
+low-power machine reached pre-sleep it cut the USB line**, the host logged a
+disconnect, the device re-enumerated, and the same state came back.
+
+**The fix.** Gate the teardown on the thing the hook actually means — the line is
+not in use — instead of on `!charging_state`:
+
+```c
+if ((wireless_get_current_devs() == DEVS_USB) && (USB_DRIVER.state != USB_ACTIVE)) { ... }
+```
+
+A line in `USB_ACTIVE` is enumerated and in use; tearing it down is never a
+low-power action. This makes the hook agree with its sibling
+`lpwr_is_allow_timeout()` in `lowpower.c`, which already states "on USB" as
+`(devs == DEVS_USB) && (USB_DRIVER.state == USB_ACTIVE)` — the two had been
+contradicting each other.
+
+**The transferable lesson.** A guard built from a *stale* value plus a
+*repurposed* signal is worse than no guard: `DEVS_USB` was never applied (so it
+was not a fact), and `charging_state` was never about the charger (so `!` it was
+not the claim it appeared to be). The class is the same one this project keeps
+meeting — an indeterminate or repurposed input translated into a confident,
+valid-looking decision. The cure is the same: make the predicate mean what it
+says, and never act on a value the boot declined to apply.

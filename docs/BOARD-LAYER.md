@@ -156,6 +156,53 @@ require modelling the closed module (fiction), which the project forbids.
 
 Build **63,532 B**; tests **80/80** (the two new cores add 13).
 
+### The self-detach root cause and its remedies (measures A-D)
+
+The USB self-detach (a USB-position cold plug enumerated, then tore its own
+line down in under a second, deterministically) was root-caused by a full boot
+trace rather than by hardware probing. The cause is a *representational* defect,
+and the fix is in the types. The derivation, with the QMK call order, is
+`docs/FINDINGS.md` "the boot switch read is un-settled, and UNKNOWN is silently
+applied".
+
+- **Measure A — indeterminacy is a value.** `hsm_switch_apply_t` is now the
+  tagged variant `{ hsm_switch_read_t kind; uint8_t devs; uint8_t host; }`
+  (`HSM_SWITCH_SETTLED` / `HSM_SWITCH_UNREADABLE`), matching `wls_blink_out_t`
+  and `filp_action_t`. An unreadable position carries a **poisoned 0xFF**
+  payload, not a zeroed one — `DEVS_USB` is 0, so a zeroed payload is
+  indistinguishable from a valid USB. `apply_switch_transport()` applies
+  nothing when the read is unreadable. Tested in `tests/transport_logic`
+  (20 tests now).
+- **Measure B — read after settle.** `wls_lifecycle_boot()` calls
+  `waitInputPinDelay()` between enabling the switch pull-ups and the first read
+  (the sleep path already used the idiom; `palSetLineMode` is asynchronous).
+  This is a mitigation; Measure A is the fix.
+- **Measure C — one owner for the USB line.** The shared stack's one-time
+  `static bool usb_initialized` guard in `wireless_task()` was a *second*
+  enforcer of the same decision (reading the resolved host on a different
+  schedule from the boot seed's applied host). It covered only the case where
+  `connection_set_host_noeeprom()` early-returns because the stored host already
+  matches — which the board's boot seed now covers unconditionally on a settled
+  read. Deleted, with its now-unused declarations in the shared stack.
+- **Measure D — an instrument that survives the fault.** `wls_diag` rides the
+  `0xA4` raw-HID reply, which needs the very line the fault tears down. Two
+  additions: (half 1) `wls/boot_report_logic.{c,h}` retains the boot decision
+  (`switch_pos`, applied `host`, `settled`) in `wls.c` and exposes it at
+  `KB_BATTERY_IDX_BOOT_REPORT` (17), so the *next* successful reply is a
+  post-mortem; (half 2) `wls/boot_blink_logic.{c,h}` blinks the same record over
+  the LEDs with no host at all — the schedule comes from the pure
+  `wls_boot_report_blink_step()` (step 0 switch position, step 1 applied host,
+  step 2 settled-ness: one white pulse settled, three red unsettled). The
+  sequencer is a pure time-driven walk; the indicator arrays hold flashes
+  *concurrently*, so an in-sequence blink needed its own core. Both halves are
+  tested (7/7 each).
+
+The through-line: an input read that is sampled once, un-settled, and whose
+indeterminate state is silently mapped to a plausible value is a defect *class*.
+Expressing indeterminacy in the type is what stops the next one.
+
+Build **64,228 B**; tests **96/96** (the four new cores add 16).
+
 After every slice: build clean, all tests pass, `bin/test-sanitized` clean,
 `format-c -n` clean, lint unchanged.
 
@@ -167,3 +214,7 @@ After every slice: build clean, all tests pass, `bin/test-sanitized` clean,
 - `wls_diag` exposes the shell's state on the `0xA4` report, with a test for the
   codec and a host tool to read it.
 - The open USB-detach bug is root-caused **with** the seam, not by blinking.
+  **DONE** — the boot trace found it (an un-settled switch read silently mapped
+  to the persisted BT index), the fixed types make it unrepresentable
+  (measures A–D), and the seam now has a second exporter that does not ride the
+  line under test. Hardware confirmation is the remaining step.

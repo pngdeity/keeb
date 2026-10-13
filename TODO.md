@@ -119,6 +119,31 @@ The live record: work, defects, and status. Sections below are marked **LIVE**
   specification-driven test harness tractable without hardware. See
   `docs/HARDWARE.md` "The wireless module (public information)" and
   `docs/FINDINGS.md` "the wireless stack is a documented third-party protocol".
+- **The USB self-detach is root-caused and fixed in source (2026-10-13), pending a
+  flash.** The symptom was deterministic: a USB-position cold plug enumerated
+  (`342d:e4c6`, all three interfaces bound) and then tore its own line down in
+  under a second, every time, never re-enumerating — not a dead MCU (full
+  descriptors) and not a reset loop (one `new device` per power event). It was
+  found by a **boot trace**, not by hardware probing: the boot switch seed
+  read `C14`/`C15` immediately after enabling their pull-ups (no settling), and
+  an unsettled read yielded `HSM_SWITCH_UNKNOWN`, which the pure rule **mapped**
+  (rather than rejected) to the persisted BT index — i.e. to BLUETOOTH — which
+  then drove `wls_usb_connect(false)` inside `keyboard_post_init_kb()`. The fix
+  is representational, in four parts (measures A–D; full derivation in
+  `docs/FINDINGS.md`, "the boot switch read is un-settled"): (A) the switch
+  apply is a tagged variant that carries **no transport** when the position is
+  unreadable (with a poisoned `0xFF` payload — `DEVS_USB` is 0, so zeroing would
+  be a valid-looking USB); (B) `waitInputPinDelay()` before the boot read;
+  (C) the duplicate USB-line enforcer in the shared stack deleted, so the line
+  has one owner; (D) the diagnostic given a second exporter that does not ride
+  the line under test (a retained boot report at `0xA4` index 17, plus a
+  host-less LED blink). Tests **96/96**. **Not yet hardware-confirmed.**
+- **The board-layer redesign is complete (2026-10-13).** `epomaker_split65.c` is
+  ~230 lines of hook-only delegates; thirteen pure cores are tested (96 tests);
+  `wls_diag` and the boot report expose the shell's state on the `0xA4` reply,
+  with a host reader in `host/battery_polybar.py`. The plan and its slices are in
+  `docs/BOARD-LAYER.md`. RAM is the tighter resource (71.2 % used); flash is
+  under half full.
 
 ## Priority of code sources (read this before changing the wireless/connection stack)
 
@@ -460,6 +485,13 @@ unverified.
       transport known to populate `md_info.bat`, so this is where the first real
       number must come from. Record the observed value and raw bytes in
       `docs/FINDINGS.md`.
+- [ ] **USB self-detach: confirm the fix on hardware.** Flash the current build
+      with the switch in USB and cold-plug: the keyboard must enumerate **and
+      stay**. Read the new `BOOT:` line from `python3 host/battery_polybar.py
+      --info` (it should show `settled=True` and `host=3 (USB)`), and the boot
+      LED blink (step 0 = switch position, step 1 = applied host, step 2 = one
+      white pulse settled / three red unsettled). Record in `docs/FINDINGS.md`.
+      The runbook is `docs/RUNBOOK-flash-and-measure.md`.
 - [ ] **2.4 GHz: confirm the value changes while charging.** Re-run the probe with
       a cable in and watch `chg` go `1` -> `2` (full).
 - [ ] **2.4 GHz dongle is not enumerating on the host — unresolved, blocked on
@@ -857,6 +889,51 @@ NKRO_REPORT_BITS) break;` before indexing. Applied at both sites in
 extraction (`tests/wireless_nkro_parity`). It is a genuine precondition (the
 count/bitmap agreement), not a workaround. All five pure-core suites now pass
 clean under ASan+UBSan via `bin/test-sanitized`.
+
+### 8. USB self-detach: the board tore its own data line down at boot
+
+**Found on hardware (2026-10-13), root-caused analytically.** With the mode
+switch in USB, a cold plug enumerated (`342d:e4c6`, all three HID interfaces
+bound) and then disconnected in the same second — deterministically, three
+times, with no re-enumeration. Not a dead MCU (full descriptors returned) and
+not a reset loop (exactly one `new device` line per power event).
+
+**Root cause (from a boot trace, not from probing).** In
+`keyboard_post_init_kb()` → `wls_lifecycle_boot()`, the switch seed enabled the
+`C14`/`C15` pull-ups and then read them **immediately** — `palSetLineMode` is
+asynchronous, so the read could see the old floating level and yield
+`HSM_SWITCH_UNKNOWN`. The pure rule then **mapped** unknown to the persisted BT
+index (`last_btdevs`, default BT1) → host BLUETOOTH, which
+`connection_set_host_noeeprom()` accepted (it differed from the stored AUTO), so
+`handle_host_changed()` fired `connection_host_changed_kb()` →
+`wls_usb_connect(false)` — the board switched off the line it was enumerated on.
+A second, redundant enforcer (`wireless_task()`'s one-time `usb_initialized`
+guard) read the same decision later from the resolved host. The +100 ms
+post-init re-seed read a now-settled pin and would have corrected it — but the
+line was already down.
+
+**The defect class:** a level-derived value sampled once, un-settled, whose
+indeterminate state is *translated into a valid-looking answer*. A
+representational bug, not merely a timing one. The full derivation is
+`docs/FINDINGS.md`, "the boot switch read is un-settled, and UNKNOWN is silently
+applied".
+
+**Fix — IMPLEMENTED 2026-10-13, pending flash.** Four measures, all in source
+(full record in `docs/BOARD-LAYER.md`, "The self-detach root cause and its
+remedies"): **(A)** `hsm_switch_apply_t` is a tagged variant
+(`HSM_SWITCH_SETTLED`/`HSM_SWITCH_UNREADABLE`) that carries **no transport** when
+the position is unreadable, with a poisoned `0xFF` payload (zeroing would be a
+valid-looking `DEVS_USB`, which is 0); the shell applies nothing when unreadable.
+**(B)** `waitInputPinDelay()` between the pull-up enable and the boot read.
+**(C)** the duplicate line enforcer in the shared stack deleted — the line now
+has one owner. **(D)** the diagnostic gained an exporter that survives the fault:
+a retained boot report at `KB_BATTERY_IDX_BOOT_REPORT` (17) read by the next
+successful `0xA4` reply, and a host-less LED blink of the same record
+(`wls/boot_blink_logic`, an in-sequence sequencer — the indicator arrays hold
+flashes concurrently, so they could not serve). Regression guard: the pure
+`tests/transport_logic` asserts `UNKNOWN ⇒ unreadable` with the poison invariant
+for every `last_bt`, plus `tests/boot_report_logic` and `tests/boot_blink_logic`
+(7/7 each).
 
 ## Regressions introduced by our own change set (not vendor defects)
 

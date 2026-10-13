@@ -289,6 +289,31 @@ deliberately unaddressed: those branches are CH582F UART protocol and
 devs-switching, genuinely effectful; purity there would require modelling the
 closed module (fiction, forbidden). Tests now **80/80**.
 
+**Post-audit USB self-detach root cause (measures A–D).** The self-detach (a
+USB-position cold plug that enumerated then tore its own line down in <1 s) was
+root-caused by a boot trace: the boot switch seed read C14/C15 immediately after
+enabling their pull-ups (no settling) and `HSM_SWITCH_UNKNOWN` was *mapped* to
+the persisted BT index, i.e. to BLUETOOTH, which then drove `wls_usb_connect(false)`
+inside `keyboard_post_init_kb()`. This is the audit's own "rule stated once /
+indeterminacy must be modelled" concern in its purest form. Remedies:
+
+- **A:** `hsm_switch_apply_t` is a tagged variant (`HSM_SWITCH_SETTLED` /
+  `HSM_SWITCH_UNREADABLE`) with a **poisoned 0xFF** payload for the unreadable
+  case (`DEVS_USB` is 0, so zeroing would be a valid-looking USB); the shell
+  applies nothing when unreadable. `tests/transport_logic` 20/20.
+- **B:** `waitInputPinDelay()` at the boot seed (mitigation; A is the fix).
+- **C:** the duplicate line enforcer (`wireless_task`'s one-time
+  `usb_initialized` guard) deleted — the rule now has one owner.
+- **D:** the diagnostic was unreachable exactly when needed (the `0xA4` reply
+  needs the line the fault kills), so it gained two exporters: a retained boot
+  report at `KB_BATTERY_IDX_BOOT_REPORT` (17) for the next successful reply, and
+  a host-less LED blink (`wls/boot_blink_logic`, the in-sequence sequencer the
+  concurrent indicator arrays could not provide). Both 7/7.
+
+Tests now **96/96**; build 64,228 B; RAM 20,412/28,672 B (71.2 %, the tighter
+resource). The defect is fixed in source; hardware confirmation is the remaining
+step.
+
 8. **Flash and verify** defects 7 and 8 on hardware (switch flip BT→USB routes
    without a power cycle; the right half does not blink on a non-connected
    channel). Then re-run the manual matrix (USB / 2.4 GHz / BT) and record results.
