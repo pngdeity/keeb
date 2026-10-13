@@ -252,6 +252,17 @@ sections below.
     (`linker/wireless/wireless.c` `wireless_send_nkro()`) — the differential
     check that guards the one authored sender against drift. Non-vacuity confirmed
     by deliberate divergence. Remaining: the module state machine/battery poll.
+10c. **Review the test suite for efficiency gains without losing effectiveness.**
+    Suite wall-clock time is growing and every board change now pays it. Worth:
+    (a) measure first — per-suite `make test:<name>` timing for all eleven cores
+    to find where the time actually goes (suspicion: per-suite build/link of the
+    gtest binary dominates over the tests themselves, not test body cost);
+    (b) if build-dominated, look at sharing the object build across suites or
+    trimming what each `test.mk` pulls in, rather than deleting tests;
+    (c) keep every assertion — the goal is the same coverage in less time, and any
+    change must be justified by measurement, not by a hunch that "it feels slow".
+    Do not trade a test away for speed; effectiveness is the constraint, speed the
+    variable.
 11. **Key-based right-half DFU (low priority).** Both halves run identical
     firmware and the right half is link/bus-powered (no cell), so its own
     recovery path is less pressing than it first appeared. The spacebar-hole
