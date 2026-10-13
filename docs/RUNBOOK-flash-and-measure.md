@@ -32,9 +32,14 @@ git -C qmk_firmware --no-pager log --format='%h %G? %s' -1
 md5sum qmk_firmware/epomaker_epomaker_split65_nathan.bin
 ```
 
-Expected: root `c73e380` and submodule `7d984b781a`, both `G` (signed). The md5
-is informational only — record it in the session log so a later build can be
-told apart. Do **not** write it into `TODO.md` (it goes stale on every edit).
+Expected: submodule `7d984b781a`, signed (`G`). The board source lives **in the
+submodule**, so the submodule hash is the firmware's identity; the root hash is
+whatever `main` tip is current (it will be at least `f0ef830`, this runbook's
+own commit — check it is signed, but do not pin it in advance).
+
+The md5 is informational only — record it in the session log so a later build
+can be told apart. Do **not** write it into `TODO.md` (it goes stale on every
+edit).
 
 ### 0.2 Build the artifact fresh (recommended)
 
@@ -59,12 +64,25 @@ transport that types nowhere**.
 
 | Recovery | How | What it does |
 | --- | --- | --- |
-| `EE_CLR` (hold 3 s) | `_RST` layer, right-half bottom-right corner (`[11,7]`) while holding the Fn chord | wipes EEPROM → confinfo re-defaults → back to USB |
+| `EE_CLR` (hold 3 s) | **hold Fn + the top-right corner key** (`[7,8]`, the base `Mute` position) to arm the `_RST` layer, then — still holding — press the **right half's bottom-right corner** (`[11,7]`, the base `Right` position) and hold 3 s | wipes EEPROM → confinfo re-defaults → back to USB |
 | Physical mode switch → USB | flip to the USB position, then **power-cycle** | the switch is only level-authoritative **at boot** on this build's switch-edge path; a flip *after* boot also works via the fixed switch-edge code, but a power cycle is the certain form |
 | Spacebar-hole short | `docs/HARDWARE.md` | DFU, for reflashing |
 
-**Bootmagic is NOT a recovery route** — it does `eeconfig_disable()` then
-`bootloader_jump()`; it enters DFU, it does not resume typing.
+**The arming key is not optional.** Fn alone reaches `_FL`, whose bottom-right
+corner is `Home` — harmless, but not the reset. `EE_CLR` lives on `_RST`, which
+is reachable *only* by holding `[7,8]` with Fn. Both corners are involved:
+`[7,8]` arms, `[11,7]` fires. Sources: the `nathan` keymap's `keymap.md` §5;
+`wls/wls_keymap.c` (`EE_CLR` arms `wls_ee_clr_timer` on press, clears on
+release); `epomaker_split65.c` (`timer_elapsed32(...) > 3000` →
+`wls_reset_settings(WLS_RESET_CAUSE_LOCAL)`); `wls/wls_eeprom.c`
+(`wls_eeprom_wipe_config()`).
+
+**Bootmagic/`Esc`-hold is NOT a typing recovery** — it does `eeconfig_disable()`
+then `bootloader_jump()`; it enters DFU, it does not resume typing. It works on
+the **left half only** (bootmagic.matrix `[1,0]` = the left `Esc`, per the
+`nathan` keymap's `rules.mk`); the right half has no keymap route to its own
+bootloader at all. Treat it as a fallback of last resort, because it needs
+another flash to get back to typing.
 
 ### 0.4 Know the DFU entry gesture (both halves)
 
@@ -74,7 +92,11 @@ transport that types nowhere**.
   keycap) **down**, then the same spacebar-hole short, then plug USB-C. Flip the
   toggle **back up** afterwards.
 
-Esc-hold / bootmagic is broken on our build on both halves — do not rely on it.
+Esc-hold (bootmagic) enters DFU on the **left** half only; it does not restore
+typing, so it is a fallback of last resort, not a recovery. The right half has
+no keymap route to its own bootloader — use the spacebar-hole short above (or
+`QK_BOOT`, which sits on the base layer at the **left** half's `Esc` position,
+matrix `[1,0]`).
 
 ---
 
@@ -152,9 +174,9 @@ and the reason the counter exists).
    `DIAG: switch=3`, `DIAG: devs=6` (`DEVS_2G4`), `usb_line=0`, `link=` grows
    toward `2` (`CONNECTED`) once the dongle links.
 
-### 2.3 Test C — the defect-7 regression twin (runtime edge)
+### 2.3 Test C — the transport-switch regression twin (runtime edge)
 
-This is the one that failed on hardware before (`TODO.md` defect 5/7: "switch
+This is the one that failed on hardware before (`TODO.md` defects 4/5: "switch
 to USB does nothing until a reboot"):
 
 1. Boot with the switch on **BT** and no BT host connected (module not
