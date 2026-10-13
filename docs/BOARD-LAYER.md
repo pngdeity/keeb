@@ -86,7 +86,13 @@ Ordered by dependency and by risk (leaf concerns first):
    by `host/battery_polybar.py` (`DIAG:` line). A boot counter
    (`wls_note_boot()` from `keyboard_post_init_kb`) distinguishes a reset loop
    from a mere USB-line drop.
-2. `wls_eeprom` — move storage out; the version gate becomes explicit.
+2. `wls_eeprom` — move storage out; the version gate becomes explicit. **DONE.**
+   `wls/wls_eeprom.{c,h}` owns `confinfo_t`/`confinfo`, `CONFINFO_VERSION`, the
+   four `eeconfig_confinfo_*` accessors, and `usart_init`. The board file keeps
+   `extern confinfo` (it reads/writes fields at ~50 sites) and the RGB default
+   (`rgblight_mode(buff[0])`), which the block reset used to apply; the RGB
+   constant stays in the board file because the mode keycode also uses it.
+   Behavior-preserving: the binary size is unchanged (63,112 B).
 3. `wls_usb` — move the USB-line actuator out; **this is where the open
    self-detach bug gets a real instrument** (the diag seam from slice 1 records
    `usb_line` and `switch_pos` at boot).
