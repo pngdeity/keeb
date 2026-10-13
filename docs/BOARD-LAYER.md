@@ -117,7 +117,7 @@ Ordered by dependency and by risk (leaf concerns first):
    `switch` over the pure result. Board file 1,376 -> 1,294 lines; build
    63,236 B. `hs_reset_settings` is left for slice 6 (it resets EEPROM/keymap
    and re-runs `keyboard_post_init_kb`, so it is not purely an indicator).
-6. `wls_lifecycle` — the hooks; each becomes a delegate.
+6. `wls_lifecycle` — the hooks; each becomes a delegate. **6a DONE (self-contained hooks).** `wls/wls_lifecycle.{c,h}` now owns the boot pass (`wls_lifecycle_boot`, incl. the switch seed that drives the USB line from the applied host), the suspend family, the three low-power decision points (`lpwr_is_allow_timeout`/`_presleep`/`lpwr_wakeup`), `wireless_post_task`, and housekeeping (charge-pin reads, the rail apply, the module poll); it also now *defines* `charging_state`/`bat_full_flag`. `wls/wls_split.{c,h}` owns the split wire half (the payload structs and the one `wls_split_send()`). Each QMK hook in the board file is a thin delegate. Board file 1,294 -> 1,094 lines; build 63,300 B; tests 63/63. **6b/6c still to do** (`hs_reset_settings` and the `process_record_kb` chain).
 7. `wls_keymap` — already split; only the hook wrappers move.
 
 After every slice: build clean, all tests pass, `bin/test-sanitized` clean,
