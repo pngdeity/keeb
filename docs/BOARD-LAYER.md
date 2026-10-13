@@ -100,6 +100,12 @@ Ordered by dependency and by risk (leaf concerns first):
    concern whose caller is `connection_host_changed_kb()`. Behavior-preserving:
    build 63,120 B.
 4. `wls_split` — move the sync RPC out; the payload becomes a pure function.
+   **DONE.** `wls/split_logic.{c,h}` owns the protocol *rule*
+   (`wls_split_decide_slave(cmd, body) -> action`, tested 6/6: 0x55 sync,
+   0xAA sleep, 0xBB deliberate slave no-op, 0xCC rail, 0xDD reset, unknown ->
+   NONE). The board's slave handler now *applies* the decided action; all five
+   master-side senders route through one `wls_split_send(cmd, body)` primitive
+   (the wire call stated once). Build 63,136 B.
 5. `wls_indicator` — move every LED writer out; the sequence becomes a pure
    decision the shell executes.
 6. `wls_lifecycle` — the hooks; each becomes a delegate.
