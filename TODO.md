@@ -49,6 +49,15 @@ The live record: work, defects, and status. Sections below are marked **LIVE**
   bookkeeping hook), the keymap brightness fix, and the ownership/cadence audit
   (fixes 1–10 + Tier 3; `docs/AUDIT.md`). **BT is not yet hardware-verified** —
   blocked by a host-side adapter fault (see below), not the keyboard.
+- **Two further faults were found on that flashed build and fixed
+  (2026-10-13), pending the next flash:** defect 7 (the mode-switch edge wrote
+  only the vendor index, not upstream's connection host, so a runtime BT→USB flip
+  did nothing until a power cycle) and defect 8 (the channel indicator re-armed
+  itself forever while the module reported not-connected — a pre-existing vendor
+  loop, a ~500 ms blink on the right half). Both are the "several partial writers
+  of one state / one effect arming itself" family; both fixes are pure-core-backed
+  (`transport_logic` 16/16) and build-clean, but live in shells that no test
+  exercises — hardware confirmation needs a flash.
 - **Host BT adapter (Intel AX200) can wedge discovery; `Discovering: no` while
   scanning (2026-10-13).** Observed live: the adapter reports powered/unblocked,
   answers config queries, and `StartDiscovery` returns success, but returns
@@ -727,6 +736,89 @@ The mechanism here is the worked example of the **authority-inversion /
 edge-vs-level** bug classes, and the state it corrupts is mapped under
 `docs/HARDWARE.md` "The known/unknown boundary (no schematic)" (the transport
 state is *known* — this defect is a *logic* fault, not a hardware unknown).
+
+### 5. The mode switch edge writes only half the transport choice (defect 7)
+
+**Found on hardware 2026-10-12.** With the switch on BT (module not connected),
+flipping it to **USB** had **no effect**: neither half typed, and USB stayed dead
+until a **power cycle** — the boot path re-derived the choice and it worked
+again. This is the *runtime* twin of defect 4: the same two-sender split, but
+reached by the switch instead of a keycode.
+
+**Root cause (verified in source).** The transport is chosen by **two selectors
+that must agree**:
+
+1. the **vendor device index** — `wireless_get_current_devs()` →
+   `wireless_devs_change()` → `md_devs_change()` (tells the CH582F module), and
+2. **upstream's connection host** — `config.desired_host` →
+   `connection_get_host()` → `host_get_active_driver()` (which driver *sends*
+   HID) and, via `connection_host_changed_kb()` → `wls_usb_connect()`, the
+   **physical USB data line**.
+
+Three paths change the transport, and each re-derived the choice privately:
+
+- **Boot** (`wireless_post_task`, `epomaker_split65.c`) sets **both**
+  (`connection_set_host_noeeprom` + `wireless_devs_change`) — works.
+- **Keycode** (`WLS_KEYCODE_EXEC`) sets **both** (`connection_set_host` +
+  `wireless_devs_change`) — works.
+- **Switch edge** (`hs_modeio_detection`, `wls/wls.c`) set **only the vendor
+  index**. `config.desired_host` never changed, so
+  `connection_host_changed_kb()` never fired, `wls_usb_connect(true)` never ran,
+  the USB data line was never brought up, and HID kept routing to the now-radio-off
+  BT driver. ⇒ "switch to USB does nothing until a reboot."
+
+This is the audit's recurring fault class: **one rule ("given the switch level,
+choose the transport") with three private copies, one of which drifted.**
+
+**Fix — IMPLEMENTED 2026-10-13, pending flash.** Extract the shared rule as a
+pure function and make every site *apply* its result instead of recomputing it:
+
+- `wls/transport_logic.{c,h}`: `hsm_switch_apply(pos, last_bt) → {devs, host}` —
+  the single rule "what does this switch position mean", returning the **pair**;
+  `hsm_host_of_devs(devs)` — the single `devs → host` mapper (USB→USB,
+  2.4G→2P4GHZ, any BT→BLUETOOTH), replacing **three** inline copies;
+  `hsm_switch_pos_of_mode(now_mode)`; and the `HSM_HOST_*` values (in the header
+  so callers *and tests* share one vocabulary).
+- `wls/wls.c` `hs_modeio_detection`: on a real edge now applies **both**
+  selectors — `connection_set_host_noeeprom((connection_host_t)apply.host)` and
+  `wireless_devs_change(..., apply.devs, false)`. `_noeeprom` because the switch
+  is level-authoritative and must not overwrite stored user intent (14c).
+- `epomaker_split65.c`: the boot and keycode paths now call `hsm_host_of_devs`
+  instead of deriving the host inline.
+- The **keycode path is deliberately not folded into the switch rule**: its rule
+  is genuinely different (user intent; transport chosen by the keycode, not the
+  switch). Only the `devs → host` mapper is shared.
+- Tested: `tests/transport_logic/` (3 new cases: the pair per position, the
+  total mapper, numeric-mode → position). `test:transport_logic` = **16/16**.
+
+### 6. A non-connected channel blinks the indicator forever (defect 8)
+
+**Found on hardware 2026-10-12.** The **right** half's backlight blinked on a
+fixed ~500 ms cadence, indefinitely, while the left half stayed lit. Unrelated to
+the switch defect — a separate, **pre-existing vendor loop**.
+
+**Root cause.** `rgb_matrix_wls_indicator_cb()` (`epomaker_split65.c`) returned
+**true (re-arm the flash)** whenever `*md_getp_state() != MD_STATE_CONNECTED`.
+Because `rgb_matrix_indicators_advanced_kb()` runs on **both** halves (neither
+the WLS nor HS indicator is master-gated), any half sitting on a channel the
+module reports as not-connected re-armed its own flash every cycle — a
+time-driven repeat dressed as a channel change. The BT channel was exactly that
+state (`md state = DISCONNECTED`), so the right half pulsed forever.
+
+**Provenance — vendor, not ours.** `git show bf2f9a1fbd^` shows the original had
+the same shape (`wireless_devs_change_kb(..., reset)` in place of
+`wls_indicate_devs(...)`, same unbounded re-arm). Our defect-6 commit edited that
+exact line and did not catch it; its *symptom* (the 2 s `master_sync` re-assert)
+differed from this one (the not-connected re-arm), so it did not read as "still
+broken" during that fix's verification. **Do not call it a regression we
+introduced — call it a vendor loop we failed to catch while editing the line.**
+
+**Fix — IMPLEMENTED 2026-10-13, pending flash.** The callback is now a
+**terminal predicate**: it never re-arms. The flash is owed to a *transition* and
+is armed exactly once, at the transition site (`wls_indicate_devs`); when it
+completes it is done. Any "still trying to connect" motion must be an explicit,
+**bounded** policy owned elsewhere — never an unbounded self-retrigger. The
+now-dead `wls_rgb_indicator_reset` state was deleted with it.
 
 ## Regressions introduced by our own change set (not vendor defects)
 

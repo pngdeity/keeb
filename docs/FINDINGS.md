@@ -1527,15 +1527,69 @@ never have had a visible effect at all.
 **The rearchitecture: separate the effect, give it one owner.** `wireless_devs_change_kb`
 is now **bookkeeping only**; a new **`wls_indicate_devs(new_devs, reset)`** owns the
 flash and is called **only** from genuine transitions (the mode-switch edge via
-`sw_mode`, the Fn+2/3/4 keycode tap, the re-pair long-presses) plus its own
-self-re-arm while the module is still unconnected (a repeat policy, not a change).
-The 2 s sync is now a true no-op for LEDs. This is the rail fix's shape exactly —
-pull the effect out of the bookkeeping, give the effect a single owner, so a
-re-assert cannot carry it. Board-local (a vendor sync/indicator design), not a
-generic model gap.
+`sw_mode`, the Fn+2/3/4 keycode tap, the re-pair long-presses). The 2 s sync is now
+a true no-op for LEDs. This is the rail fix's shape exactly — pull the effect out of
+the bookkeeping, give the effect a single owner, so a re-assert cannot carry it.
+Board-local (a vendor sync/indicator design), not a generic model gap.
 
-**The general principle (now applied twice).** A re-assert must be a no-op for
-anything user-visible: *derive state and effects from a single owner, and let
+**Correction (defect 8, 2026-10-13): the "self-re-arm while unconnected" was the
+same bug, not a policy.** This fix initially kept one self-retrigger:
+`rgb_matrix_wls_indicator_cb()` re-armed the flash whenever the module was not
+CONNECTED, described here as "a repeat policy, not a change". On hardware it
+turned out to be an **unbounded loop** — any half on a not-connected channel
+blinked forever on both halves (the indicator is not master-gated). A
+*time-driven* repeat is not a channel change, so it does not belong to this
+effect at all; the callback is now a **terminal predicate** that never re-arms.
+The lesson generalises: "a repeat policy" is only legitimate if it is **bounded
+and explicitly owned**; an effect that re-arms itself from its own completion
+callback is a loop, and the vocabulary that hid it ("repeat", "re-assert") was
+the tell. See TODO defect 8.
+
+**The general principle (now applied three times).** A re-assert must be a no-op
+for anything user-visible: *derive state and effects from a single owner, and let
 idempotent re-asserts be silent.* Transport (item 14), the LED rail (defect 5),
-and the channel indicator (defect 6) were all the same bug — several partial
-writers of one piece of state.
+the channel indicator (defect 6), and now the indicator's own completion callback
+(defect 8) were all the same bug — several partial writers of one piece of state,
+or one effect arming itself twice.
+
+## FINDING — one rule, three private copies: the switch wrote half the transport (defect 7)
+
+**The defect.** Flipping the mode switch from BT to USB at runtime did nothing:
+neither half typed until a power cycle. The switch edge (`hs_modeio_detection`,
+`wls/wls.c`) changed only the **vendor device index**; it never touched
+upstream's **connection host**, so the USB data line was never brought up and HID
+kept routing to the radio-off BT driver. Boot and the keycode path set **both**
+selectors; the switch set one.
+
+**Why the audit missed it.** The ownership/cadence audit (`docs/AUDIT.md`) was a
+**per-site** method: it read each function and asked "does this state have one
+writer?" That finds *state* with two writers, but it cannot see a **rule** that
+is written three times across three functions with no shared name. The rule here
+— "the switch level determines the transport" — existed as three independent
+implementations (boot, keycode, switch edge), and one had silently drifted. The
+audit's own framing ("clean = provable") invited the too-strong reading that the
+code was already verified; it was verified *site by site*, which is a weaker
+property than *rule by rule*.
+
+**The fix, and the design choice.** A senior answer is not the smallest diff that
+makes the three copies agree again — it is to **remove the copies**. The shared
+rule was extracted as one pure function, `hsm_switch_apply(pos, last_bt) →
+{devs, host}`, and every site now *applies* its result instead of recomputing it;
+`hsm_host_of_devs(devs)` is the single `devs → host` mapping (it had three inline
+copies). Crucially the **keycode path was not folded in**: its rule is genuinely
+different (user intent; the transport is chosen by the keycode, not the switch),
+so only the mapper is shared. Over-unifying would have been the opposite error.
+
+**The transferable lesson.** Two selectors that must agree are one state. If a
+rule to keep them in agreement is expressed more than once, it *will* drift. Give
+the rule a single home (a pure function returning the whole decision — not half
+of it, which is how the switch could set the index and forget the host), and make
+callers apply it. This is the same shape as defect 4 (the boot path once set only
+one selector) — the fix for defect 4 corrected *that site*; the fix for defect 7
+removed the possibility of a *third* site diverging.
+
+**Verification caveat (honest).** The pure cores are proven by tests; the
+**shells are only compiled, not behaviourally verified**. Both defects 7 and 8
+lived in shells (a call site, a callback) that no test exercised. The tests pin
+the *decisions*; they cannot yet prove the *wiring*. Both fixes are build-clean
+and unit-green; hardware confirmation is pending a flash.
