@@ -126,6 +126,36 @@ Ordered by dependency and by risk (leaf concerns first):
    keeps only the `transaction_register_rpc()` registration. Board file
    272 -> 230 lines; build 63,412 B; tests 67/67.
 
+### Faithfulness remediation (post-audit, FC/IS review)
+
+An external-principle audit (Bernhardt's *Functional Core, Imperative Shell* and
+*Boundaries*, functional-architecture.org, seanh.cc) scored the board layer
+A- (90%) and named four places where policy still lived in imperative code. The
+three that were worth addressing are now done:
+
+- **`wls/rgb_key_logic.{c,h}`** — the four `QK_RGB_MATRIX_*` keycodes' threshold
+  policy (the magic numbers 215/120/95/30 and the mode 29->31 step) is a pure
+  `wls_rgb_key_decide(keycode, state) -> wls_rgb_key_action_t`, tested 7/7 at the
+  exact boundaries. `wls_keymap.c` now supplies the live values and applies the
+  returned instruction; the thresholds are named constants with a contract.
+- **`wls/sleep_order_logic.{c,h}`** — the low-battery sleep-order *timing*
+  (arm on first critical sight, fire once the 60 s window elapses, clear on
+  recovery) was inline state in `wls_indicator_battery()`; it is now the pure
+  `wls_sleep_order_tick(state, critical, now)` (same shape as `wls_blink_tick`),
+  tested 6/6. The *whether* remains the pure `hsm_should_order_sleep()`.
+- **`wls_eeprom_wipe_config()`** — the reset executor's `WIPE_CONFIG` step body
+  (the eeconfig/rgblight/keymap/NKRO sequence) moved from `wls_lifecycle` into
+  `wls_eeprom`, which already owns the board's storage; the WIPE step is now a
+  one-line delegate and the lifecycle module no longer reaches into how the
+  board's config is laid out.
+
+The fourth named item (branch density in `wls_bluetooth`/`wls_2p4ghz`/`wls.c`)
+was deliberately **not** addressed: those branches are the CH582F UART protocol
+and devs-switching, which are genuinely effectful; forcing purity there would
+require modelling the closed module (fiction), which the project forbids.
+
+Build **63,532 B**; tests **80/80** (the two new cores add 13).
+
 After every slice: build clean, all tests pass, `bin/test-sanitized` clean,
 `format-c -n` clean, lint unchanged.
 

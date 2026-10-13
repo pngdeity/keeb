@@ -271,6 +271,24 @@ unbreakable.
    cannot compile (the `-Wextra` set) or cannot pass (the sanitizer).*
 
 **Phase D — close the loop on hardware.**
+
+**Post-audit FC/IS remediation.** An external-principle review (Bernhardt's
+*Functional Core, Imperative Shell* / *Boundaries*, functional-architecture.org,
+seanh.cc) scored the board layer A- (90%) and named four places where policy
+still lived in imperative code. Three were addressed:
+
+- `wls/rgb_key_logic.{c,h}` — the `QK_RGB_MATRIX_*` thresholds (215/120/95/30)
+  and the mode 29→31 step are a pure `wls_rgb_key_decide()`, tested 7/7.
+- `wls/sleep_order_logic.{c,h}` — the low-battery sleep-order timing is a pure
+  `wls_sleep_order_tick()` (same shape as `wls_blink_tick`), tested 6/6.
+- `wls_eeprom_wipe_config()` — the reset's WIPE_CONFIG sequence moved to
+  `wls_eeprom`, which owns the board's storage; the executor delegates.
+
+The fourth (branch density in `wls_bluetooth.c`/`wls_2p4ghz.c`/`wls.c`) is
+deliberately unaddressed: those branches are CH582F UART protocol and
+devs-switching, genuinely effectful; purity there would require modelling the
+closed module (fiction, forbidden). Tests now **80/80**.
+
 8. **Flash and verify** defects 7 and 8 on hardware (switch flip BT→USB routes
    without a power cycle; the right half does not blink on a non-connected
    channel). Then re-run the manual matrix (USB / 2.4 GHz / BT) and record results.
