@@ -196,10 +196,20 @@ unbreakable.
    board-only globals. Tests `detector_output_mode_maps_to_the_canonical_position`
    and `keycode_gate_permits_only_the_matching_position`. The invariant: *the "may
    this keycode act" rule is stated once and tested.*
-2. **One transport-apply.** Already begun (`hsm_switch_apply`); finish by having
-   boot and the switch edge both call one `apply_switch_transport(pos, last_bt)`
-   shell that reads the pins once and applies `{devs, host}`. The invariant: *one
-   pin read, two selectors, always paired.*
+2. **One transport-apply.** **DONE.** One `apply_switch_transport(pos, last_bt)`
+   shell (`wls/wls.c`) resolves the pure `hsm_switch_apply` and sets BOTH
+   selectors (`_noeeprom` host + vendor device index) from that one decision. All
+   three switch-driven paths now call it: the two boot seeds
+   (`epomaker_split65.c:212` in `keyboard_post_init_kb`, `:403` in
+   `wireless_post_task`) and the runtime switch edge (`hs_modeio_detection`). A
+   new `hs_mode_switch_pos()` is the single pin read, shared by the boot seed and
+   the applier; `hs_mode_switch_devs` is deleted. This removed the last private
+   `devs -> host` copy (a ternary at the early boot site that the defect-7 fix had
+   missed) and the last hand-paired `connection_set_host_noeeprom` +
+   `wireless_devs_change`. The early site's direct `wls_usb_connect` stays at the
+   caller (a distinct concern: forcing the data line past the `_noeeprom`
+   early-return gap, not choosing the transport). The invariant: *one pin read,
+   two selectors, always paired — stated once.*
 
 **Phase B — retire the "effect on time" shape (defect 8's class).**
 3. **Indicator.** Done (defect 8) — record the rule: *an indicator is armed at a
