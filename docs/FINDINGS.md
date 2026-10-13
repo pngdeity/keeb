@@ -29,7 +29,8 @@ work are in `TODO.md`.
   aliases pads · the USB path has a second sleep route · the sleep decisions are
   a functional core · the wireless stack is a documented third-party protocol,
   not an Epomaker invention · the board is an ODM product (MATHEW candidate /
-  Shenzhen Changyun named by certification).
+  Shenzhen Changyun named by certification) · the boot switch read is
+  un-settled, and UNKNOWN is silently applied.
 - Design · Build facts · Dongle recon — reference.
 - Open questions tied to these findings.
 
@@ -1593,3 +1594,90 @@ removed the possibility of a *third* site diverging.
 lived in shells (a call site, a callback) that no test exercised. The tests pin
 the *decisions*; they cannot yet prove the *wiring*. Both fixes are build-clean
 and unit-green; hardware confirmation is pending a flash.
+
+## FINDING — the boot switch read is un-settled, and UNKNOWN is silently applied
+
+**The symptom.** On the USB switch position, a cold plug enumerates completely
+(full descriptors, three HID interfaces) and then disconnects **within the same
+second**, deterministically, across three power events. It does not re-enumerate.
+The MCU is fine (one `new full-speed USB device` per power event, not a reset
+loop); the USB stack runs long enough to enumerate. So this is *firmware
+tearing its own USB line down*, not a dead or resetting chip.
+
+**The trace.** Walking `main()` → `keyboard_init()` → `keyboard_post_init_kb()`
+→ `wls_lifecycle_boot()`, in the order QMK actually calls them (verified against
+`quantum/main.c`, `quantum/keyboard.c`, `host.c`, `connection.c`):
+
+1. `connection_init()` reads the EEPROM `desired_host` and, if it is invalid,
+   stores `CONNECTION_HOST_AUTO`. It does **not** call `handle_host_changed()`.
+2. `keyboard_post_init_kb()` loads `confinfo`. A fresh/blank block is
+   re-defaulted, and the default sets `last_btdevs = BT1` — **so the persisted
+   fallback holds a Bluetooth index.**
+3. `wls_lifecycle_boot()` enables the switch pins as pull-up inputs
+   (`gpio_set_pin_input_high`, i.e. `palSetLineMode(…, PAL_MODE_INPUT_PULLUP)`)
+   and **immediately** reads them via `hs_mode_switch_pos()` — with **no
+   `waitInputPinDelay()`** on this path (the settle macro exists, but only the
+   sleep path uses the pattern).
+
+A `PAL_MODE_INPUT_PULLUP` change takes effect asynchronously; a pin read in the
+same breath can see the old (floating) level. `hs_mode_switch_pos()` then falls
+through all three patterns to `HSM_SWITCH_UNKNOWN`. **And `UNKNOWN` is not
+rejected — it is *mapped*:**
+
+- `hsm_boot_devs(UNKNOWN, last_bt)` returns `last_bt` when it is a BT index, else
+  USB. With the fresh default that is **BT1**.
+- `hsm_host_of_devs(BT1)` returns **BLUETOOTH**.
+- `apply_switch_transport` then calls `connection_set_host_noeeprom(BLUETOOTH)`.
+  The stored value was `AUTO`, so this is a *change*: it writes and calls
+  `handle_host_changed()` → `connection_host_changed_kb()` →
+  `wls_usb_connect(resolved == USB)` → **`wls_usb_connect(false)` → the USB data
+  line is torn down inside post-init.**
+
+4. The first `wireless_task()` (first `housekeeping_task`, after the first
+   `keyboard_task`) has a function-local-static one-time guard that calls
+   `wls_usb_connect(connection_get_host() == USB)` a **second** time — the same
+   decision enforced by a second mechanism.
+5. At `post_init_timer + 100 ms`, `wireless_post_task()` calls
+   `apply_switch_transport(hs_mode_switch_pos(), …)` **again**. By then the
+   pull-ups *have* settled, so this read is reliable and re-applies the correct
+   transport. **This is why a later replug or a switch flip recovers** — and why
+   the failure window is exactly the first ~100 ms of boot.
+
+**The real defect is not the missing delay.** The delay is one instance. The
+class is: *a level-derived value is sampled once, with no settling and no
+confirmation, and its indeterminate state is translated into a valid-looking
+answer* — `UNKNOWN → last_bt → BLUETOOTH`. A missing delay is a timing bug; a
+**total mapping of "indeterminate" onto "a definite transport"** is a
+*representational* bug, and it would resurface in any future read this board
+adds. The pull-up enables a decision; the decision is worthless until the level
+is knowable; and the code has no way to *say* "not knowable yet".
+
+**Why the instruments did not catch it.** `wls_diag` exports over the raw-HID
+reply — which needs the USB line — so on this failing path, the line is dead
+before the host can ask. The observability seam is unreachable exactly when it is
+needed. This is itself a design finding: a diagnostic that rides the failing
+channel is not a diagnostic for that channel's failures.
+
+**The transferable lessons.**
+
+1. *An input read must have a settled-ness, not just a value.* If a pure core
+   cannot represent "indeterminate", the shell must invent something — and it
+   will invent a plausible wrong answer. Express indeterminacy in the type.
+2. *Enabling and reading an input are two events, not one.* Enabling a pull-up
+   (or any pin mode) is asynchronous; the read belongs after the settle, not
+   adjacent to the mode change.
+3. *A fallback that is indistinguishable from a real answer is worse than no
+   fallback.* `UNKNOWN → last_bt` looks defensive; it converts "I don't know"
+   into "Bluetooth", which is the one answer that silently kills USB.
+4. *Two enforcers of one rule are one too many.* The boot seed and the task-pass
+   guard both actuate the USB line from the same resolved host — the defect-7
+   shape again (one rule, two homes, able to disagree). One owner.
+5. *A diagnostic must survive the failure it diagnoses.* The seam needs an
+   exporter that does not depend on the channel under test.
+
+**The fix this derivation implies** (developed as `wls-*` slices and tested):
+represent settled-ness in the pure core (`hsm_switch_apply` returns a `settled`
+flag; an unsettled read applies **nothing**), read after a settle, collapse the
+two line-actuators to one owner, and give the diagnostic a second exporter that
+does not ride the USB line. The first of these makes the defect *unrepresentable*
+rather than merely absent — which is the bar this project set for itself.
