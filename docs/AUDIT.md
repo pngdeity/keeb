@@ -171,7 +171,7 @@ Evidence gathered in this review (citations are `file:line`):
 | The mode gate `hs_modeio_detection(true,&mode,…)` + `(mode==hs_bt\|\|hs_wireless\|\|hs_none)` is written **6 times** | `epomaker_split65.c:433,442,491,500,508,516` | Rule stated N times (defect 7's shape, still live) | FIX — one exported gate |
 | The mode-seed idiom `hsm_mode_seed(...); hsm_seed_btdev(...)` repeated | `epomaker_split65.c:417,432-433,441-442,490-491,499-500,507-508,515-516,1729` | Duplicated prelude | FIX — one `wireless_mode_now()` shell helper |
 | `process_record_kb` MOR_/KC_F1..F12 blocks: mode-change and HID emission interleaved | `epomaker_split65.c:643+` | CMU 18-642 anti-pattern | FIX — table-drive the mac/media remap |
-| 13 file-scope mutable globals in the board file, several un-owned (`no_record_fg`, `pov`, `mac_status`, `hs_ct_time`) | `epomaker_split65.c:70-79,641` | Smallest-scope violation (Power of Ten Rule 6) | FIX — localize or own |
+| 13 file-scope mutable globals in the board file, several un-owned (`no_record_fg`, `pov`, `mac_status`, `hs_ct_time`) | `epomaker_split65.c:70-79,641` | Smallest-scope violation (Power of Ten Rule 6) | **DONE (Phase C.5)** — 3 dead globals + `pov` deleted; `post_init_timer`/`no_record_fg` made `static`; `buff[]` `static const`; the five `wls_rgb_indicator_*` bundled into one `static struct wls_indicator`; only the honest cross-file state (`confinfo`, `charging_state`, `bat_full_flag`) remains file-scope |
 | `hs_link_last_status` static in the link watch | `wls/wls.c:137` | Shell-held state that the pure `hsm_link_watch` should carry | FIX — move into the pure timer struct |
 | `scan_timer` static inside `hs_modeio_detection` | `wls/wls.c:48` | Hidden cadence in a rule function | FIX — pass `now` in, make the rate-limit pure |
 | Warning level: board build is `-Wall -Wstrict-prototypes` only, **no `-Wextra`, no `-Werror`** (`ALLOW_WARNINGS` not set means warnings do not fail the build) | `builddefs/common_rules.mk:77-81` | Power of Ten Rules 5/10 not in force | FIX — raise warnings, add `-Werror` for our files |
@@ -230,8 +230,23 @@ unbreakable.
      and the counter are gone; the suppression expires on its own.
 
 **Phase C — make the shell humble and the toolchain enforce it.**
-5. **Localize globals.** Move the 13 board globals to the smallest scope
-   (Power of Ten Rule 6); anything genuinely shared gets a single accessor pair.
+5. **Localize globals.** **DONE.** The board file's file-scope mutable state was
+   reduced to the smallest honest scope (Power of Ten Rule 6):
+   - **Deleted 3 dead globals** — `mac_status`, `hs_ct_time`, `rgb_test_open`
+     (each had exactly one reference: its own declaration).
+   - **Deleted `pov`** — a write-only store at init and an immediate-consume at
+     the 2 s master sync; both sites now pass `*md_getp_bat()` directly.
+   - **`post_init_timer` → `static`** (used only in the boot-init group).
+   - **`no_record_fg` → `static`** (all references in `process_record_user`).
+   - **`buff[]` → `static const`** (read-only init table; indices 0 and `mode`).
+   - **Bundled the five `wls_rgb_indicator_{timer,interval,times,index,rgb}`
+     globals into one named `static struct wls_indicator`** — written together by
+     `rgb_matrix_wls_indicator_set()`, consumed together by
+     `rgb_matrix_wls_indicator()`, so the flash state has a name and one owner.
+   The two that remain genuinely file-scope are honest: `confinfo` (persisted
+   config) and `charging_state`/`bat_full_flag` (already exported via `wls.h`,
+   written in `wls.c`). Verified by `rg` (no residual `wls_rgb_indicator_`,
+   `pov`, `mac_status`, `hs_ct_time`, `rgb_test_open`).
 6. **Table-drive `process_record_kb`.** The MOR_/mac-media switch becomes a
    `{keycode, modifier, base}` table plus one dispatcher, so mode-change logic and
    HID emission stop interleaving (CMU 18-642).
