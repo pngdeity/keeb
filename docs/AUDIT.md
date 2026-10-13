@@ -184,10 +184,18 @@ pure core + test + humble shell). Each item states the invariant it makes
 unbreakable.
 
 **Phase A — retire the "rule stated N times" shape (defect 7's class).**
-1. **One switch gate.** Export `hsm_keycode_allowed_for_mode(mode, devs)` (already
-   `hsm_keycode_allowed`, reused) and a shell helper `wireless_mode_now()` that
-   does the seed+gated-read once. Replace all 6 gate copies and 8 seed copies. The
-   invariant: *the "may this keycode act" rule is stated once and tested.*
+1. **One switch gate.** **DONE.** Exported `hs_keycode_allowed(target_devs,
+   last_bt)` (`wls/wls.c`) — the seed+detect+predicate idiom, stated once — built
+   on the pure `hsm_keycode_allowed` (previously dead code) and a new
+   `hsm_switch_pos_of_hs_mode` mapper (the detector's output vocabulary, distinct
+   from the pin-read `hsm_switch_pos_of_mode`). All 6 gate copies and the 6
+   in-glue seed copies in `epomaker_split65.c:432-505` are gone; verified by `rg`
+   (no residual `hs_modeio_detection(true` or `mode == hs_bt` in the board glue).
+   `last_bt` is passed in because the persisted sub-index lives in board state
+   (`confinfo`, defined in the `.c`, not a header) — this keeps `wls.c` free of
+   board-only globals. Tests `detector_output_mode_maps_to_the_canonical_position`
+   and `keycode_gate_permits_only_the_matching_position`. The invariant: *the "may
+   this keycode act" rule is stated once and tested.*
 2. **One transport-apply.** Already begun (`hsm_switch_apply`); finish by having
    boot and the switch edge both call one `apply_switch_transport(pos, last_bt)`
    shell that reads the pins once and applies `{devs, host}`. The invariant: *one
