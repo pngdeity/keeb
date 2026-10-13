@@ -1225,7 +1225,7 @@ Rows are states; columns are events; each cell is `[next wls_devs / side-effects
 `devs` = the device index; `T` = `set_transport`; `H` = `host_set_driver`;
 `sleep` = module sleep command.
 
-| State (`wls_devs`, `desired_host`) | boot / post-init | switch→USB | switch→BT | switch→2.4G | `KC_BT1` (Fn+RSPC+Q) | `KC_2G4` | module `CONNECTED` | module `DISCONNECTED`/\`REJECT` | `EE_CLR` |
+| State (`wls_devs`, `desired_host`) | boot / post-init | switch→USB | switch→BT | switch→2.4G | `KC_BT1` (Fn+RSPC+2) | `KC_2G4` | module `CONNECTED` | module `DISCONNECTED`/\`REJECT` | `EE_CLR` |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | **(USB, USB)** | stays USB; T(USB); H(chibios) | — (already) | devs→BT1; T(WLS) if conn; H(wireless) | devs→2G4; T(WLS) if conn | persist `desired_host=BT`; devs→BT1 | devs→2G4 | n/a | n/a | reset → (USB, AUTO) |
 | **(BTn, BLUETOOTH)** | **restores BTn** (defect); `active_host=BLUETOOTH`→H(bt_driver) **and** T(WLS)→H(wireless) | devs→USB; T(USB); H(chibios); clears md state | devs→BT(n) | devs→2G4 | devs→BT1 | devs→2G4 | md=CONNECTED; T(WLS); H(wireless) | forces md=DISCONNECTED | reset → (USB, AUTO) |
@@ -1312,7 +1312,7 @@ Every symptom we chased lives at a *seam* between these, not in one of them:
 - **`KC_BT1` locks out USB** (defect 4) — the ODM bridge writes **both** persisted
   selectors; upstream AUTO is never consulted; the vendor switch-edge check never
   fires. Authority inversion + edge-vs-level desync.
-- **Fn+Q blinks but nothing advertises** — the bridge told the module "go BT1"
+- **Fn+2 blinks but nothing advertises** — the bridge told the module "go BT1"
   (layer 2); whether BLE advertises is layer 0 (module firmware), which *neither*
   subsystem models. **RESOLVED 2026-10-09:** the module *does* advertise correctly
   (see `HARDWARE.md`); the original "nothing advertises" was a search-miss on the
@@ -1527,7 +1527,7 @@ never have had a visible effect at all.
 **The rearchitecture: separate the effect, give it one owner.** `wireless_devs_change_kb`
 is now **bookkeeping only**; a new **`wls_indicate_devs(new_devs, reset)`** owns the
 flash and is called **only** from genuine transitions (the mode-switch edge via
-`sw_mode`, the Fn+Q/W/E keycode tap, the re-pair long-presses) plus its own
+`sw_mode`, the Fn+2/3/4 keycode tap, the re-pair long-presses) plus its own
 self-re-arm while the module is still unconnected (a repeat policy, not a change).
 The 2 s sync is now a true no-op for LEDs. This is the rail fix's shape exactly —
 pull the effect out of the bookkeeping, give the effect a single owner, so a

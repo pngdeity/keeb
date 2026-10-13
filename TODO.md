@@ -40,13 +40,37 @@ The live record: work, defects, and status. Sections below are marked **LIVE**
   differ from the host's, so bytes are not comparable across toolchains — CI
   asserts "it builds", not a fixed md5.
 - Both halves enumerate as `342d:e4c6`, manufacturer `LEO` (stock is `MILE`).
-- **Both halves run an earlier `nathan` build; a large verified change set is
-  unflashed.** The flashed image predates: the sleep-invariant and wake-code
-  changes, defect 5 (LED-rail owner), defect 6 (indicator separated from the
-  bookkeeping hook), the keymap brightness fix, and the full ownership/cadence
-  audit (fixes 1–10 + Tier 3; `docs/AUDIT.md`). All of it is build- and
-  test-verified at HEAD but **not yet on hardware**. One flash cycle validates
-  the batch.
+- **Both halves are flashed with the current tree's `nathan` build
+  (2026-10-13); the previously-unflashed batch is now on hardware.** Validated
+  live: USB and 2.4 GHz both enumerate and `0xA4` round-trips (transport/host
+  bytes correct per transport, `md fw ver` answered, `md state` CONNECTED on
+  2.4 GHz). The batch included the sleep-invariant and wake-code changes,
+  defect 5 (LED-rail owner), defect 6 (indicator separated from the
+  bookkeeping hook), the keymap brightness fix, and the ownership/cadence audit
+  (fixes 1–10 + Tier 3; `docs/AUDIT.md`). **BT is not yet hardware-verified** —
+  blocked by a host-side adapter fault (see below), not the keyboard.
+- **Host BT adapter (Intel AX200) can wedge discovery; `Discovering: no` while
+  scanning (2026-10-13).** Observed live: the adapter reports powered/unblocked,
+  answers config queries, and `StartDiscovery` returns success, but returns
+  **zero** devices (not the Split65, not any cached device) and the
+  `Discovering` property stays `false` throughout. This is the **host**
+  controller, not the keyboard (the module *was* advertising — fast-blink
+  pairing window). Recovery is a USB-level reset of the controller, which
+  `systemctl restart bluetooth` does **not** do (it restarts only the userspace
+  daemon; the USB device is never re-enumerated):
+
+  ```sh
+  doas systemctl stop bluetooth
+  doas rmmod btusb btintel btmtk btrtl btbcm
+  doas modprobe btusb
+  doas systemctl start bluetooth
+  bluetoothctl scan on & sleep 4; bluetoothctl show | grep Discovering  # must be 'yes'
+  ```
+
+  If it still says `no`, the firmware is wedged below the driver → full reboot /
+  cold power-cycle. The AX200's WiFi half (`wlp3s0`) stays up throughout, so
+  WiFi alone does not prove the BT half is healthy. `host/bt_reconnect.py`
+  prints this recovery in its failure path.
 - Both halves enter DFU by the spacebar metal-plated-hole short while plugging
   in USB-C (no case opening needed on either half; the right half first needs the
   hidden toggle flipped **down**, exposed by removing the `R_Shift` keycap, and

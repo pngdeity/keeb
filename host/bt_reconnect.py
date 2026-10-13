@@ -165,7 +165,14 @@ def main() -> int:
         )
         print(
             "  - the module stops advertising ~30 min after idle; long-press "
-            "Fn+Q/W/E to re-arm.",
+            "Fn+2/3/4 (KC_BT1/2/3) to re-arm.",
+            file=sys.stderr,
+        )
+        print(
+            "  - if the adapter never leaves 'Discovering: no' while scanning, "
+            "the host controller is wedged (seen on Intel AX200): reset it "
+            "(`doas rmmod btusb btintel; doas modprobe btusb`) or reboot. This "
+            "is a host fault, not the keyboard.",
             file=sys.stderr,
         )
         return 2

@@ -12,9 +12,8 @@ Audience: the person typing. For how the firmware is built, see `README.md` and
 > **Which keymap?** Two keymaps exist: `default` (the vendor layout, in the
 > `qmk_firmware` submodule) and `nathan` (the personal layout, in the sibling
 > `keeb-userspace` repo). This guide describes **`nathan`**, which is the keymap
-> the halves run. (Note the halves are currently flashed with an **earlier**
-> `nathan` build, not the current tree's — see `TODO.md` Status.) `keymap.md` in
-> `keeb-userspace/.../keymaps/nathan/` is the byte-level companion to this file.
+> the halves run. `keymap.md` in `keeb-userspace/.../keymaps/nathan/` is the
+> byte-level companion to this file.
 
 ---
 
@@ -126,9 +125,9 @@ half — do not read "master" as "left" (see `DEVICE.md`'s naming rule).
 
 On the Fn layer (hold the **right** spacebar):
 
-- **`BT1` / `BT2` / `BT3`** (`Fn` + `Q`/`W`/`E`) — pair or switch Bluetooth
+- **`BT1` / `BT2` / `BT3`** (`Fn` + `2`/`3`/`4`) — pair or switch Bluetooth
   device 1/2/3. (Hold for the long-press re-pair/reset behaviour.)
-- **`2.4G`** (`Fn` + `R`) — select the 2.4 GHz dongle.
+- **`2.4G`** (`Fn` + `5`) — select the 2.4 GHz dongle.
 
 Mode selection belongs to the **physical switch**; a cable plugged in while the
 switch is on 2.4 GHz or BT leaves the keyboard on that wireless link.
