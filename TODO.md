@@ -820,6 +820,33 @@ completes it is done. Any "still trying to connect" motion must be an explicit,
 **bounded** policy owned elsewhere — never an unbounded self-retrigger. The
 now-dead `wls_rgb_indicator_reset` state was deleted with it.
 
+### 7. NKRO collapse walk reads one byte past the bitmap (defect 9)
+
+**Found by the sanitizer, not by hardware** (Phase C.7, 2026-10-13). Building the
+pure-core tests with `-fsanitize=address,undefined` produced a
+**stack-buffer-overflow** in the NKRO collapse walk.
+
+**Root cause.** Both `bluetooth_send_nkro()` (`wls/wls_bluetooth.c`) and the
+vendor `wireless_send_nkro()` (`keyboards/linker/wireless/wireless.c`) find the
+lowest set bit as
+`for (n = 0; n < NKRO_REPORT_BITS && !bits[n]; n++) {}` then read `bits[n]`. When
+the bitmap empties before the surrounding count runs out, `n` reaches
+`NKRO_REPORT_BITS` (30) and `bits[30]` is read — one past the `uint8_t[30]`. The
+outer guard (`i < key_count`, or `c < key_count`) does not prevent this when the
+bitmap and the count disagree state-by-state mid-walk.
+
+**Provenance.** Upstream's `get_first_key()` (`tmk_core/protocol/report.c:50`)
+has the same shape but is only ever called with a key known present
+(`has_anykey` guards it); the vendor copy dropped that precondition. So it is a
+**real defect in shipped code**, in our board file and in the vendor file.
+
+**Fix — IMPLEMENTED 2026-10-13.** Bound the read: after the scan, `if (n >=
+NKRO_REPORT_BITS) break;` before indexing. Applied at both sites in
+`wls_bluetooth.c`, both sites in the vendor `wireless.c`, and both in the test
+extraction (`tests/wireless_nkro_parity`). It is a genuine precondition (the
+count/bitmap agreement), not a workaround. All five pure-core suites now pass
+clean under ASan+UBSan via `bin/test-sanitized`.
+
 ## Regressions introduced by our own change set (not vendor defects)
 
 > **ARCHIVAL.** All four regressions are fixed; kept for root-cause rationale.

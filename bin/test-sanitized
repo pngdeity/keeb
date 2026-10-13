@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Run the firmware's pure-core test suites under AddressSanitizer and
+# UndefinedBehaviorSanitizer.
+#
+# The pure cores (transport_logic, lowpower_logic, md_frame, keymap_logic, the
+# nkro parity check) are hardware-free by construction, so they are the one part
+# of the firmware that can be executed and checked at test time. The normal test
+# build compiles them with -Wall -Werror but no sanitizer, so a buffer overrun or
+# signed-overflow whose result happens to be asserted-for can still pass. This
+# wrapper closes that gap: it recompiles each suite with
+# -fsanitize=address,undefined and runs it, so a UB or OOB access aborts the test
+# instead of silently yielding a value.
+#
+# QMK's test build has no per-test CFLAGS hook (builddefs/build_test.mk consumes
+# only $(TEST_OUTPUT)_SRC/_INC/_DEFS from a test's test.mk), so the flags are
+# supplied through the environment rather than by editing shared build infra --
+# the same reason this is a wrapper here and not a CFLAGS block in the tree.
+# ALLOW_WARNINGS=yes is set because the sanitizer build recompiles shared test
+# sources (googletest et al.) whose warnings are irrelevant to this check.
+#
+# Usage:
+#   ./bin/test-sanitized            # all pure-core suites
+#   ./bin/test-sanitized md_frame   # one or more named suites
+#
+# Exits non-zero if any suite fails to build or fails under the sanitizers.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"
+
+SUITES=(transport_logic lowpower_logic md_frame keymap_logic wireless_nkro_parity)
+[ "$#" -gt 0 ] && SUITES=("$@")
+
+export CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+export CXXFLAGS="$CFLAGS"
+export LDFLAGS="-fsanitize=address,undefined"
+export ALLOW_WARNINGS=yes
+
+status=0
+for t in "${SUITES[@]}"; do
+    echo "=== test:$t (asan+ubsan) ==="
+    # `set -o pipefail` is on, so the pipeline status is the make invocation's,
+    # not tail's: a build error or a sanitizer abort fails the whole pipeline.
+    if ! "$HERE/make" -C "$ROOT/qmk_firmware" "test:$t" 2>&1 | tail -4; then
+        echo "--- $t: build or run FAILED ---"
+        status=1
+    fi
+done
+
+exit "$status"

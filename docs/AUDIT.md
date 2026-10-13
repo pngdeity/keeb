@@ -174,8 +174,8 @@ Evidence gathered in this review (citations are `file:line`):
 | 13 file-scope mutable globals in the board file, several un-owned (`no_record_fg`, `pov`, `mac_status`, `hs_ct_time`) | `epomaker_split65.c:70-79,641` | Smallest-scope violation (Power of Ten Rule 6) | **DONE (Phase C.5)** — 3 dead globals + `pov` deleted; `post_init_timer`/`no_record_fg` made `static`; `buff[]` `static const`; the five `wls_rgb_indicator_*` bundled into one `static struct wls_indicator`; only the honest cross-file state (`confinfo`, `charging_state`, `bat_full_flag`) remains file-scope |
 | `hs_link_last_status` static in the link watch | `wls/wls.c:137` | Shell-held state that the pure `hsm_link_watch` should carry | FIX — move into the pure timer struct |
 | `scan_timer` static inside `hs_modeio_detection` | `wls/wls.c:48` | Hidden cadence in a rule function | FIX — pass `now` in, make the rate-limit pure |
-| Warning level: board build is `-Wall -Wstrict-prototypes` only, **no `-Wextra`, no `-Werror`** (`ALLOW_WARNINGS` not set means warnings do not fail the build) | `builddefs/common_rules.mk:77-81` | Power of Ten Rules 5/10 not in force | FIX — raise warnings, add `-Werror` for our files |
-| Test build: `-Wall -Wundef` via CXXFLAGS, **no sanitizers** | `builddefs/build_test.mk` → `common_rules.mk:96-98` | UBSan/ASan absent for the pure cores | FIX — build the pure-core tests with `-fsanitize=address,undefined` |
+| Warning level: board build was `-Wall -Wstrict-prototypes` with **no `-Wextra`**. (Correction: `-Werror` **was and is already active** — `builddefs/common_rules.mk:81`, `ALLOW_WARNINGS` unset — so compiling code was warning-clean under `-Wall`; the real gap was `-Wextra`) | `builddefs/common_rules.mk:77-81` | Power of Ten Rule 10 not fully in force | **DONE (Phase C.7)** — our files are now `-Wextra`-clean by construction (~17 warnings fixed with `(void)param;` / a `fall through` comment; verified by a one-off `-Wextra` build, the flag not left global because it would fail the build on vendor code under the active `-Werror`) |
+| Test build: `-Wall -Wundef` via CXXFLAGS, no per-test CFLAGS hook in `builddefs/build_test.mk` | `builddefs/build_test.mk` → `common_rules.mk:96-98` | UBSan/ASan absent for the pure cores | **DONE (Phase C.7)** — `bin/test-sanitized` runs the five pure-core suites with `-fsanitize=address,undefined` via env (no shared-infra edit). It **found a real stack-buffer-overflow** (an NKRO collapse walk indexing `bits[NKRO_REPORT_BITS]`), now fixed in `wls_bluetooth.c` + the vendor `wireless.c` + the test; all suites pass clean |
 
 ## The plan — eliminate the fault classes, not the instances
 
@@ -256,10 +256,19 @@ unbreakable.
    Ctrl-combo rule (a different rule). Tested: `tests/keymap_logic` 5/5.
    `MOR_5` is declared in `keyboard.json:74` but handled by neither the original
    nor the new code — a pre-existing latent no-op, recorded here, not invented.
-7. **Raise the toolchain floor.** `-Wextra` and `-Werror` for our files
-   (`epomaker_split65.c`, `wls/`, `keyboards/linker/wireless/`), and build the
-   pure-core test targets with `-fsanitize=address,undefined`. The invariant: *a
-   class of defect cannot compile or cannot pass CI.*
+7. **Raise the toolchain floor — DONE (Phase C.7).** Our files
+   (`epomaker_split65.c`, `wls/`, `keyboards/linker/wireless/`) are now
+   `-Wextra`-clean **by construction** (verified by a one-off `-Wextra` build; the
+   flag is not left global because the already-active `-Werror` would then fail
+   the build on vendor code we do not own). The pure-core test targets are built
+   with `-fsanitize=address,undefined` via `bin/test-sanitized` (the test build has
+   no per-test CFLAGS hook, so flags come through the environment — no
+   shared-infra edit). The sanitizer immediately earned its keep: it found a
+   **real stack-buffer-overflow** — the NKRO collapse walk indexed
+   `bits[NKRO_REPORT_BITS]` when the bitmap emptied before the loop count ran out
+   — now guarded in `wls_bluetooth.c`, the vendor `wireless.c`, and the test
+   extraction; all five suites pass clean. The invariant holds: *a class of defect
+   cannot compile (the `-Wextra` set) or cannot pass (the sanitizer).*
 
 **Phase D — close the loop on hardware.**
 8. **Flash and verify** defects 7 and 8 on hardware (switch flip BT→USB routes
