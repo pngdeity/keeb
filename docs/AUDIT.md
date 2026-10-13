@@ -170,7 +170,7 @@ Evidence gathered in this review (citations are `file:line`):
 |---|---|---|---|
 | The mode gate `hs_modeio_detection(true,&mode,…)` + `(mode==hs_bt\|\|hs_wireless\|\|hs_none)` is written **6 times** | `epomaker_split65.c:433,442,491,500,508,516` | Rule stated N times (defect 7's shape, still live) | FIX — one exported gate |
 | The mode-seed idiom `hsm_mode_seed(...); hsm_seed_btdev(...)` repeated | `epomaker_split65.c:417,432-433,441-442,490-491,499-500,507-508,515-516,1729` | Duplicated prelude | FIX — one `wireless_mode_now()` shell helper |
-| `process_record_kb` MOR_/KC_F1..F12 blocks: mode-change and HID emission interleaved | `epomaker_split65.c:643+` | CMU 18-642 anti-pattern | FIX — table-drive the mac/media remap |
+| `process_record_kb` MOR_/KC_F1..F12 blocks: mode-change and HID emission interleaved | `epomaker_split65.c:643+` | CMU 18-642 anti-pattern | **DONE (Phase C.6)** — the mac/media remap decision is now the pure core `wls/keymap_logic.{c,h}` (`filp_decide` + three tables); the shell only performs the effect (`filp_apply`). `tests/keymap_logic` 5/5 |
 | 13 file-scope mutable globals in the board file, several un-owned (`no_record_fg`, `pov`, `mac_status`, `hs_ct_time`) | `epomaker_split65.c:70-79,641` | Smallest-scope violation (Power of Ten Rule 6) | **DONE (Phase C.5)** — 3 dead globals + `pov` deleted; `post_init_timer`/`no_record_fg` made `static`; `buff[]` `static const`; the five `wls_rgb_indicator_*` bundled into one `static struct wls_indicator`; only the honest cross-file state (`confinfo`, `charging_state`, `bat_full_flag`) remains file-scope |
 | `hs_link_last_status` static in the link watch | `wls/wls.c:137` | Shell-held state that the pure `hsm_link_watch` should carry | FIX — move into the pure timer struct |
 | `scan_timer` static inside `hs_modeio_detection` | `wls/wls.c:48` | Hidden cadence in a rule function | FIX — pass `now` in, make the rate-limit pure |
@@ -247,9 +247,15 @@ unbreakable.
    config) and `charging_state`/`bat_full_flag` (already exported via `wls.h`,
    written in `wls.c`). Verified by `rg` (no residual `wls_rgb_indicator_`,
    `pov`, `mac_status`, `hs_ct_time`, `rgb_test_open`).
-6. **Table-drive `process_record_kb`.** The MOR_/mac-media switch becomes a
-   `{keycode, modifier, base}` table plus one dispatcher, so mode-change logic and
-   HID emission stop interleaving (CMU 18-642).
+6. **Table-drive `process_record_kb` — DONE (Phase C.6).** The mac/media
+   remap decision was extracted to the pure core `wls/keymap_logic.{c,h}`
+   (`filp_decide(keycode, is_mac) → filp_action_t`), with three tables
+   (`filp_mac_only`, `filp_dual`, `filp_mac_special`) and one shell dispatcher
+   (`filp_apply`) that performs the effects. Mode/layer logic no longer
+   interleaves with HID emission (CMU 18-642). The `mor_map` loop keeps the
+   Ctrl-combo rule (a different rule). Tested: `tests/keymap_logic` 5/5.
+   `MOR_5` is declared in `keyboard.json:74` but handled by neither the original
+   nor the new code — a pre-existing latent no-op, recorded here, not invented.
 7. **Raise the toolchain floor.** `-Wextra` and `-Werror` for our files
    (`epomaker_split65.c`, `wls/`, `keyboards/linker/wireless/`), and build the
    pure-core test targets with `-fsanitize=address,undefined`. The invariant: *a
