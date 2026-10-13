@@ -111,3 +111,113 @@ retires the remaining shapes structurally:
 
 Each fix lands with a test in `tests/` (as `transport_logic` and `lowpower_logic`
 already do), so the rule cannot regress and the shell stays trivial.
+
+## Why the audit did not catch defects 7 and 8 — the shape of the blind spot
+
+The audit above caught *state* faults: one value, more than one writer. It missed
+two defects that were later found on hardware, and the miss was structural, not
+careless:
+
+- **Defect 7 — one rule, three private copies.** "Choose the transport from the
+  switch" was implemented three times (boot, keycode, switch edge); the edge copy
+  wrote only half the decision. No *state* had two writers; the *rule* had three
+  authors. A per-site state inventory cannot see a rule written N times.
+- **Defect 8 — an effect that retriggers itself.** The channel indicator re-armed
+  its own flash while not connected, so it blinked forever. Nothing was
+  mis-owned; an effect depended on the passage of time rather than a transition.
+
+Both faults live in the **imperative shell**, not the pure core. The pure cores
+are proven by `tests/`; the shells were only *compiled*. The audit's own framing
+("the fix strategy is functional core / imperative shell") invited the too-strong
+reading that a proven core means a proven feature. It does not: a correct decision
+applied wrongly is still a bug, and nothing tested the application.
+
+## The wiring review — extending the strategy to the shell
+
+Literature. The pattern is "Functional Core, Imperative Shell" (Gary Bernhardt,
+*Boundaries*, SCNA 2012; re-stated by Google's Testing Blog, "Simplify Your Code:
+Functional Core, Imperative Shell", 2025). The corollary that closes defects 7
+and 8 is the **Humble Object** (Michael Feathers, *The Humble Dialog Box*, 2002;
+Gerard Meszaros, *xUnit Test Patterns*; Martin Fowler's bliki entry): the part
+that cannot be unit-tested must be made so thin that it holds no decisions at all.
+For embedded specifically, three further standing rules apply — NASA/JPL's *Power
+of Ten* (Gerard Holzmann, 2006; Rules 4, 6, 7, 9: bounded functions, smallest
+scope, checked parameters, no hidden pointer dereference), Samek's state-machine
+discipline (*Practical UML Statecharts in C/C++*; one authority per state, no
+event-action spaghetti), and CMU 18-642 (*Modal Systems and Statecharts*: never
+mix mode-change logic with normal output sequencing).
+
+The test the review applies to every shell. A function in the shell is allowed to
+exist only if it passes all four:
+
+1. **Humble.** It selects effects; it does not decide. Any `if`/`switch` in the
+   shell that encodes a *rule* (not a dispatch on an already-decided value) must
+   move into the pure core. Threshold: a shell function should be, in Feathers's
+   words, "so simple we don't bother testing it".
+2. **One authority.** Each mutable fact has exactly one writer, or is derived.
+   The pure core owns rules; the shell owns I/O and register writes.
+3. **Rule stated once.** If the same comparison/idiom appears at more than one
+   call site, it is one rule with N copies (defect 7) — collapse it to one
+   exported function and call it N times.
+4. **Effect on transition, never on time.** Any effect that runs "every loop" or
+   "while X" and re-derives its own trigger (defect 8) must instead be armed at
+   the transition and terminate. A periodic re-derivation of a trigger is a defect
+   unless the periodicity is itself the named rule.
+
+Evidence gathered in this review (citations are `file:line`):
+
+| Finding | Location | Shape | Disposition |
+|---|---|---|---|
+| The mode gate `hs_modeio_detection(true,&mode,…)` + `(mode==hs_bt\|\|hs_wireless\|\|hs_none)` is written **6 times** | `epomaker_split65.c:433,442,491,500,508,516` | Rule stated N times (defect 7's shape, still live) | FIX — one exported gate |
+| The mode-seed idiom `hsm_mode_seed(...); hsm_seed_btdev(...)` repeated | `epomaker_split65.c:417,432-433,441-442,490-491,499-500,507-508,515-516,1729` | Duplicated prelude | FIX — one `wireless_mode_now()` shell helper |
+| `process_record_kb` MOR_/KC_F1..F12 blocks: mode-change and HID emission interleaved | `epomaker_split65.c:643+` | CMU 18-642 anti-pattern | FIX — table-drive the mac/media remap |
+| 13 file-scope mutable globals in the board file, several un-owned (`no_record_fg`, `pov`, `mac_status`, `hs_ct_time`) | `epomaker_split65.c:70-79,641` | Smallest-scope violation (Power of Ten Rule 6) | FIX — localize or own |
+| `hs_link_last_status` static in the link watch | `wls/wls.c:137` | Shell-held state that the pure `hsm_link_watch` should carry | FIX — move into the pure timer struct |
+| `scan_timer` static inside `hs_modeio_detection` | `wls/wls.c:48` | Hidden cadence in a rule function | FIX — pass `now` in, make the rate-limit pure |
+| Warning level: board build is `-Wall -Wstrict-prototypes` only, **no `-Wextra`, no `-Werror`** (`ALLOW_WARNINGS` not set means warnings do not fail the build) | `builddefs/common_rules.mk:77-81` | Power of Ten Rules 5/10 not in force | FIX — raise warnings, add `-Werror` for our files |
+| Test build: `-Wall -Wundef` via CXXFLAGS, **no sanitizers** | `builddefs/build_test.mk` → `common_rules.mk:96-98` | UBSan/ASan absent for the pure cores | FIX — build the pure-core tests with `-fsanitize=address,undefined` |
+
+## The plan — eliminate the fault classes, not the instances
+
+Ordered by risk × provability, same cadence as the fixes above (one commit each,
+pure core + test + humble shell). Each item states the invariant it makes
+unbreakable.
+
+**Phase A — retire the "rule stated N times" shape (defect 7's class).**
+1. **One switch gate.** Export `hsm_keycode_allowed_for_mode(mode, devs)` (already
+   `hsm_keycode_allowed`, reused) and a shell helper `wireless_mode_now()` that
+   does the seed+gated-read once. Replace all 6 gate copies and 8 seed copies. The
+   invariant: *the "may this keycode act" rule is stated once and tested.*
+2. **One transport-apply.** Already begun (`hsm_switch_apply`); finish by having
+   boot and the switch edge both call one `apply_switch_transport(pos, last_bt)`
+   shell that reads the pins once and applies `{devs, host}`. The invariant: *one
+   pin read, two selectors, always paired.*
+
+**Phase B — retire the "effect on time" shape (defect 8's class).**
+3. **Indicator.** Done (defect 8) — record the rule: *an indicator is armed at a
+   transition and terminates.*
+4. **Audit every periodic re-derivation.** `housekeeping_task_user`'s 1 s/2 s
+   `md_send_devctrl` poll and `enable_bat_indicators` re-arm are the remaining
+   suspects; each must either be a named, bounded policy (e.g. "poll module state
+   every 1 s") or move to a transition.
+
+**Phase C — make the shell humble and the toolchain enforce it.**
+5. **Localize globals.** Move the 13 board globals to the smallest scope
+   (Power of Ten Rule 6); anything genuinely shared gets a single accessor pair.
+6. **Table-drive `process_record_kb`.** The MOR_/mac-media switch becomes a
+   `{keycode, modifier, base}` table plus one dispatcher, so mode-change logic and
+   HID emission stop interleaving (CMU 18-642).
+7. **Raise the toolchain floor.** `-Wextra` and `-Werror` for our files
+   (`epomaker_split65.c`, `wls/`, `keyboards/linker/wireless/`), and build the
+   pure-core test targets with `-fsanitize=address,undefined`. The invariant: *a
+   class of defect cannot compile or cannot pass CI.*
+
+**Phase D — close the loop on hardware.**
+8. **Flash and verify** defects 7 and 8 on hardware (switch flip BT→USB routes
+   without a power cycle; the right half does not blink on a non-connected
+   channel). Then re-run the manual matrix (USB / 2.4 GHz / BT) and record results.
+
+**Definition of done.** Every shell function passes the four-part test above; the
+`tests/` suite covers every rule (not just the pure arithmetic); the build is
+warning-clean at `-Wextra -Werror` for our code and sanitizer-clean for the pure
+cores; and the hardware matrix in Phase D passes without a power-cycle workaround.
