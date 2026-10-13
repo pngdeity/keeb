@@ -214,10 +214,20 @@ unbreakable.
 **Phase B — retire the "effect on time" shape (defect 8's class).**
 3. **Indicator.** Done (defect 8) — record the rule: *an indicator is armed at a
    transition and terminates.*
-4. **Audit every periodic re-derivation.** `housekeeping_task_user`'s 1 s/2 s
-   `md_send_devctrl` poll and `enable_bat_indicators` re-arm are the remaining
-   suspects; each must either be a named, bounded policy (e.g. "poll module state
-   every 1 s") or move to a transition.
+4. **Audit every periodic re-derivation — DONE.** Two sites, two different
+   verdicts, both now honest:
+   - *The 1 s `md_send_devctrl` poll (`housekeeping_task_user`)* is a **genuine
+     bounded poll**: an external USB-C cable can be inserted or removed while the
+     keyboard is idle, with no keycode or switch event to trigger on, so the
+     module must be told periodically. The periodicity *is* the rule, so it is now
+     the named `WLS_MODULE_POLL_MS` (`wls.h`) rather than a bare `1000`.
+   - *The `enable_bat_indicators` re-arm* was the **defect-8 shape**: a `bool` kept
+     in lockstep with a parallel `bat_indicator_cnt` timer and re-derived every
+     frame, to express a bounded one-shot suppression after an EEPROM reset. It is
+     now one **deadline**, `bat_suppress_until` (0 = not suppressed), read as
+     `timer_read32() < bat_suppress_until`; `hs_reset_settings()` *sets a
+     transition* (`now + WLS_BAT_SUPPRESS_MS`) instead of flipping a flag. The bool
+     and the counter are gone; the suppression expires on its own.
 
 **Phase C — make the shell humble and the toolchain enforce it.**
 5. **Localize globals.** Move the 13 board globals to the smallest scope
