@@ -1712,6 +1712,18 @@ rather than merely absent — which is the bar this project set for itself.
   `host/battery_polybar.py` (a `BOOT:` line; note its host field is the
   `HSM_HOST_*` vocabulary, not the raw `CONNECTION_HOST_*`). Tested 7/7.
 
-The remaining piece — a boot-time LED blink of the same record, for a host-less
-read — is deferred to its own slice; it needs an in-sequence blink core, since
-the existing indicator arrays hold flashes concurrently.
+- *A host-less exporter: the same record, blinked.* The USB reply above still
+  needs the USB line, so it cannot be read on the very boot that tears the line
+  down. `wls/boot_blink_logic` is the missing **in-sequence** blink (the existing
+  indicator arrays hold flashes concurrently, not in sequence): given a schedule
+  of per-step pulse counts and the current time, it says which step to show and
+  whether the pulse is lit. The schedule itself is the pure
+  `wls_boot_report_blink_step()` (same `boot_report_logic` core): step 0 = switch
+  position, step 1 = applied host, step 2 = settled-ness (one white pulse when
+  settled, three red when not — the failure marker). `wls_indicator_boot_report_start()`
+  arms it from the retained decision at boot; the RGB frame hook paints it. It is
+  the one indicator that works with the line down. Tested 7/7.
+
+So both halves of Measure D are in place: the retained record (readable on the
+next successful reply) and the blink (readable with no host at all). The
+self-detach now has an instrument that survives the failure it diagnoses.
