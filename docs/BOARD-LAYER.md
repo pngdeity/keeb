@@ -107,7 +107,16 @@ Ordered by dependency and by risk (leaf concerns first):
    master-side senders route through one `wls_split_send(cmd, body)` primitive
    (the wire call stated once). Build 63,136 B.
 5. `wls_indicator` — move every LED writer out; the sequence becomes a pure
-   decision the shell executes.
+   decision the shell executes. **DONE (rule extracted).**
+   `wls/indicator_logic.{c,h}` owns the two pure decisions: the blink tick
+   (`wls_blink_t`, `wls_blink_tick`/`wls_blink_arm` — the one rule the three
+   near-identical loops each re-derived: interval elapsed, colour on the odd
+   half-period, DONE when the counter empties) and the battery colour table
+   (`wls_bat_colour_of(charging, full, level)`). Tested 5/5. The board's three
+   loops now embed a `wls_blink_t` and execute the tick; the colour block is a
+   `switch` over the pure result. Board file 1,376 -> 1,294 lines; build
+   63,236 B. `hs_reset_settings` is left for slice 6 (it resets EEPROM/keymap
+   and re-runs `keyboard_post_init_kb`, so it is not purely an indicator).
 6. `wls_lifecycle` — the hooks; each becomes a delegate.
 7. `wls_keymap` — already split; only the hook wrappers move.
 
