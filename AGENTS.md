@@ -187,7 +187,39 @@ keymap is **not** in the tree — it lives in the sibling userspace repo
 - Wire format -> `docs/PROTOCOL.md`
 - Toolchain, flashing, host deps -> `docs/DEPENDENCIES.md`
 - Why the design is as it is -> `docs/FINDINGS.md`
+- A structural decision and its rejected alternatives -> `docs/ADR-*.md`
+- What runs from reset to steady state, in order -> `docs/BOOT-SEQUENCE.md`
+- What each LED means and how to read the board -> `docs/INDICATORS.md`
 - Work, defects, status -> `TODO.md` (the live record)
+
+## Before flashing anything (the pre-flight rule)
+
+**"Ready to flash" means airworthy, not "it compiled."** Before any hardware
+session, complete the pre-flight checklist in
+`docs/RUNBOOK-flash-and-measure.md` § 0.0 and state the rationale in writing:
+every untested assumption, the predicted hardware effect of each test case, what
+the build does *not* explain, and the non-flashing recovery. The rule and its
+review questions are in `TODO.md` "Pre-flight discipline for a hardware test".
+
+This is not ceremony. Three separate live *livelocks* in the transport work were
+caught by pre-flight review rather than on hardware, each of which would have
+cost a flash cycle and a misleading symptom. The most productive question in this
+project's history is **"does this effect feed back into its own trigger?"** — a
+trigger must not depend on a signal the triggered effect modifies.
+
+## Working in a region that cannot be observed (the instrument rule)
+
+Some of this firmware runs where nothing can see it: **before a console, before
+USB, and it can fail dark and silent** (a fault in early init pulls up the USB
+data line and goes mute). In that region the **LED is the only channel that
+survives**, and the boot code is the instrument. Before re-engineering such a
+region, make the instrument trustworthy first — it must be **exclusive** (the
+only thing painting while it plays), **uniform in timing** (the count carries the
+value), **delimited and repeating** (a missed start is recoverable), and
+**started where the frame is live**. The four constraints, the code convention,
+and how to read the board are in `docs/INDICATORS.md`; the generalisation of this
+to any unobservable region is in `docs/FINDINGS.md` "the recurring defect is one
+class".
 
 ## Searching the git history
 

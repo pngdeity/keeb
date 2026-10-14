@@ -31,7 +31,14 @@ work are in `TODO.md`.
   not an Epomaker invention · the board is an ODM product (MATHEW candidate /
   Shenzhen Changyun named by certification) · the boot switch read is
   un-settled, and UNKNOWN is silently applied · the low-power presleep hook cut a
-  live USB line, giving a periodic reset loop.
+  live USB line, giving a periodic reset loop · **the recurring defect is one
+  class with two shapes (feedback and ordering), and the remedy is a gate the
+  component owns, not a guard each caller remembers** · **the boot instrument is
+  a Dell-style `(amber, white)` code — the old field-per-step blink was
+  unreadable for four reasons, including an ordering fault of that same class** ·
+  **a reset loop is proved by the chip's own latch (`RCC->RSTSTAT`), not by an
+  instrument that counts boots** · **the shell held policy — a show bound and a
+  clock origin — which is why the boot-code miscount was untestable**.
 - Design · Build facts · Dongle recon — reference.
 - Open questions tied to these findings.
 
@@ -1703,10 +1710,11 @@ rather than merely absent — which is the bar this project set for itself.
   not fire for the already-USB case). Deleted; the board's boot seed now covers
   that case unconditionally on a settled read. The line has exactly one owner:
   the board's `connection_host_changed_kb()` plus the boot seed.
-- *A second exporter that does not ride the USB line.* `wls/boot_report_logic`
-  encodes the boot decision (switch position, applied host, settled-ness) into a
-  fixed 3-byte block, **retained** in `wls.c` beside the boot counter and exposed
-  on the `0xA4` reply at `KB_BATTERY_IDX_BOOT_REPORT` (17). Because it is
+- *A second exporter that does not ride the USB line.* The boot decision
+  (switch position, applied host, settled-ness) is retained in `wls.c` beside the
+  boot counter and exposed on the `0xA4` reply at the boot-code index (17), now
+  as the `(amber, white)` pair the LED also plays — see the instrument finding
+  below. Because it is
   retained rather than sampled live, the *next* successful reply is a post-mortem
   of a boot whose own USB line died — the case the live 6-byte diag block cannot
   cover. Written by `wls_lifecycle_boot()` at the moment of decision; decoded by
@@ -1724,6 +1732,13 @@ rather than merely absent — which is the bar this project set for itself.
   settled, three red when not — the failure marker). `wls_indicator_boot_report_start()`
   arms it from the retained decision at boot; the RGB frame hook paints it. It is
   the one indicator that works with the line down. Tested 7/7.
+
+  > **SUPERSEDED (2026-10-14).** This field-per-step blink was replaced: reading
+  > it in the field proved ambiguous (four defects — not exclusive, per-step
+  > durations differed, no delimiter, an ordering fault). `wls/boot_blink_logic`
+  > and `wls/boot_report_logic` are **deleted**; the retained-decision half now
+  > lives in `wls/wls.h` and the host renderer in `wls/boot_code_logic`. See
+  > "the boot instrument is a Dell-style `(amber, white)` code" below.
 
 So both halves of Measure D are in place: the retained record (readable on the
 next successful reply) and the blink (readable with no host at all). The
@@ -1790,3 +1805,233 @@ not the claim it appeared to be). The class is the same one this project keeps
 meeting — an indeterminate or repurposed input translated into a confident,
 valid-looking decision. The cure is the same: make the predicate mean what it
 says, and never act on a value the boot declined to apply.
+
+## FINDING — the recurring defect is one class, and it has two shapes
+
+Four defects found on hardware in one session (2026-10-13) shared a structure
+that is worth naming, because naming it is what turns four patches into one
+remedy. **The class:**
+
+> An effect is derived from state whose value the effect itself can change — or
+> whose validity depends on an initialization or lifecycle stage that the
+> effect's trigger can precede.
+
+The class has two shapes with *different* root remedies:
+
+- **Feedback** — the trigger reads a value the effect perturbs. The result is a
+  livelock or an oscillation, and the symptom looks like a hardware fault
+  (self-detach, re-enumeration). The remedy is to break the loop: a trigger must
+  not depend on a signal its own effect modifies.
+- **Ordering** — the effect is reachable at a lifecycle stage where its
+  dependencies are not yet valid. The result is a fault or a silent no-op. The
+  remedy is a gate the *component that owns the effect* enforces, so no caller
+  can reach it too early.
+
+**The four instances.** (1) `hs_modeio_detection`'s predicate asked "does the
+resolved transport differ from the pins?" — permanently true once the transport
+legitimately differed, so it re-fired every 50 ms and re-drove the USB line
+(feedback). (2) The polled USB-activity edge in housekeeping re-armed itself on
+the `USB_ACTIVE` loss its own `restart_usb_driver` caused (feedback). (3) The
+USB lifecycle hook, reachable from `protocol_setup()` before `wireless_init()`,
+let the owner call `wireless_devs_change()` → `smsg_push()` on an uninitialized
+ring and HardFault the MCU before the main loop — a deterministic dead board
+(ordering). (4) The boot and +100 ms sites drove `wls_usb_connect(false)` from an
+*unconfirmed* hint decision, cutting the line a host needed to confirm — the
+promotion that outranks a lying switch could never fire (ordering, and also
+feedback: the decision destroyed its own trigger).
+
+**Why the instance fixes were not enough.** The first two fixes were guards on
+`wls_usb_connect`'s call sites. That made *that one actuator* safe and said
+nothing about `wireless_devs_change` — the actuator that actually hard-faulted —
+nor about the suspend hooks, which had the same shape and were reachable from the
+same early stage. **Gating one actuator's call sites is not gating the class.**
+
+**The class remedy, now in the tree.** (1) `wls_module` owns "the module is up"
+and refuses a device-index change before it, so *every* caller — present and
+future — is safe. (2) The transport owner drives the USB line itself, in one
+place, and the decision carries its input's *class*: an unconfirmed hint may only
+**promote** (turn the line on, idempotent); **demotion** belongs to confirmed
+events. (3) The rail owner's comment names its one deliberate exception, so the
+"one writer" claim is true.
+
+**The transferable lessons.**
+- **The two directions of a destructive actuator are not symmetric.** A confirmed
+  owner may command loss; an unconfirmed derivation may only command presence.
+  Commanding loss destroys the very input that would confirm.
+- **Gate the component, not the caller.** A guard at each call site is a promise
+  someone must remember; a gate inside the owner is a fact the compiler and the
+  tests enforce.
+- **Nothing may act before its dependencies exist.** A hook reachable from
+  `protocol_setup()` runs before `keyboard_init()`, before EEPROM, and before the
+  wireless module. A hook that *records an input* there is fine; one that
+  *performs an effect* is a fault waiting for a boot.
+- **A pure predicate can only be tested if it is a pure predicate.** Every rule
+  above is a one-line boolean with a test; the shells cannot be unit-tested, so
+  the invariant has to live where a test can reach it.
+
+## FINDING — the boot instrument is a Dell-style `(amber, white)` code, and the old one was unreadable
+
+> **The reader's contract now lives in `docs/INDICATORS.md`** — how to count the
+> code, the stage vocabulary, the other indicators, and the four constraints a
+> trustworthy instrument must satisfy. This section keeps the *discovery
+> narrative*: why the previous instrument was unreadable and what replaced it.
+
+**Why a new instrument.** The region this project is now working in — the boot
+sequence and the vendor wireless stack reached through it — is *not amenable to
+bug-hunting*: it runs before there is a console, before USB is up, and (as of the
+2026-10-13 faults, §13 items 0/0b of `docs/BOOT-SEQUENCE.md`) it can fail in ways
+that leave the board dark and silent. The only channel that survives such a
+failure is the LED rail, which is powered before the switch read. So the
+instrument is the LED, and the LED instrument had to become trustworthy before
+anything else could be.
+
+**The four defects that made the old instrument unreadable.** (1) It was **not
+exclusive**: the boot schedule painted at `rgb_matrix_indicators_advanced_kb`,
+but `wls_indicator_set_flash()` ran *after* it and, for an indicator with
+`index == 0xFF`, called `rgb_matrix_set_color_all(...)` — repainting the whole
+matrix and erasing the frame. The battery and channel indicators painted in the
+same pass. This is why the early field readings ("white magenta" and "white,
+magenta, then solid white") were ambiguous: the eye was seeing a mixture whose
+content depended on unrelated state. (2) **Per-step durations differed** — the
+step period was applied *per half-period*, so a step with `n` pulses lasted
+`n × 400 ms` and counting required the spec open. (3) **No delimiter and no
+repetition** — the schedule played once, from an arbitrary phase, with no leading
+marker; a missed start was unrecoverable. (4) **An ordering fault of the
+project's own recurring class**: the schedule was *started* in
+`wls_lifecycle_boot()` (step 33 of `keyboard_init()`) but only *painted* once the
+RGB frame pass ran in `main()`'s loop, so its phase had already advanced before
+the first paint, and a boot that died earlier showed nothing at all.
+
+**The convention adopted.** Dell's Latitude E-series diagnostic LED, KB
+`000131044`: a **two-part code `(amber, white)`** — "the first number represents
+the number of amber-colored flashes, the second number the number of white-colored
+flashes"; the LED stops `1.5 s` between the two groups and `3 s` between
+repetitions, and the code repeats. So **colour partitions the code into two
+groups; the count carries the value**; the intra-code gap delimits the groups and
+the inter-code pause delimits the frame. Repetition makes a missed start
+recoverable. This replaced the previous field-per-step schedule entirely.
+
+**What the code speaks.** Amber = the boot **stage** (coarse category); white =
+the code within it. `WLS_BOOT_STAGE_{OK=0, PREINIT=1, BOOT_PASS=2, TRANSPORT=3,
+ROLE=4, INCOMPLETE=5}` — OK speaks no amber and reports the chosen transport and
+role, so a working board is *also* readable; a fault speaks its stage first. The
+white-code assignments within each stage are deliberately revisitable (the
+vocabulary is expected to change); only the stage partition is fixed. The code is
+carried on the host channel too, at `KB_BATTERY_IDX_BOOT_CODE`, so the eye and
+the host cannot drift: `host/battery_polybar.py` prints
+`BOOT CODE: A amber, W white -> stage=… code=…`.
+
+**The design that makes it trustworthy.**
+- **`wls/boot_code_logic.{c,h}` is pure**: `wls_boot_code_counts()` maps a
+  `(stage, code)` to `(amber_count, white_count)` (clamped to `1..9` — a group is
+  never zero-length within a spoken code, since zero is indistinguishable from a
+  missing delimiter); `wls_boot_code_frame_ms()` gives the frame length;
+  `wls_boot_code_at(counts, elapsed_ms)` returns the phase and colour at an
+  *elapsed* time, taken modulo the frame, so a **late first paint is still
+  correct** — the property the old instrument lacked. `wls_boot_code_encode()`
+  writes the same pair for the host. 13 tests, including the exact pulse counts,
+  the pulse width, the three ordered time scales (pulse period < group gap <
+  frame gap), the dark frame gap, and the loop property.
+- **The matrix has one arbitration owner.** While the boot code plays,
+  `wls_indicator_boot_code_owns_matrix()` is true and the paint pass returns
+  early, suppressing the channel flash, the battery indicator and
+  `wls_indicator_set_flash()`. The old additive overwrite is now structurally
+  impossible rather than merely reordered — the same "one owner per state" rule
+  as the USB line and the rail.
+- **It is started from the paint pass**, where the frame is live, so the
+  ordering defect (4) is gone by construction.
+- **A keypress dismisses it**, and it self-clears after a timeout, so it loops
+  long enough to be read from a cold glance at a dark board.
+
+**Timing is measured, not assumed.** The frame rate sets the floor on pulse
+width, and it is not derivable from constants: the frame cycle runs inside the
+main loop behind a `RGB_MATRIX_LED_FLUSH_LIMIT` (16 ms, not overridden here)
+gate, so the true period is `max(16 ms, one loop period)` — loop-rate dependent.
+The SPI shift is *not* the limiter (≈5 ms worst case for 68 LEDs). See
+`docs/HARDWARE.md` "RGB matrix frame timing". A 300 ms pulse therefore spans ~19
+frames and is comfortably reachable.
+
+## FINDING — a reset loop is proved by the chip's own latch, not by an instrument that counts boots
+
+The board was observed to cycle: the app enumerates, binds all three HID
+interfaces, then disappears, and the cycle repeats with **`342d:dfa0` — the DFU
+bootloader — appearing *between* app enumerations with no flash in progress**.
+The bootloader cannot run without executing the reset vector, so a `dfa0`
+appearance is proof that the **MCU is resetting**, not merely that the USB data
+line dropped. "Self-detach" (a line fault) and "reset loop" (a CPU or power
+fault) have different remedies, so the distinction is load-bearing; an earlier
+note in `TODO.md` defect 8 calling this "not a reset loop" was wrong and is
+corrected there.
+
+**The first instinct was an instrument that infers the cause**: a boot counter
+spoken on the LED, so that one reset shows as one more count — a channel that
+survives a reset because the LED rail is powered before the switch is read. That
+works, but it only proves *that* a reset happened and it needs a replug ritual to
+read.
+
+**The better fact was already in the silicon.** The WB32FQ95xx latches the cause
+in `RCC->RSTSTAT`, six named bits (low-power, window watchdog, independent
+watchdog, software, power-on, external pin), cleared only by an explicit write.
+So the MCU can *name* why it reset, and the value survives the fault that
+produces it. See `docs/HARDWARE.md` "Reset cause" for the register and bits, and
+`docs/INDICATORS.md` §2 for how the boot code speaks it.
+
+**Two lessons, both transferable.**
+
+1. **Consult the silicon before building an instrument that infers.** A counter
+   is a proxy for a fact the chip already records; the proxy needed a ritual, the
+   latch needs one read.
+2. **A latch is consumed once and carried to every reader.** Read-and-clear is a
+   *consume* operation, so it must happen exactly once, at one defined point, and
+   the consumed value must be retained for every reporter. Reading it at the LED
+   and again at the host would let the two disagree — the same "one authority per
+   state" rule that governs the transport and the LED rail.
+
+This is the same class the rest of this document names: the *channel* by which a
+diagnosis travels must be independent of the fault under diagnosis. A reset
+destroys any channel that needs the running application; the LED rail and the
+reset-cause latch both survive it, and the latch answers a strictly larger
+question than the count.
+
+## FINDING — the shell held policy, and that is why the miscount was untestable
+
+The boot code played `(5 amber, 5 white)` where the core emits `(7 amber, 5
+white)`. The core was correct — verified by executing it, twice. The fault was a
+bound in the *shell*: `WLS_BOOT_CODE_SHOW_MS 10000` was shorter than a `(7,5)`
+frame (**11700 ms**), so the window closed mid-group and the leading amber pulses
+were never shown. The other direction is a defect too: a window longer than a
+frame lets the next frame's amber group in, and because both groups are amber the
+reader counts them together (harness-measured: twelve amber, not seven).
+
+**Why it reached hardware: the decision's inputs lived in the shell.** The
+`wls_indicator.c` shell held a clock origin (`static uint32_t boot_code_started`)
+and a show bound (the `SHOW_MS` constant). Neither is an effect; both are *inputs*
+to the pure decision "what is lit now". So the core never saw them, no pure test
+could reach the policy, and the only way to find the bug was to flash it. This is
+`docs/BOARD-LAYER.md` principle 1 — "the shell holds no policy" — stated as a
+failure mode rather than a rule.
+
+**A related smell: the header promised a property nothing tested.** The
+`wls_boot_code_at()` doc comment claimed a late first paint "is still correct".
+It was not: a late start shifts the frame and silently consumes leading pulses.
+A comment that asserts a guarantee no test enforces is the same defect as the
+policy in the shell — a claim where a proof belongs.
+
+**The fix moved the inputs into the core.** `wls_boot_code_show_ms(counts)` now
+*derives* the window (exactly one frame, so it cannot disagree with the frame),
+and `wls_boot_code_at(counts, origin_ms, now_ms)` takes the origin as a value, so
+"how late may the first paint be" is answered by a test. The shell's remaining
+state is a latch ("armed"), not a decision.
+
+**Three lessons, all transferable.**
+
+1. **Policy inputs belong in the core, not the shell.** A bound or a clock origin
+   that the shell supplies is policy; keep it where it can be tested. If a defect
+   is only reachable by flashing, look first for the decision's inputs sitting in
+   the caller.
+2. **A bound must be derived from the thing it bounds.** A hand-chosen constant
+   can disagree with the object it limits, and *both* directions are wrong.
+3. **When a reading contradicts the code, execute the core.** The code was right;
+   the explanation for the wrong reading was a shell defect, not a hardware quirk.
+   Reaching for a hardware hypothesis before running the pure function would have
+   sent us to the wrong layer.

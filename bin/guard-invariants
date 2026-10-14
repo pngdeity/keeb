@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# Guard the invariants that no unit test can reach.
+#
+# Some of this firmware's rules are structural, not behavioural: they are about
+# what may *call* what, and a call site added later would break them without any
+# test going red. `docs/AUDIT-fcis.md` records them as "enforced by convention";
+# this script makes the convention checkable, so a future edit fails loudly here
+# instead of silently re-entering a cycle that cost a flash cycle to find.
+#
+# Each guard names the rule, the document that explains it, and the failure mode
+# it prevents. Run it before committing; CI runs it too.
+#
+# Usage:
+#   ./bin/guard-invariants
+#
+# Exits non-zero if any guard fails.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"
+cd "$ROOT"
+
+WLS="qmk_firmware/keyboards/epomaker/epomaker_split65/wls"
+status=0
+
+fail() {
+    echo "FAIL $1"
+    echo "     $2"
+    status=1
+}
+
+ok() { echo "OK   $1"; }
+
+# --- F5: the USB line has exactly one driver ----------------------------------
+#
+# `wls_usb_connect` is the only thing that restarts (or tears down) the USB
+# driver, and the transport owner owns it. If a second call site appears, that
+# site re-derives `if (changed) wls_usb_connect(...)` on its own and can get the
+# direction rule wrong -- which is the 2026-10-13 livelock (the board enumerated,
+# self-detached and re-enumerated about once a second, forever).
+# See `wls/wls_transport.h` (the invariant) and `docs/ADR-transport-authority.md`.
+# Count *call expressions* only: a line whose code (before any trailing comment)
+# invokes wls_usb_connect, excluding the definition in wls_usb.c. A leading `*`
+# or `//` marks a prose line; the definition has a type before the name.
+call_sites=$(rg -n 'wls_usb_connect\s*\(' "$WLS" --glob '*.c' \
+    | rg -v ':[0-9]+:\s*(/\*|\*|//)' \
+    | rg -v ':[0-9]+:\s*(void|bool|static|[A-Za-z_]+)\s+.*wls_usb_connect\s*\([^;]*\)\s*\{' \
+    | wc -l)
+if [ "$call_sites" -eq 1 ]; then
+    ok "F5 wls_usb_connect has exactly one call site"
+else
+    fail "F5 wls_usb_connect has $call_sites call sites (want 1)" \
+         "only wls/wls_transport.c's drive_line_for may drive the USB line"
+    rg -n 'wls_usb_connect\s*\(' "$WLS" --glob '*.c' || true
+fi
+
+# --- F7: the core's device-index vocabulary matches the vendor enum -----------
+#
+# `transport_logic.c` keeps private copies of DEVS_USB/DEVS_BT1..5/DEVS_2G4 so
+# the file stays free of the firmware include graph (and therefore host-testable,
+# V1/V6). The risk is silent drift: the two definitions must agree and nothing
+# fails if they diverge. Read both and compare.
+# See `docs/AUDIT-fcis.md` "F7 -- the duplicated device-index vocabulary".
+core_defs=$(rg -o '^#define HSM_DEVS_[A-Z0-9_]+\s+[0-9]+' "$WLS/transport_logic.c" | sed 's/#define //')
+vendor_file="qmk_firmware/keyboards/linker/wireless/module.h"
+
+# Parse the first enum in module.h into "NAME VALUE" lines.
+vendor_enum=$(awk '
+    /^enum/ {n=0; in_enum=1; next}
+    in_enum && /};/ {in_enum=0; next}
+    in_enum {
+        line=$0
+        gsub(/\/\/.*/,"",line); gsub(/,/,"",line); gsub(/^[ \t]+|[ \t]+$/,"",line)
+        if (line ~ /=/) { split(line,a,"="); name=a[1]; gsub(/[ \t]/,"",name); val=a[2]+0; n=val; print name" "val }
+        else if (line != "") { print line" "n }
+        n++
+    }
+' "$vendor_file")
+
+drift=0
+while read -r name value; do
+    [ -n "$name" ] || continue
+    vname="${name#HSM_}"   # HSM_DEVS_USB -> DEVS_USB
+    vendor_value=$(echo "$vendor_enum" | awk -v w="$vname" '$1 == w {print $2; exit}')
+    if [ -z "$vendor_value" ]; then
+        echo "     ${name}: no ${vname} in ${vendor_file}"
+        drift=1
+    elif [ "$value" != "$vendor_value" ]; then
+        echo "     drift: ${name}=${value} but ${vname}=${vendor_value} in module.h"
+        drift=1
+    fi
+done <<< "$core_defs"
+if [ "$drift" -eq 0 ]; then
+    ok "F7 HSM_DEVS_* matches the vendor DEVS_* enum"
+else
+    fail "F7 the core's device-index copies have drifted from module.h" \
+         "update the HSM_DEVS_* defines in $WLS/transport_logic.c"
+fi
+
+# --- the sleep hook may not cut a live USB line -------------------------------
+#
+# The presleep hook ran a transport teardown that could cut the line the host was
+# using, which detached the board mid-session. The resolution: the hook may only
+# *route through the rail owner*, never drive the line itself.
+# See `docs/FINDINGS.md` and the `notify_usb_device_state_change_kb` hook.
+hook_file="qmk_firmware/keyboards/epomaker/epomaker_split65/epomaker_split65.c"
+if rg -q 'notify_usb_device_state_change_kb' "$hook_file"; then
+    if rg -n 'wls_usb_connect\s*\(' "$hook_file" | rg -v ':\s*(/\*|\*|//)' | rg -q .; then
+        fail "the presleep/USB hook drives the USB line directly" \
+             "it must route through the transport owner, not call wls_usb_connect"
+    else
+        ok "the presleep/USB hook does not drive the USB line directly"
+    fi
+else
+    fail "notify_usb_device_state_change_kb is missing from $hook_file" \
+         "the suspend hook is how host suspend is reported as an event"
+fi
+
+exit "$status"

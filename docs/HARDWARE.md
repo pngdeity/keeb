@@ -56,6 +56,68 @@ One LED, on the **right half** bottom row. Its index is into
   charging-to-full, blue while charging. It is part of the battery work committed
   in the submodule (see `TODO.md`).
 
+## RGB matrix frame timing
+
+The LED-facing diagnostics (the boot code blink) are a *side effect* of the RGB
+matrix frame pass, not an independent output: whatever is painted is only
+repainted when the frame pass runs. So the frame period is the hard ceiling on
+the blink's temporal resolution — a pulse shorter than one frame can be dropped
+entirely. This is the "the timing is not what the comment claims" trap, one
+level below the instrument itself, so it is measured rather than assumed.
+
+**What is verified from the source (2026-10-14):**
+
+- **The frame gate is `RGB_MATRIX_LED_FLUSH_LIMIT` = 16 ms**, defined in
+  `quantum/rgb_matrix/rgb_matrix.h` (`#ifndef` default 16) and applied in
+  `rgb_task_sync()` (`rgb_matrix.c`): the next frame begins only when
+  `sync_timer_elapsed32(g_rgb_timer) >= RGB_MATRIX_LED_FLUSH_LIMIT`. The value is
+  **not** overridden by this board (absent from the build's `cflags.txt`).
+- **The whole frame cycle runs inside the main loop**, not a timer:
+  `keyboard_task()` (`quantum/keyboard.c:737`) calls `rgb_matrix_task()`, which
+  walks `STARTING → RENDERING → FLUSHING → SYNCING`. The real frame period is
+  therefore `max(16 ms, one main-loop period)` — it is loop-rate dependent and
+  **cannot be derived from constants alone**.
+- **The SPI transfer is not the limiter.** The panel is `WS2812_SPI`
+  (`WS2812_SPI_DIVISOR 32`, driver `SPIDM2`) driving **68** LEDs
+  (`RGB_MATRIX_LED_COUNT`). One frame transmits `4 (preamble) + 68 × 12 (data) +
+  112 (reset) = 932` SPI bytes. Even at a pessimistically slow 1.5 MHz that is
+  ~5 ms — below the 16 ms gate at any plausible SPI clock, so the WS2812 shift
+  time does not dominate.
+- **Consequence for the blink design:** at the nominal 16 ms frame the pulse
+  width of 300 ms spans ~19 frames, so a pulse is only dropped if the main loop
+  period exceeds roughly 150 ms. The measured period is published through the
+  boot report (see below) so this stays a *verified* fact, not a standing
+  assumption.
+
+### Open: the amber group renders green
+
+**Observed 2026-10-14, unexplained.** The boot code paints its first group with
+`WLS_BOOT_CODE_AMBER_{R,G,B} = {0xFF, 0x60, 0x00}` — a warm orange. The operator
+consistently sees that group as **green**. Verifying the whole path ruled out
+every software explanation:
+
+- the pure core emits `(255, 96, 0)` for that group (confirmed by executing
+  `boot_code_logic` on the host, not by reading it);
+- `wls_indicator_boot_code()` passes those bytes to `rgb_matrix_set_color_all()`
+  unmodified;
+- `rgb_matrix_set_color_all` → `rgb_matrix_driver.set_color()` applies no
+  scaling, brightness multiply, or channel reorder between the call and the
+  driver;
+- the paint happens inside the frame pass, so no later stage overwrites it
+  (the boot code owns the matrix while it plays).
+
+So the firmware asks for orange and the panel shows green. The remaining
+candidates are hardware-side and **unmeasured**: a WS2812 bit-timing error at
+`WS2812_SPI_DIVISOR 32` (a small duty deviation changes the relative channel
+brightness, and green is the most perceptually sensitive), or the panel's own
+colour order differing from what the driver assumes. **Do not "fix" this in the
+colour constants without a measurement** — the fault may be in the drive, in
+which case changing the constants would move the error rather than remove it.
+
+**It does not affect the reading.** Colour only groups the code
+(category = amber, value = white); **the pulse count carries the message**, so
+the boot code is legible regardless.
+
 ## Raw HID interfaces
 
 - Usage page `0xFF60`, usage `0x61`, `RAW_EPSIZE` = **32 bytes** in both
@@ -73,12 +135,28 @@ One LED, on the **right half** bottom row. Its index is into
 
 ## Split-link power
 
-- **The inter-half link carries power.** A single USB-C cable into *either* half
-  charges the whole keyboard, so both halves do not need to be plugged in.
-- Confirmed by the master's `charging_state` (A7) reading true with no cable in
-  the master's own port — only the slave half's cable and the inter-half link.
-- Consequence: `charging_state` is effectively a shared "power present" bit, not
-  a per-half cable-detection bit.
+- **The two halves do not have the same ports.** The **left half has two**
+  (a host USB-C port and the link port); the **right half has one**, which is the
+  link port. A cable into the right half therefore connects right-to-left, not
+  right-to-host.
+- **The inter-half link carries power, one way: left to right.** The master
+  (left) is the only half that can source power, because it is the only half with
+  a path to a supply. The link feeds the right half.
+- **A single cable powers the whole keyboard only through the left half's host
+  port.** Plugging the left half into a host both powers the left half and, over
+  the link, the right half. There is no configuration in which a lone right half
+  is powered: its only port is the link port, and a link alone sources nothing.
+  A lone right half showing no signs of life is therefore **expected**, not a
+  fault — that half is masterless and unsupplied.
+- Consequence: `charging_state` (A7) is a shared "power present" bit, not a
+  per-half cable-detection bit — it reads true on the left half whenever the left
+  half is powered or charging, whether or not that half's own cable is attached.
+- **Superseded, recorded because it is wrong:** an earlier revision of this file
+  claimed "a single USB-C cable into *either* half charges the whole keyboard",
+  inferred from the master's `charging_state` reading true without a cable in the
+  master's own port. That inference over-extended one observation and is
+  physically impossible given the right half's single link-only port: a link
+  cable cannot carry a supply into a half that has no supply of its own.
 
 ## Batteries
 
@@ -97,9 +175,9 @@ One LED, on the **right half** bottom row. Its index is into
   reads.
 - **Open:** whether the right half has any charging circuitry at all, or is
   purely bus/link powered. Record it when known.
-- **The inter-half link carries power** (`## Split-link power` below), so a cable
-  into **either** half reaches both PCBs. That is a power distribution fact, not
-  evidence of two cells.
+- **The inter-half link carries power, left to right only** (`## Split-link power`
+  below): a cable into the **left** half's host port reaches both PCBs. That is a
+  power distribution fact, not evidence of two cells.
 - **Reporting is the battery half's level.** The master (currently the left /
   battery-bearing half) answers `0xA4` with its own module's value. One battery,
   one reported number; there is no second cell whose level could differ.
@@ -557,11 +635,15 @@ teardown into the public record.
 ## Halves and handedness
 
 - Both halves run **identical firmware**; there is no left/right build variant.
-  Handedness is a physical pin (`split.handedness.pin` = B9). QMK **core** derives
+  Handedness is a physical pin (`split.handedness.pin` = B9). **B9 is USB cable
+  detection** — "high when plugged" (see the sibling-board pin map above, which
+  is the only place this pin's physical meaning is recorded). QMK **core** derives
   the master from the USB role (`usb_bus_detected()`), but each **keymap**
   overrides `is_keyboard_master()` to `gpio_read_pin(SPLIT_HAND_PIN)` — so on this firmware the
-  pin determines the role too, and the two questions coincide. Removing that
-  override would restore the core USB-role semantics.
+  pin determines the role too, and the two questions coincide: **the half with the
+  host cable is the master**, which is the only half that can be, since only the
+  left half has a host port at all. Removing that override would restore the core
+  USB-role semantics.
 - The **left half is currently the master** and the **right half the slave**,
   joined by the link cable. Role is pin-determined, not positional; see
   `DEVICE.md` "Nomenclature".
@@ -908,6 +990,119 @@ When a new fact lands, put it in tier 1, move its bound out of tier 2/3, and
 depends on a tier-2 item, cite the bound next to the decision so a future reader
 knows the ceiling it was made under. `FINDINGS.md` holds the *reasoning*; this
 table holds the *state*.
+
+## Reset cause (the chip latches it)
+
+The WB32FQ95xx records why it last reset in **`RCC->RSTSTAT`** (offset `0x100`),
+a six-bit latch cleared by writing **`RCC->CLRRSTSTAT`** (offset `0x0C8`, bit
+`CLR`). Verified in the CMSIS device header
+(`lib/chibios-contrib/os/common/ext/CMSIS/WB32/WB32FQ95xx/wb32fq95xx.h`).
+
+| Bit | Define | Cause |
+| --- | --- | --- |
+| 0 | `RCC_RSTSTAT_LPWRRSTF` | low-power mode |
+| 1 | `RCC_RSTSTAT_WWDGRSTF` | window watchdog |
+| 2 | `RCC_RSTSTAT_IWDGRSTF` | independent watchdog |
+| 3 | `RCC_RSTSTAT_SFTRSTF` | software |
+| 4 | `RCC_RSTSTAT_PORRSTF` | power-on |
+| 5 | `RCC_RSTSTAT_PINRSTF` | external reset pin |
+
+**Why it matters.** A reset loop cannot be observed by any channel that needs the
+running application — the fault destroys the channel that would report it. This
+latch is a fact the *chip* holds across the reset, so the next boot can read and
+report it with no host and no prior instrumentation. The firmware consumes it
+exactly once (`wls_note_reset_cause()`, read-and-clear at
+`keyboard_post_init_kb`) and retains the value (`wls_reset_cause()`) so the two
+readers — the LED code and the `0xA4` diag block — cannot disagree. See
+`docs/INDICATORS.md` §2 for how the value is spoken.
+
+**Caveat — now MEASURED, for the power-on bit (2026-10-14).** The register set is
+confirmed from the vendor CMSIS header, and `RCC->` is already used elsewhere in
+the tree (`keyboards/linker/wireless/lpwr_wb32.c`). On 2026-10-14 the instrument
+was read on hardware: a deliberate cold boot spoke `(7 amber, 5 white)` — stage
+`RSTCAUSE`, white 5 = bit 4 = `PORRSTF` (power-on) — which is the honest answer
+for that event. **So the latch is real, this board's silicon reports it, and bit 4
+is confirmed.** The *other* five bits have not been observed; in particular the
+loop's own cause has still not been seen (every reading so far was a clean
+power-on). Do not treat "the register works" as evidence about which bit the
+fault sets — that is exactly what the next reading must establish.
+
+## The USB restart erratum, and why our tree does not have the guard
+
+**Measured fact (2026-10-14, from the linked ELF, not from a forum).**
+
+Upstream QMK carries a board-level guard for WB32 USB:
+
+```c
+// platforms/chibios/boards/GENERIC_WB32_FQ95XX/board/board.c
+void restart_usb_driver(USBDriver *usbp) {
+  // Do nothing. Restarting the USB driver on these boards breaks it.
+}
+```
+
+It was added by **`b5a52b4cff` — "Prevent USB peripheral fault when restarting USB
+on WB32 MCUs (#18058)"** (Joy Lee, 4 years ago). **It was then removed by
+`bd2e59af60` — "Fixed WB32 MCU remote wakeup issue (#20863)"** (same author, 3
+years ago), which deleted the guard while adding one blank line. **Both commits
+are in our submodule's history, and the deletion is the state our tree is in:**
+our `GENERIC_WB32_FQ95XX/board/board.c` has a stub `boardInit()` and **no
+`restart_usb_driver` override at all.**
+
+**What that means concretely.** With the override absent, the weak default in
+`tmk_core/protocol/chibios/usb_main.c` is linked instead, so the board **does**
+run the full restart sequence. Verified in the shipped ELF
+(`epomaker_epomaker_split65_nathan.elf`):
+
+```
+0800a590 W restart_usb_driver          <- weak symbol, i.e. NOT overridden
+  bl  wb32_usb_disconnect              <- usbDisconnectBus
+  bl  usbStop
+  bl  usb_endpoint_in_stop  (x4)
+  bl  usb_endpoint_out_stop
+  movw r0, #5000 ; bl chThdSleep       <- wait_ms(50)
+  ... usb_endpoint_*_init/_start, usbStart, usbConnectBus
+```
+
+The `W` in `nm` output is the proof: the symbol is weak and un-overridden, so the
+erratum the upstream comment describes ("restarting the USB driver on these
+boards breaks it") is **live on this board**.
+
+**Why this matters to us specifically.** Our transport owner calls
+`wls_usb_connect(true)` → `restart_usb_driver()` as the promotion path when a
+host is confirmed. That is exactly the operation upstream flagged as breaking the
+WB32 peripheral. This is a real, named, upstream-documented hazard that sits
+**on our hot path**, and it is the first candidate that explains intermittent USB
+misbehaviour that survives reflashing and is absent on some boots.
+
+**Status: measured as *present* (the guard is absent, the weak default is
+linked); NOT yet measured as the *cause* of the observed DFU entries or the
+non-typing.** Treat it as a leading hypothesis, not a conclusion — the same
+discipline the `RSTSTAT` work needed (a register that works is not evidence about
+which bit a fault sets).
+
+**ACTION TAKEN 2026-10-14: the guard is RESTORED.** The override now exists in
+`platforms/chibios/boards/GENERIC_WB32_FQ95XX/board/board.c` (an empty
+`restart_usb_driver`), restoring upstream's own deleted text. Verified on the
+rebuilt ELF: `arm-none-eabi-nm` now reports **`T restart_usb_driver`** where it
+previously reported **`W`** (the override wins), the body disassembles to
+`movs r0,#0; bx lr` (a bare return), and **`usbDisconnectBus` no longer appears
+anywhere in the image**.
+
+**RESULT 2026-10-14: the erratum is NOT the cause.** The comparison was run. The
+flash changed nothing about the fault: the port still cycles, the `dfa0` DFU
+windows still appear between app enumerations with no flash in progress, and the
+board still does not type. The 25-minute window after the flash showed 8
+enumerations / 8 disconnects / 0 `-71`, including a 12-minute stable hold
+(10:46:47–10:58:50) followed by the same jump.
+
+So the guard is **kept** (upstream's own reasoning stands on its own, and it cost
+nothing), but it is **not** the explanation for the cycling — look elsewhere.
+The live candidate is the DFU magic word itself: a `dfa0` window means
+`bootloader_jump()` ran, which means `0xDEADBEEF` was written to `MAGIC_ADDR`.
+The only board-reachable writer is `QK_BOOT` (`wls/wls_keymap.c`), and the word
+lives at the last word of the heap, so the possibilities are a spurious `QK_BOOT`
+dispatch, heap/stack corruption of that word, or an electrical cause. Unseparated
+as of this writing.
 
 ## Flash targeting
 

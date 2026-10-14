@@ -9,6 +9,388 @@ The live record: work, defects, and status. Sections below are marked **LIVE**
 - **ARCHIVAL** — Regressions introduced by our own change set, Code audit,
   Reverse-engineering the board, Re-base.
 
+## RESUME HERE (written 2026-10-13; **updated 2026-10-14 after the first
+## hardware readings of the Stage 1 instrument**)
+
+**Nothing is committed. All work is in the working trees and is intact.**
+
+**THE GOVERNING PLAN FOR THE NEXT PHASE IS `docs/PLAN-fcis-audit.md` — read it
+first.** Flashing is paused. The sequence is: (1) research what FC/IS is and how
+its abstract values are measured — DONE, distilled in that document as V1–V10
+with a measurement per value; (2) audit and transform every region we have
+authored, applying FC/IS in full and verifying it is actually reflected —
+**DONE 2026-10-14, closed in `docs/AUDIT-fcis.md` (ten fixes F1–F10, every module
+carrying a written verdict against V1–V10 with the measurement that produced it);
+(3) only then resume software analysis to debug (first question: can `QK_BOOT` be
+dispatched without a physical key? — **ANSWERED: all three paths are weak or
+eliminated**, recorded in `AUDIT-fcis.md`); (4) only after that runs dry, and only
+with a written falsifier, return to flash → observe → reflash. The operator's
+rationale: recent flashes tested mechanisms software analysis could have settled.
+Do not start a stage before the previous one is complete.
+
+**STAGE 2 IS CLOSED.** The ten fixes, all verified together: F1–F4 (cores), F5/F7
+(structural guards in `bin/guard-invariants`, CI-wired, each proven to fail on a
+deliberate violation), F6 (the BT-index predicate consolidated), F8 (the boot-stage
+precedence extracted to the pure `wls_boot_facts`), F9 (the `0xA4` golden vector,
+asserted by the firmware and `host/battery_polybar.py --self-check`), F10 (the
+charging-LED branch). Suites: `transport_logic` 43/43, `boot_code_logic` 31/31,
+`indicator_logic` 7/7, `sleep_order_logic` 6/6, `wls_diag` 5/5; five cores compile
+standalone clean; cross-build clean at 63.3 KB
+(sha256 `17a8777e9b545688d461076327e92ba2c9a56dac87f41e6c6dbababef39ea1c7`, **not
+flashed** — the board still runs `usbguard.bin`). **Nothing was committed.**
+
+**STAGE 3 IS CLOSED (software analysis ran dry).** Three questions, each answered
+by measurement, the last two negative: (1) `QK_BOOT` cannot be dispatched without a
+physical key (split link CRC-guarded, dynamic keymap inert, no synthesising route,
+a false matrix bit needs slave cell `[10,6]` coincident with an Fn hold); (2) no
+write path we can name reaches the DFU magic word (stacks at RAM bottom, nothing
+allocates, the heap stops `0x720` short of `MAGIC_ADDR`, every runtime-length store
+in our code and the vendor stack is bounded); (3) the `zozonteq` "disable lowpower"
+commit `bd027b8` holds no fix we lack (its guard is closed at our policy level, its
+request-withdrawal would regress this board). **Consequence:** a `dfa0` window is
+not explained by any software path we can find; the remaining explanations are a
+corrupt-value wild pointer or an exact-value electrical write, neither
+software-decidable. **Stage 4 must be a build that captures the magic word + reset
+cause at the jump, with a written falsifier — no flash until that build exists.**
+Recorded in full in `docs/AUDIT-fcis.md` ("Stage 3 question 1/2/3, measured" and
+"Stage 3 closed").
+
+**STAGE 4 BUILD EXISTS (2026-10-14) — awaiting a human flash.** The discriminating
+build is done: a cross-reset journal in `section(".ram0")` (`wls/wls_jump_journal.*`,
+the sixth pure core `wls/jump_journal_logic.*`), a strong `bootloader_jump()`
+override (`wls/wls_boot_jump.c`) that stamps the journal before writing the magic
+word and jumping, and the journal carried in the `0xA4` reply at bytes 23..34
+(`KB_BATTERY_IDX_JUMP 23`), decoded by `host/battery_polybar.py` as `JUMP: …`. It
+separates the two surviving explanations: **journal present** = our `QK_BOOT` path
+ran (falsifies Stage 3, points at keycode/matrix); **a `dfa0` window with no
+journal** = the word was written outside our path (exonerates the keymap). Verified:
+six cores standalone clean, `wls_jump_journal` 3/3 (plus `transport_logic` 43/43,
+`boot_code_logic` 31/31, `indicator_logic` 7/7, `sleep_order_logic` 6/6, `wls_diag`
+5/5), three guards OK, host self-check OK, both negatives proven; cross-build clean
+at 63.5 KB sha256 `2ec21c449dcb775e69663210c9768986b6db61ad4b0272ff5ef91d91fe705ce6`
+(**not flashed**). Falsifier and the full pre-flight: `docs/AUDIT-fcis.md` "Stage 4"
+and `docs/RUNBOOK-flash-and-measure.md` § 0.0.4.
+
+**THE COMMIT IS OWED.** The whole arc (transport-owner + Stage 1 + pin diag +
+boot-count + reset cause + show-window fix + audit fixes F1–F10 + Stage 3 analysis +
+the Stage-4 journal) is **uncommitted** across root + submodule + userspace, and
+`stash@{0}` is the only insurance. Commit signed once a hardware reading gives the
+message an outcome.
+
+**THE STATE OF PLAY (2026-10-14).** The Stage 1 instrument is **verified on
+hardware** — it reads legibly, self-delimits, repeats, and is not overwritten.
+Both readings so far decoded `(0 amber, 2 white)` = stage `OK`, committed to
+**Bluetooth**, with the host cable attached and the switch visually on USB. That
+is the **C14/C15 pin lie**, and the board does not type because HID is routed to
+the module. **The transport-owner arc is working as designed** — it faithfully
+reports the switch's lying answer; the fault is upstream of it.
+
+**THE OPEN QUESTION IS THE PINS, AND THE HOST CHANNEL CANNOT ANSWER IT.** A flash
+carrying the pin-level diagnostic (`pins.bin`) **could not read them**: the board
+**enumerates and self-detaches 5 times in 5 minutes** (all interfaces bind, then
+the line drops ~2-20 s later, irregular, **zero `-71`**), so `0xA4` is silent on
+every hidraw node. **Do not flash again toward the pin question through the host
+channel.** The LED code is the only reader that has ever worked; if the pins must
+be observed, they must ride on it, or the self-detach must be fixed first.
+
+**CORRECTION (2026-10-14, from the `pins.bin` log): the cycle is a RESET LOOP,
+not a "self-detach".** The journal shows **`342d:dfa0` — the DFU bootloader —
+appearing *between* app enumerations, with no flash in progress**:
+
+```
+app  e4c6  → ~3-5 s → disconnect
+              ↓ ~22 s gap
+DFU  dfa0  → ~6-15 s → disconnect      (dfa0 at 08:59:44 and 09:00:25)
+              ↓ 1-2 s gap
+app  e4c6  → repeat
+```
+
+**The bootloader cannot run without a chip reset** — tearing down the USB data
+line (`usbDisconnectBus`/`usbStop`) drops the *device*, it does not execute the
+reset vector. So a `dfa0` appearance in the cycle is direct evidence that **the
+MCU is resetting**, then the bootloader runs its power-on window, finds no DFU
+host, and hands off to the app. **This falsifies the parenthetical in defect 8
+below ("not a reset loop — exactly one `new device` line per power event")**:
+there are multiple `new device` lines per power event and a bootloader between
+them. Defect 8's un-settled-switch-read mechanism may be a real *separate* fault,
+but it is **not** what is cycling here. "Self-detach" (a line fault) and "reset
+loop" (a CPU/power fault) have entirely different remedies, so the distinction
+matters.
+
+**THE CHIP NAMES ITS OWN RESET CAUSE, SO WE NO LONGER HAVE TO INFER IT.** A
+source check (2026-10-14) found the WB32FQ95xx latches the cause in **`RCC->RSTSTAT`**
+(offset `0x100`), six named bits: `LPWRRSTF` low-power, `WWDGRSTF` window
+watchdog, `IWDGRSTF` independent watchdog, `SFTRSTF` software, `PORRSTF`
+power-on, `PINRSTF` external pin; cleared by writing `RCC->CLRRSTSTAT` (offset
+`0x0C8`, bit `CLR`). Both confirmed in
+`qmk_firmware/lib/chibios-contrib/os/common/ext/CMSIS/WB32/WB32FQ95xx/wb32fq95xx.h`.
+**This is strictly better than the boot counter** (which only proves *that* a
+reset happened, and needs a replug ritual to read): the cause says *why*, and the
+latch survives the reset. Nothing in the tree read or cleared it before.
+
+**IMPLEMENTED 2026-10-14 (pending flash) — two reset-reading stages, 6 and 7.**
+- **Stage 7 `RSTCAUSE`** (the primary reset reading): `wls_note_reset_cause()`
+  reads-and-clears the latch **once**, at `keyboard_post_init_kb`, before
+  `wls_lifecycle_boot()`; the consumed bits are retained in `wls_reset_cause()` so
+  the LED and the host can never disagree. `wls_boot_code_rstcause(bits)` maps the
+  cause onto the code: **white 1** low-power, **2** window-watchdog, **3**
+  independent-watchdog, **4** software, **5** power-on, **6** external-pin; **9**
+  = a set bit we do not name (or nothing latched).
+- **Stage 6 `BOOTCOUNT`** (the fallback): `wls_boot_code_bootcount(n)`, white =
+  the boot number.
+- `wls_boot_facts()` order: **RSTCAUSE** whenever `cause != 0` (ungated — see
+  below) → **BOOTCOUNT** when `wls_boot_count > 1` → ROLE → BOOT_PASS →
+  OK/TRANSPORT. Both are recorded in `docs/INDICATORS.md` §2.
+- **Read it:** seven amber then *n* white = the cause; six amber then *n* white =
+  boot number *n*. Both are stages, not a third group — amber is the category,
+  white the value.
+- **THE GATE FIX (2026-10-14, the sixth instance of the session's error class).**
+  Stage 7 was gated on `wls_boot_count > 1`, but that counter is **RAM** — every
+  reset wipes it, so the gate was disabled by the very fault it measured, and the
+  first `rstcause.bin` flash read `(0 amber, 2 white)` with no cause, on a board
+  that was reset-looping. The gate is now **dropped for stage 7 only**: the
+  `RCC->RSTSTAT` latch is hardware and survives the reset, so the cause is
+  reported **unconditionally when any bit is latched**. Consequence: **every boot
+  now speaks stage 7** — `(7 amber, 5 white)` on an ordinary power-up, the fault's
+  own cause otherwise. `wls_boot_count` stays for stage 6, where `> 1` is the
+  stage's whole point.
+- Build clean; **115 tests / 12 suites pass** (`boot_code_logic` 19/19, `wls_diag`
+  4/4). The diag block grew to 10 bytes (`reset_cause` appended), so
+  `KB_BATTERY_IDX_BOOT_CODE` moved **20 → 21**.
+
+**READING, `rstcause2.bin`, 2026-10-14 (the pre-flight prediction above was MET).**
+Operator report: *"Reflashed. Quick green burst, Five green pulses, pause, five
+white pulses, shorter pause, backlight."*
+**Decode: `(7 amber, 5 white)`** — the "green burst" is the normal RGB start-up
+frame, then the code plays `[amber × 5] --gap-- [white × 5]`. `stage = RSTCAUSE`,
+`white = 5` = `RCC_RSTSTAT_PORRSTF` — **power-on reset**, exactly the predicted
+cold-boot value. Three things this settles:
+
+1. **The gate fix works.** The *same* cold boot read `(0 amber, 2 white)` on
+   `rstcause.bin` and `(7 amber, 5 white)` on `rstcause2.bin`; the only change was
+   dropping the RAM-counter gate, so that gate was provably what hid the reading.
+2. **`RCC->RSTSTAT` latches and reads honestly on this silicon** — previously
+   `source-verified only`, now observed. `docs/HARDWARE.md`'s caveat has been
+   updated to record this.
+3. **The transport report is displaced on ordinary boots** (the intended trade:
+   a latched cause outranks it). Noted as a design question — whether a second
+   frame should also carry the stage-OK report.
+
+**THE LOOP'S OWN CAUSE HAS NOT YET BEEN SEEN** — this reading was a clean cold
+boot. **The next observation is the one that names the mechanism: when the reset
+loop fires, the code should read `(7 amber, n)` with `n ≠ 5`.** A single
+`app → DFU → app` cycle is enough; replug repeatedly and read the white count. A
+repeating `n` is a deterministic cause and is the lead; **4** (`SFTRSTF`) would
+point at a spurious `QK_BOOT` jump (`wls/wls_keymap.c:348` is the only
+board-reachable `bootloader_jump`), **3**/**2** at a watchdog (none is started),
+**6** (`PINRSTF`) at the reset pin (electrical).
+
+**THEN THE MISC0UNT (2026-10-14): the board read `(5 amber, 5 white)`, not
+`(7 amber, 5 white)`.** The operator confirmed five amber. The core was correct
+all along (verified twice by executing it: `wls_boot_code_rstcause(1<<4)` →
+`amber=7 white=5`). The fault was in the **shell**, and it was a policy fault:
+
+- **`WLS_BOOT_CODE_SHOW_MS 10000` was shorter than a `(7,5)` frame (11700 ms)**, so
+  the window ended mid-group and the leading pulses were never shown. The other
+  direction is a defect too: a window *longer* than a frame lets the next frame's
+  amber group in, and since both groups are amber the reader counts them together
+  (harness-measured: **twelve amber, not seven**).
+- **The shell held policy** — a clock origin (`static uint32_t boot_code_started`)
+  and a bound (the `SHOW_MS` constant). Neither is an effect; both are inputs to
+  the decision "what is lit now". That is precisely what `docs/BOARD-LAYER.md`
+  principle 1 forbids, and it is *why the bug was untestable*: the core never saw
+  the clock or the bound, so no pure test could reach it.
+- **The header's own contract was false**: `wls_boot_code_at()`'s comment promised
+  that "a first paint that happens late is still correct". It was not — a late
+  start shifts the frame and consumes leading pulses invisibly.
+
+**FIX IMPLEMENTED (2026-10-14, pending flash).** The origin and the bound moved
+into the core:
+- **`wls_boot_code_show_ms(counts)`** — new, **returns exactly one frame**
+  (`wls_boot_code_frame_ms`). The window can no longer disagree with the frame.
+- **`wls_boot_code_at(counts, origin_ms, now_ms)`** — the origin is now a value
+  the caller supplies to a pure function, so "how late may the first paint be" is
+  answered by a test, not a comment.
+- **`wls/wls_indicator.c` holds no number**: the `SHOW_MS` constant is gone, the
+  bound is `wls_boot_code_show_ms(...)`, and arming is deferred by one pass
+  (`boot_code_started = 0` means "armed"; the next pass stamps the real origin at
+  a frame boundary and paints black), so no pulse is ever half-shown. The shell's
+  only state is a latch, not a decision.
+- Tests **22/22** (`the_show_window_is_exactly_one_frame` pins the truncation as a
+  failing test; `the_count_does_not_depend_on_a_late_first_paint` samples with a
+  lead-in and asserts the counts are EXACTLY the code's).
+
+**An honest limit on the evidence:** the core emits `(7,5)`, `10000 < 11700`, and
+the board read five amber are all solid. **Not established:** the exact lead-in
+magnitude, and whether the lead-in or an RGB effect painting over the first
+frames (the "green burst") is what clips the leading pulses. The fix is correct
+independent of that, because both directions of disagreement are demonstrable
+arithmetic.
+
+**ALSO OPEN (2026-10-14, unexplained): the amber group renders green.** The core
+emits `(255,96,0)` — verified by executing it — and no software stage alters it
+before the driver, yet the operator sees green. Recorded in `docs/HARDWARE.md`
+("Open: the amber group renders green") with the candidates (WS2812 bit-timing at
+`WS2812_SPI_DIVISOR 32`, or panel colour order) and the instruction **not to
+"fix" it in the colour constants without a measurement**. It does not affect the
+reading: colour only groups the code, the count carries the message.
+
+**SANITY CHECK vs OUTSIDE RESEARCH (2026-10-14) — one real finding, one erratum.**
+Per the operator's request ("ensure no known issue exists with any hardware under
+consideration"), the WB32FQ95, the WS2812/SPI driver, the CH582F module and the
+Split65 were checked against upstream sources. Findings:
+
+1. **THE USB RESTART ERRATUM IS LIVE ON OUR BOARD (the significant one).** Upstream
+   QMK ships a board guard, `void restart_usb_driver(USBDriver *usbp) { /* Do
+   nothing. Restarting the USB driver on these boards breaks it. */ }`, added by
+   `b5a52b4cff` (#18058) and **deleted by `bd2e59af60` (#20863)** — both commits
+   are in our submodule's history and ours is in the deleted state:
+   `GENERIC_WB32_FQ95XX/board/board.c` has a stub `boardInit()` and **no override**.
+   Verified in the shipped ELF (`nm` shows `0800a590 W restart_usb_driver` — weak
+   and un-overridden, so the full disconnect/stop/50 ms/restart sequence is
+   linked), and our transport owner calls it on the USB **promotion** path
+   (`wls_usb_connect(true)` → `restart_usb_driver()`). **This sits directly on our
+   hot path and is the first named, upstream-documented hazard that could produce
+   intermittent USB faults that survive reflashing.** It is *present* (measured);
+   whether it is the *cause* of the DFU entries / non-typing is **not** established.
+   Next discriminating test: build a variant with the upstream guard restored and
+   compare. Full record: `docs/HARDWARE.md` "The USB restart erratum".
+2. **No known issue found** implicating: the WB32FQ95 boot/bootloader path (the
+   `0xDEADBEEF` magic jump matches upstream `wb32_dfu.c` exactly, and the
+   early-init call is upstream's own `EARLY_INIT_PERFORM_BOOTLOADER_JUMP TRUE`),
+   the WS2812 SPI driver, or the Split65's split-link behaviour (the vendor
+   "flash the right half separately" answer is already our documented practice).
+
+**After the reading — the next action is a DECISION, driven by the cause:**
+- **A named cause** (pin / software / watchdog / low-power) points at the reset's
+  mechanism directly; take it up in Stage 2 (the boundary audit) as the lead.
+- **The pins, if still wanted:** the LED is the only channel that survives a
+  reset — any channel needing the running app is destroyed by the fault it must
+  observe — so the pin levels must ride on the LED code (a stage) to be readable
+  during a reset loop.
+- **The pin lie tolerated rather than measured:** the `B9` settled-cable hint
+  (make a present cable outrank the switch's wireless answer) is the remedy
+  already identified — but **`B9`'s level has still never been observed**, so it
+  would be applied blind.
+
+**Building (the artifact must be rebuilt; `/tmp` is assumed not to survive):**
+
+```sh
+cd /home/nathan/repos/pngdeity/incubating/keeb
+./bin/make epomaker/epomaker_split65:nathan
+cp qmk_firmware/.build/epomaker_epomaker_split65_nathan.bin /tmp/opencode/split65-nathan-current.bin
+sha256sum /tmp/opencode/split65-nathan-current.bin
+```
+
+- Working-tree build at the time of writing: **63.2 KB**, sha256
+  `7659464ddc2153364f6476471d294661b650e49367b0c19d500cd6974902f81e`
+  (= `usbguard.bin`: the show-window fix **plus the restored WB32
+  `restart_usb_driver` guard**). If it does **not** match,
+  the tree has changed: re-read the diff before flashing, and update this block.
+- A differing hash with an unchanged tree is a toolchain difference, not a source
+  change — record the new hash and proceed.
+- **Build from the working tree. Do NOT build from HEAD** — HEAD lacks the whole
+  arc and all of Stage 1.
+- **Every earlier artifact is superseded** — `showfix.bin` (`60ad584b…`) carries
+  the show-window fix but **not** the USB guard; `rstcause2.bin` (`e24ce565…`)
+  additionally carries the truncating `WLS_BOOT_CODE_SHOW_MS 10000` and reads five
+  amber instead of seven; `rstcause.bin` (`c03ca0e6…`) is superseded by that in
+  turn.
+- **THE USB GUARD IS IN THIS BUILD BUT IS NOT THE CAUSE (settled 2026-10-14).**
+  Upstream shipped a board-level `restart_usb_driver` override for WB32 (an empty
+  body — "Restarting the USB driver on these boards breaks it"), added in
+  `b5a52b4cff`/`#18058` and later deleted in `bd2e59af60`/`#20863`; our tree had
+  the deleted state, so the weak destructive default was linked. Restored now in
+  `platforms/chibios/boards/GENERIC_WB32_FQ95XX/board/board.c`; the rebuilt ELF
+  shows `T restart_usb_driver` (was `W`), a `movs r0,#0; bx lr` body, and no
+  `usbDisconnectBus` anywhere in the image. **The comparison has been run: the
+  drop pattern is UNCHANGED (8 enumerations / 8 disconnects / 0 `-71` in 25 min,
+  `dfa0` windows still appear between app enumerations, still does not type), so
+  the erratum is NOT the cause of the cycling.** The guard is kept (upstream's own
+  reasoning) but is not the answer — see the `dfa0`/`QK_BOOT` lead below.
+- Flash (human only):
+  `wb32-dfu-updater_cli -t -s 0x08000000 -D <the rebuilt bin>`
+- **Prediction (state it before flashing, per the pre-flight rule):**
+  1. ~~**New to this build: the board's USB should stop dropping.**~~ **FALSIFIED
+     2026-10-14.** The flash was run; the drop pattern is **unchanged** — 8
+     enumerations / 8 disconnects / 0 `-71` in 25 min, `dfa0` windows still appear
+     between app enumerations with no flash in progress, and the board still does
+     not type. **The WB32 `restart_usb_driver` erratum is NOT the cause of the
+     cycling.** The guard stays (upstream's own reasoning, and it cost nothing) but
+     the fault is elsewhere. The meaningful datum from that window: the board
+     **held 12 minutes** (10:46:47–10:58:50) before jumping again, so it is not a
+     perpetual loop — it is an occasional jump from a healthy run.
+  2. The **boot code** plays on the matrix — on a healthy boot, `(0, W)` =
+     **no amber, then W white pulses** (`W` = 1 USB / 2 BT / 3 2.4 GHz), looping
+     for one frame (`wls_boot_code_show_ms`) or until a keypress. A fault speaks
+     amber first (stage 1-5); a reset afterwards speaks **6 `BOOTCOUNT`** or
+     **7 `RSTCAUSE`**.
+  3. **Still unconfirmed on hardware:** the show-window fix. Every read so far is
+     `(5,5)` because the board does not hold a full 11.7 s frame in the failing
+     state — an instrument whose window exceeds the subject's lifetime cannot
+     measure it. The fix is verified in the tree (`boot_code_logic` 22/22), not on
+     the board.
+  4. The `0xA4` host line, **if the line holds**, prints
+     `BOOT CODE: A amber, W white -> stage=… code=…`, `PINS: C14=? C15=? B9=?`,
+     and `RESET: cause_bits=0xNN (names)`, and must match what the LED showed.
+  5. Still expected and **not** related: the green-rendering amber (separate,
+     hardware-side, `docs/HARDWARE.md`), and the BT commitment from the C14/C15
+     pin lie (the board may still not type on USB).
+- **THE LIVE LEAD (2026-10-14): the `dfa0` window means `bootloader_jump()` ran.**
+  `platforms/chibios/bootloaders/wb32_dfu.c` only enters DFU when the magic word
+  `0xDEADBEEF` is present at `MAGIC_ADDR = __ram0_end__ - 4` (= `0x20006ffc`,
+  **the last word of the heap** — `heap 0x20004fc0..0x20007000`). Verified on the
+  ELF: `bootloader_jump` at `0x08009cdc` does `str 0xdeadbeef -> 0x20006ffc` then
+  `NVIC_SystemReset`; `early_hardware_init_pre` (`0x0800a694`) calls
+  `enter_bootloader_mode_if_requested` (so the word is checked and cleared every
+  boot — a stale word is NOT the explanation). The only board-reachable writer is
+  `QK_BOOT` at `wls/wls_keymap.c:344-348`. **Three candidates, unseparated:**
+  (a) a spurious `QK_BOOT` dispatch (a corrupted keycode reaching
+  `process_record_wls`), (b) heap/stack corruption writing the word, (c) electrical.
+  **The proposed discriminator (not built): capture `*MAGIC_ADDR` at early init
+  before it is cleared and report it**, so the boot code can say "I entered DFU
+  because the magic was set" versus "the magic was garbage". Note `RSTSTAT`'s
+  `SFTRSTF` cannot separate a soft reset from a bootloader jump (both are
+  `NVIC_SystemReset`). **Also unexamined:** `zozonteq/epomaker_split65` commit
+  `bd027b8` "disable lowpower mode to fix wireless(USB Dongle, Bluetooth) issue"
+  (touches `linker/wireless/lowpower.c` and `wls/wls.c`).
+- **Superseded artifacts — do not flash:** `showfix` (64928, `60ad584b…`, no USB
+  guard), `resetproof` (64760, `9d5c30a4…`), `pins` (63.2 KB, `cf42a4e6…`),
+  `bootclean`/`bootcode` (64648, `8bf52505…`), `owner5` (64688, `e7fc6eaa…`),
+  `owner3` (64656, `4b3e2ad8…`), `owner2` (64616, `ea0d09d9…`, the dead build),
+  `HEAD` (64228, `6c9f1d13…`). Compare **sha256**, not size.
+
+**Reading references:** the LED contract is `docs/INDICATORS.md` (how to read the
+board, the vocabulary, the arbitration); the boot map is `docs/BOOT-SEQUENCE.md`
+§12/§13; the class of defect is the finding in `docs/FINDINGS.md`.
+
+**Then, in order:**
+1. If the instrument does not read cleanly: the boot map and the `(A, W)` decode
+   are the reference — fix the instrument before drawing any conclusion from it
+   (that is the whole point of Stage 1).
+2. Commit the work — submodule (the transport-owner arc + all Stage 1 files +
+   the deletions of `boot_report_logic.{c,h}`/`boot_blink_logic.{c,h}` and their
+   two test suites), root (`AGENTS.md`, `TODO.md`, `docs/BOARD-LAYER.md`,
+   `docs/FINDINGS.md`, `docs/HARDWARE.md`, `docs/RUNBOOK-flash-and-measure.md`,
+   `host/battery_polybar.py`, the `qmk_firmware` gitlink, new
+   `docs/ADR-transport-authority.md`, new `docs/BOOT-SEQUENCE.md`), and the
+   userspace keymap `wait_us(100)` edit.
+   **Signed; ask the user if `git commit -S` needs a primed GPG agent.**
+3. **Drop `stash@{0}`** ("transport-owner arc (owner2) for HEAD A/B test") once
+   the fix is confirmed — it duplicates the working tree and dropping is
+   unrecoverable, so it was kept deliberately. Confirm with the user first.
+4. The `-71 EPROTO` loop: its own open entry under Outstanding verification.
+5. Deferred: `wls_keymap.c:148`'s `connection_set_host` (persists to EEPROM)
+   still bypasses the transport owner — a known remaining writer, noted in the
+   owner's scope but not yet routed.
+6. **Stage 2** (not started): draw the boundary between our code and the vendor
+   stack, audit the crossings for the class's two shapes, apply the three-part
+   remedy.
+
+**The `wait_us(100)` mastery fix in the userspace keymap targets DEAD CODE**
+(`split_pre_init()` calls `is_keyboard_master_impl()`, not `is_keyboard_master()`).
+It is harmless and may stay, but do not treat it as a fix for anything.
+
 ## Status
 
 - **All three repos are pushed and clean (2026-10-10).** Root `pngdeity/keeb`
@@ -443,6 +825,121 @@ sections below.
 The host can read a report, but **no real battery percentage has ever been
 observed**. Until the items below are done, treat every displayed value as
 unverified.
+
+- [ ] **2026-10-14 READING (the pin-diagnostic flash): the LED instrument works
+      and is reproducible; the pins COULD NOT be read, because the USB path is
+      not stable enough to carry `0xA4`.** Flashed `split65-nathan-pins.bin`
+      (63.2 KB, sha256 `cf42a4e6…`). Results:
+      - **LED: `(0 amber, 2 white)`, twice, with the host cable attached and the
+        switch visually on USB** — identical to the previous boot. The code
+        speaks stage `OK`, committed to **Bluetooth**. (This is the *third*
+        distinct pin-lie value we have seen from the same visual switch position:
+        earlier boots read 2.4 GHz, then BT, now BT again.)
+      - **The board enumerates and then self-detaches: 5 enumerations / 5
+        disconnects in 5 minutes**, each device binding all interfaces and
+        dropping ~2-20 s later (irregular intervals: 27, 15, 1, 3, 22, 6, 2, 5,
+        20 s), **zero `-71`, zero over-current**. This is the pre-existing
+        self-detach fault (its own entry) — not a stable USB link.
+      - **`0xA4` is silent on all three keyboard hidraw nodes** (33-byte write
+        accepted, `read` = 0). Direct probe of `/dev/hidraw0/1/2` all returned
+        nothing.
+      - **Consequence: the pin levels (`C14`/`C15`/`B9`) are unreadable through
+        the host channel while it cycles.** The diagnostic was built to answer
+        the pin question; the USB path cannot carry the answer. **Do not flash
+        again toward this goal without first choosing a channel that survives** —
+        the LED code is the only reader that has ever worked, so the pins must
+        ride on it (or the detach must be fixed first).
+      - **The board also did not type**, consistent with a Bluetooth commitment
+        (HID routed to the module).
+
+- [x] ~~**BLOCKING (2026-10-13): the transport-owner arc — two root causes, both
+      fixed; awaiting hardware confirmation.**~~ **SUPERSEDED by the reading
+      above**: the two fixes hold (the board no longer dies at boot), but the
+      confirmation is blocked by the self-detach. The arc (`wls_transport`
+      owner + `wls_module` gate) was built, passed the suite, and flashed. Two
+      defects were found on hardware, both of the **same class** (see "The error
+      class" below), and both are now fixed as *class* fixes, not instance fixes.
+
+      **Defect A — a pre-`keyboard_init()` effect (ordering).** The board went
+      dark and non-enumerating, **deterministically** (seven attempts, zero
+      `New USB device found`; the sole host line `new full-speed USB device
+      number N`). Cause: `protocol_setup()` (step 3, before the USB driver) calls
+      `usb_device_state_init()` → `notify_usb_device_state_change()` → the arc's
+      `notify_usb_device_state_change_kb()` → the owner's commit path →
+      `wireless_devs_change()` → `md_devs_change()` (unconditional) → `smsg_push()`
+      on the **uninitialized** ring (`md_init()` runs only at step 33) →
+      `memcpy(NULL, …)` → HardFault before the main loop. Reproduced on the host.
+
+      **Defect B — an unconfirmed decision drove a destructive actuator
+      (feedback/ordering).** With the switch reading 2.4 GHz (the C14/C15 pin
+      lie), boot issued `wls_usb_connect(false)` and cut the very line a host
+      needed to confirm — so `CONFIGURED` could never arrive and the promotion
+      that outranks a lying switch never fired. HID went to the module over the
+      UART; the board typed nothing and the `0xA4` responder was silent.
+
+      **THE SYSTEMIC FIX (the user chose a class remedy over instance patching).**
+      Three parts, all in the tree:
+      1. **`wls/wls_module.{c,h}` — the module owns "the module is up".** All 13
+         board `wireless_devs_change` call sites now route through
+         `wls_module_devs_change()`, which refuses before `wls_module_ready()`.
+         Defect A is unreachable, for every caller, present and future.
+      2. **The transport owner owns the line drive.** `wls_transport_decide()`
+         now takes the input's *class* (`WLS_TRANSPORT_INPUT_HINT` /
+         `_CONFIRMED`) and drives the line itself, in one place, direction-correct
+         by construction: an **unconfirmed** input may only **promote**;
+         demotion belongs to confirmed events. Defect B is unrepresentable.
+      3. **The rail-owner comment is now truthful** — it names the one deliberate
+         exception (`lpwr_stop_hook_pre` forces A5 low before an ordered stop).
+      Pure, tested rules added for the class: `hsm_module_may_act`,
+      `hsm_transport_may_act`, `hsm_transport_may_drive_line`,
+      `hsm_transport_changed`, `hsm_host_present_on_notify`, `hsm_switch_moved`.
+
+      **Artifact to flash: `/tmp/opencode/split65-nathan-owner5.bin`** (64688
+      bytes, sha256
+      `e7fc6eaa1b3e2f2b6b888963730bf0ef2e8d2249609a5c7c0ff1ba3cd1a9e6ac`).
+      **full suite 113 / 13 suites, all passing** (transport_logic 34/34);
+      ASan+UBSan clean. Expected: enumerates **once and stays**, types, blink ends
+      **CYAN**; the pre-existing `-71` loop (its own entry) may still appear.
+      **Superseded artifacts — do not re-flash:** `owner3` (64656, `4b3e2ad8…`,
+      fixed Defect A but not B), `owner2` (64616, `ea0d09d9…`, the dead build),
+      `HEAD` (64228, `6c9f1d13…`, the control). Compare **sha256** — sizes are close.
+
+      **Why the arc is the cause (confirmed):** the HEAD control (none of the arc)
+      enumerates 8/8; HEAD also has the earlier candidates (`SPLIT_USB_DETECT`
+      poll, `B1` polarity), excluding them. Analysis: `docs/BOOT-SEQUENCE.md`
+      §11-§13 (#0, #0b).
+
+- [ ] **OPEN (2026-10-13): the `-71 EPROTO` self-detach loop — pre-existing,
+      firmware-independent, and now visible in isolation on HEAD.** The HEAD
+      control build (which contains *none* of the owner arc) enumerates and stays
+      up for minutes at a time (42 s and 30 s quiet gaps observed), but also
+      cycles: **8 attempts / 8 successes / 7 disconnects / 2 × `-71` in ten
+      minutes**, each cycle showing `usbhid 1-1:1.1: probe with driver usbhid
+      failed with error -71` (and `:1.2`) followed by `USB disconnect`. Signature
+      is distinct from the owner livelock (which had **zero** `-71`): here the
+      device **fully enumerates** (all three HID interfaces bind) before the drop.
+      Confirmed pre-existing at the pre-refactor commit `f79499092b`, on both USB
+      ports, and firmware-independent — so it is **not** a regression from any of
+      our change sets and **not** caused by the owner arc. It is survivable (the
+      board holds for tens of seconds) but must not be conflated with the
+      dead-half defect. Next step: characterise whether it correlates with host
+      side (xhci port) or the board's own USB handling; **do not** draw an A/B
+      conclusion from a single boot of this intermittent fault.
+      Recorded here so it is not lost; it is not the current blocker.
+
+      **2026-10-14 UPDATE — the same signature again, and it now blocks the pin
+      reading.** On the `pins.bin` flash (host cable attached, switch visually on
+      USB): **5 enumerations / 5 disconnects in 5 minutes**, every device binding
+      all interfaces (`hidraw0` keyboard, `hidraw1` hiddev, `hidraw2`
+      mouse/system/consumer) and then dropping after an **irregular** interval
+      (27, 15, 1, 3, 22, 6, 2, 5, 20 s) — **zero `-71` this run, zero
+      over-current**. The intervals being irregular argues **against** a single
+      firmware timer and **for** the host/xhci-driven retry storm. The practical
+      consequence: **`0xA4` never gets a stable window**, so the raw pin levels
+      (`C14`/`C15`/`B9`) cannot be read over USB. **This fault is therefore the
+      current blocker for the pin question**, and either it or the reading channel
+      must change before the `B9`-hint remedy can be applied on evidence rather
+      than blind.
 
 - [x] ~~**Fix defect 3** (`find_raw_hid_interface()` picks the wrong interface) and
       cover it in `split65.py check`~~ **DONE** (committed). A confirmation run
@@ -1551,7 +2048,47 @@ no `/dev/ttyACM*` or `/dev/ttyUSB*`).
 (2) the probe makes runtime debugging possible; (3) `openocd` + `arm-none-eabi-gdb`
 drive it. Until (1), installing the software changes nothing.
 
-### Pre-flight rule for any state-persisting path (added 2026-10-09)
+### Pre-flight discipline for a hardware test (added 2026-10-09, generalised 2026-10-13)
+
+**"Ready to flash" means airworthy, not "it compiled."** Before any flash, the
+operator must be able to state, in writing, every assumption the build rests on
+and the predicted hardware effect of each test case. This is deliberately closer
+to an aviation pre-flight checklist than to a programmer's "run the test set and
+see." The canonical checklist — eight items, with the artefact to leave in
+`docs/` — is `docs/RUNBOOK-flash-and-measure.md` § 0.0; read it before flashing.
+
+The rule exists because **the cheapest place to find a defect is a review, not a
+flash.** Three separate live *livelocks* in the transport work were each caught
+this way rather than on hardware:
+
+- The transport decision consumed `USB_ACTIVE`, and the action it triggered
+  cleared `USB_ACTIVE` (driving the line restarts the driver) — a feedback cycle.
+  Found by reading the call chain, not by flashing.
+- `hs_modeio_detection`'s switch-edge predicate asked "does the resolved
+  transport differ from the pins?" — permanently true under the new rule, so it
+  re-fired every 50 ms and re-drove the actuator. Found by review.
+- The USB lifecycle hook read **SUSPEND** (host idle) as host **loss** and tore
+  the data line down, meaning the board would have dropped off USB whenever the
+  host went idle. Found by review, and it would have read on hardware as "the
+  keyboard stops typing after a minute," with no obvious cause.
+
+Every one of these was **anticipatable without a flash**, exactly as defect 4's
+persistence chain below was. The review questions that caught them:
+
+1. **Does this effect feed back into its own trigger?** If applying a decision
+   changes a signal the decision reads, the loop is a livelock waiting to happen.
+   A trigger must not depend on a signal the triggered effect modifies. (This is
+   the single most productive question in this project's history.)
+2. **Does every signal have a real value here?** "Constant `true`" (e.g.
+   `usb_vbus_state()` with no `USB_VBUS_PIN`) and "undefined" are not signals;
+   verify against the ELF before reasoning from one.
+3. **Which code is even compiled?** A `#if` can remove the path you are relying
+   on (`NO_USB_STARTUP_CHECK` removes upstream's suspend handling) and leave a
+   board-local hook as the only reactor.
+4. **Is that assumption measured, or inherited?** Distinguish a measured hardware
+   fact (`docs/HARDWARE.md`) from an assumption carried from another board.
+
+#### The state-persisting-path case (the original form of this rule)
 
 A hardware test that exercises a **state-persisting** code path must establish the
 **non-flashing recovery** first. `TODO.md` defect 4 is the worked example: `KC_BT1`
@@ -1582,6 +2119,46 @@ note): establish reachability and recovery up front so a hardware session cannot
 leave the device in a state only a reflash clears.
 
 ## Other
+
+- **Revisit the shell/core balance across every area we have worked in
+  (added 2026-10-14).** The `wls_indicator` miscount proved the cost of getting
+  the boundary wrong: a show bound and a clock origin sat in the *shell*, so the
+  policy was untestable and the defect reached hardware. That was not a one-off —
+  it is a whole-codebase question about which behavior belongs in a shell and
+  which in a core. **Scope: the areas this project has authored or reworked**,
+  where the split is our choice and not yet reviewed against this standard:
+  - the transport owner (`wls/wls_transport.{c,h}`) and its cores;
+  - the module lifecycle owner (`wls/wls_module.{c,h}`);
+  - the LED/indicator layer (`wls/wls_indicator.{c,h}`, `wls/boot_code_logic.*`,
+    `wls/indicator_logic.*`);
+  - the diagnostics (`wls/diag_logic.*`, `wls/wls.c`'s gather/note functions);
+  - the lifecycle/suspend hooks (`wls/wls_lifecycle.c`,
+    `epomaker_split65.c`'s hook set);
+  - the eeprom/split/keymap adapters (`wls/wls_eeprom.*`, `wls/wls_split.*`,
+    `wls/wls_keymap.*`);
+  - **the pre-existing vendor-adjacent code we have touched but not reworked** —
+    flag it, do not assume it is correct just because it predates us.
+  For each area, answer in the same form the audit uses: **what is the decision
+  (must be a pure function, tested), and what is the effect (may be imperative)?**
+  The tests for the boundary: (a) can the behavior be reached by a pure test, or
+  only by flashing — if only by flashing, a policy input is in the shell;
+  (b) does any comment assert a guarantee no test enforces; (c) is any bound or
+  threshold hand-chosen where it could be *derived* from the thing it bounds;
+  (d) does the shell hold any number, threshold, clock origin, or ordering that
+  is really policy. Record the findings as audit items (`docs/AUDIT.md` style)
+  and fix in place, keeping each rule a pure predicate.
+  **Do this before Stage 2's boundary work**, so the boundary audit is measured
+  against a boundary we have already made honest on our side.
+
+- **The boot-code vocabulary is open and revisitable (2026-10-14).** The LED
+  contract is `docs/INDICATORS.md`; the codec is `wls/boot_code_logic.{c,h}`. The
+  **stage partition is fixed** (amber = boot stage, the `WLS_BOOT_STAGE_*` enum),
+  but **the white codes inside each stage are deliberately not frozen** — they are
+  assigned by `wls_boot_facts()` in `wls/wls.c` and are expected to change as the
+  boot path is re-engineered. Adding a stage or a code must require no change to
+  the sequencer. Revisit the assignments when the boot path changes; when you do,
+  update `docs/INDICATORS.md` §2 and the `boot instrument` FINDING in
+  `docs/FINDINGS.md` in the same commit.
 
 - **Wireless while charging (requirement 2)** — now first-class, see `## Priority
   order` item 8 and `docs/FINDINGS.md` "Functional requirements". Verdict to be

@@ -23,6 +23,121 @@ trusted.
 
 ## 0. Before you touch the hardware
 
+### 0.0 The pre-flight checklist (required, and it is not "it compiled")
+
+**"Ready to flash" means airworthy, not green tests.** The rule (`TODO.md`
+"Pre-flight discipline for a hardware test") is that a hardware session must not
+begin until every assumption is stated and every effect predicted — closer to an
+aviation pre-flight than to "run the test set and see." Three live livelocks in
+the transport work were caught by this review rather than on hardware; the
+cheapest place to find a defect is a review, not a flash.
+
+Leave the artefact — **§ 0.0.1-0.0.4 written out** — in the session notes or a
+`docs/` file before flashing. The checklist:
+
+1. **State the artefact.** Its path, size, and sha256; the exact submodule hash
+   it was built from (§ 0.1); and that the working tree was confirmed clean
+   against HEAD (`git status --short` shows only intended edits).
+2. **List the untested assumptions.** For each: is it *measured* (cite
+   `docs/HARDWARE.md`) or *inherited* (a guess carried from another board)?
+3. **Answer the four review questions** (`TODO.md` "Pre-flight discipline"):
+   does any effect feed back into its own trigger; does every signal have a real
+   value here (not a constant, not undefined — check the ELF); which code is even
+   compiled (a `#if` can delete the path you rely on); measured vs inherited.
+4. **Predict each test case's hardware effect**, in a table, *before* running it.
+   Name the observable and the **specific predicted value** (a colour, a byte, a
+   count) — not "it works". This makes each case falsifiable.
+5. **Name what the build does *not* explain.** Open faults (e.g. `-71 EPROTO`)
+   and unmeasured facts (e.g. the switch-pin lie) that will still be present and
+   must not be mistaken for a regression.
+6. **Establish the non-flashing recovery first** (§ 0.3) if anything persists.
+7. **State the falsifier.** "If X happens, the hypothesis was wrong and the next
+   move is Y" — so a surprise changes the model instead of prompting a guess.
+8. **Verify the artifact on disk** matches what was reviewed: rebuild fresh
+   (§ 0.2) and compare the sha256, rather than assuming the file is current.
+
+A pre-flight is legitimate to skip only when nothing on the board's behaviour is
+being asserted — e.g. flashing a build identical to the one already running.
+
+### 0.0.4 (filled in) — the Stage-4 jump-journal flash
+
+**This is the working pre-flight for the flash that carries the jump journal and
+the strong `bootloader_jump()` override. It is the build specified in
+`docs/AUDIT-fcis.md` "Stage 4 — the discriminating build and its falsifier".**
+
+**1. The artefact.** `qmk_firmware/.build/epomaker_epomaker_split65_nathan.bin`,
+63.5 KB, sha256
+`2ec21c449dcb775e69663210c9768986b6db61ad4b0272ff5ef91d91fe705ce6`. Built from the
+working tree (this arc is **uncommitted**), so the identity is the working tree,
+not a signed submodule hash. **Submodule HEAD is
+`75a5ee699ea0cca42cf29ec08de7157cdfe360c6`** (root `ee3ad13`), but the build
+carries a large uncommitted delta on top of it — the runbook's checklist wording
+"the working tree was confirmed clean against HEAD" is **not** met and cannot be
+until the arc is committed. What actually pins the reviewed source is the
+sha256 above plus these **11 untracked files under
+`keyboards/epomaker/epomaker_split65/wls/`** (a `git diff` would not show them;
+they are in `wls.mk` and in the build):
+`boot_code_logic.{c,h}`, `jump_journal_logic.{c,h}`, `wls_jump_journal.{c,h}`,
+`wls_boot_jump.c`, `wls_module.{c,h}`, `wls_transport.{c,h}` — plus the untracked
+test dirs `tests/boot_code_logic/` and `tests/wls_jump_journal/`. Record
+`git -C qmk_firmware status --short` in the session log, not just a diff. The
+board currently runs `usbguard.bin`
+(`7659464ddc2153364f6476471d294661b650e49367b0c19d500cd6974902f81e`).
+
+**2. Untested assumptions (all inherited, none measured).**
+- The `.ram0` object survives a `NVIC_SystemReset` — *verified from the linker
+  script and `crt1.c` (`__init_ram_areas` stops at `no_init_area`) and the ELF's
+  own `wls_journal` placement, but not observed on silicon across a real reset*.
+- The `0xA4` reply's bytes 23..34 are carried intact — *the encoder is unit-tested;
+  the transport of the wider report is not*.
+- The strong `bootloader_jump()` performs the same jump the weak one did — *the
+  body reuses the real `enter_bootloader_mode_if_requested()`, so the jump code is
+  upstream's, but the override-replaces-weak linkage is assumed to hold on this
+  toolchain* (the ELF shows `T bootloader_jump`, one symbol).
+
+**3. The four review questions.**
+- *Does any effect feed back into its own trigger?* No. Stamping the journal is a
+  one-way write before the reset; it is read only by the `0xA4` encoder, which
+  does not feed the jump path.
+- *Does every signal have a real value (not a constant, not undefined)?* The
+  journal is `b` in `.ram0` at `0x20004fbc` (16 B) in the ELF; `wls_reset_cause()`
+  returns retained bits; `timer_read32()` is live. `bootloader_jump` and
+  `enter_bootloader_mode_if_requested` are both strong `T` in the ELF.
+- *Which code is even compiled?* `wls_jump_journal.c`, `jump_journal_logic.c` and
+  `wls_boot_jump.c` are all in `wls/wls.mk`; `KB_BATTERY_IDX_JUMP 23` is emitted
+  in `wls_battery.c` under `#ifndef VIA_ENABLE` (VIA is not enabled).
+- *Measured vs inherited?* The `.ram0` survival is reasoned from the linker +
+  startup, not watched; treat the first reset as the measurement.
+
+**4. Predicted hardware effect.** After flashing and a normal boot, a
+`python3 host/battery_polybar.py --info` should print
+`JUMP:      no journal (our bootloader_jump has not run since power-on)` — byte 23
+== `0x00`. Pressing the `QK_BOOT` chord (Fn layer, right half `[10,6]`) should,
+on the next boot, print `JUMP:      our QK_BOOT ran  gen=1 stage=… code=…
+reset=0x… uptime=… ms` with byte 23 == `0x01`.
+
+**5. What the build does not explain.** The `(5,5)` vs `(7,5)` reading (the
+instrument window exceeds the subject's lifetime); the `-71 EPROTO` loop; the
+open green-rendering of the amber group. None is a regression and none should be
+read as one.
+
+**6. Non-flashing recovery.** § 0.3 stands: `QK_BOOT` from the keymap, or the
+bootmagic `Esc`-hold at plug-in on the left half. A dark board recovers by the
+same route.
+
+**7. The falsifier.** See `docs/AUDIT-fcis.md` "Stage 4": **journal present** =
+our `QK_BOOT` path ran, which Stage 3 says is impossible without a key — that
+falsifies Stage 3 and redirects to the keycode/matrix path. **`dfa0` window with
+no journal** = the magic word was written outside our path, exonerating the
+keymap. **Journal present but no DFU entry** = the fault is in the bootloader
+entry mechanics, not the writer.
+
+**8. Verify the artefact on disk** matches the reviewed sha256 (§ 0.2) before
+flashing.
+
+The flash is a **human action**: `wb32-dfu-updater_cli -t -s 0x08000000 -D
+<bin>` then `-R` (or `./split65.py flash`). Do not run it from an agent.
+
 ### 0.1 Confirm what you are about to flash
 
 ```sh

@@ -93,6 +93,20 @@ jobs:
           }
           check_remap _temp_rhs_29  quantum/raw_hid.h 'void raw_hid_send(uint8_t *data, uint8_t length);'
           check_remap _temp_rhs_489 quantum/via.c     'raw_hid_send(data, length);'
+      - name: Guard the structural invariants
+        # Rules about what may *call* what, which no unit test can reach: a call
+        # site added later would break them silently. bin/guard-invariants checks
+        # that the USB line has exactly one driver (F5, the livelock's guard),
+        # that the core's HSM_DEVS_* device-index copies still match the vendor
+        # DEVS_* enum (F7, the drift guard), and that the presleep hook does not
+        # drive the USB line itself. See docs/AUDIT-fcis.md.
+        run: ./bin/guard-invariants
+      - name: Check the 0xA4 golden vector (host side)
+        # The 0xA4 report is written in C and read in Python, so the layout is a
+        # contract by convention that no compiler links. The firmware test suites
+        # assert the same literal bytes; this asserts the host decodes them to the
+        # same fields. See docs/AUDIT-fcis.md (F9) and docs/0xA4-golden-vector.md.
+        run: python3 host/battery_polybar.py --self-check
       - name: Build every keymap for the board
         # QMK's bar for a keyboard change is `make keyboard:all`. QMK's build
         # container presets QMK_USERSPACE=/qmk_userspace; there is no userspace

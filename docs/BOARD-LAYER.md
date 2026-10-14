@@ -38,9 +38,11 @@ stated interface, and (where the concern owns state) a pure core behind it.
 | Module | Owns | Pure core behind it |
 |---|---|---|
 | `wls_eeprom` | `confinfo` storage: read/default/update, the version gate, `usart_init` | none (storage; the *encoding* is a struct) |
+| `wls_transport` | the transport decision: the one owner of the committed host/devs pair, the two-stage rule (hints, then a confirmed host), and the USB line drive | `transport_logic` (`hsm_transport_decide`, `hsm_switch_apply_with_cable`, `hsm_transport_changed`, `hsm_host_present_on_notify`, `hsm_transport_may_act`, `hsm_transport_may_drive_line`) |
+| `wls_module` | the wireless module's lifecycle: owns "the module is up" and refuses a device-index change before it — the board's view of the vendor `devs` index | `transport_logic` (`hsm_module_may_act`) |
 | `wls_split` | the `USER_SYNC_MMS` RPC: master→slave sync, the slave handler | the sync *payload* construction (pure, testable) |
-| `wls_usb` | the USB data line: `wls_usb_connect`, power connect/disconnect | none (a two-state actuator) |
-| `wls_indicator` | every LED: rail apply, channel flash, battery blink, caps/winlock, `hs_reset_settings` | the indicator *sequence* (pure: given events → what to paint) |
+| `wls_usb` | the USB data line: `wls_usb_connect`, power connect/disconnect, the settled cable read | none (a two-state actuator) |
+| `wls_indicator` | every LED: rail apply, channel flash, battery blink, caps/winlock, `hs_reset_settings`, and the boot code (the matrix's arbitration owner while it plays) | `boot_code_logic` (`wls_boot_code_counts`, `wls_boot_code_at`, `wls_boot_code_frame_ms`), `indicator_logic` |
 | `wls_keymap` | wireless keycodes, long-press, filp | `transport_logic` (`hsm_*`), `keymap_logic` (`filp_*`) — **already done** |
 | `wls_lifecycle` | the QMK hooks themselves: `keyboard_post_init_kb`, `suspend_*`, `housekeeping_task_user`, `wireless_post_task`, `lpwr_*_hook` | the boot/housekeeping *sequence* (pure: given state → what to do) |
 
@@ -196,6 +198,12 @@ applied".
   sequencer is a pure time-driven walk; the indicator arrays hold flashes
   *concurrently*, so an in-sequence blink needed its own core. Both halves are
   tested (7/7 each).
+
+  > **SUPERSEDED (2026-10-14).** The blink half was replaced by the Dell-style
+  > `(amber, white)` boot code (`wls/boot_code_logic`), and the retained-record
+  > half moved into `wls/wls.h`; `boot_report_logic` and `boot_blink_logic` are
+  > deleted. The index is now `KB_BATTERY_IDX_BOOT_CODE` (17). See
+  > `docs/FINDINGS.md` "the boot instrument is a Dell-style `(amber, white)` code".
 
 The through-line: an input read that is sampled once, un-settled, and whose
 indeterminate state is silently mapped to a plausible value is a defect *class*.
