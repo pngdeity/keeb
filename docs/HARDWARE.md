@@ -190,6 +190,59 @@ the boot code is legible regardless.
   battery-bearing half) answers `0xA4` with its own module's value. One battery,
   one reported number; there is no second cell whose level could differ.
 
+## The wireless STOP extinguishes both halves (2026-10-14, observed)
+
+**Observed, on the `aec73138…` build:** with the switch on **Bluetooth** and no
+host bonded, **both halves went dark during the session** — the backlight did not
+return on a keypress, nor on flipping the switch to USB. The left half was
+nevertheless alive and healthy once read over USB (`transport=USB`,
+`usb_line=1`, `switch=1`, `bootcnt=1` — no reset loop — and it typed). The right
+half typed nothing.
+
+**Why both halves, from one cause.** The right half has **no battery** and **no
+supply of its own** (`## Split-link power`, `## Batteries`): it is powered solely
+by the left half over the link, left to right. So the right half going dark is
+not a second fault — it is the direct consequence of the left half stopping. Do
+not diagnose the two halves as independent.
+
+**The mechanism, in our own code.** `lpwr_stop_hook_pre()`
+(`wls/wls.c:390-397`) lowers the LED rail outright —
+`gpio_write_pin_low(LED_POWER_EN_PIN)`. On BT with no host attached the module
+reports `md state = 3 (DISCONNECTED)`, which `hsm_link_watch()` turns into
+`HSM_LINK_ACT_SLEEP` → `lpwr_set_timeout_manual(true)` (`wls.c:317-318`). The
+master is **not USB-exempt on BT**, so a real STOP is reachable. This is the
+failure `lpwr_stop_is_allowed()`'s own comment already predicted verbatim —
+*"the half then re-enters STOP with no rail re-raise and no matrix re-init: dark
+and unresponsive (observed on Bluetooth, where the master is not USB-exempt)"*
+(`wls.c:399-413`). **This session is that prediction demonstrated on hardware.**
+
+**Transport recovery is not rail recovery.** Flipping the switch to USB repaired
+the transport (`transport=USB`, typing worked, `0xA4` answered) but left
+`LED_POWER_EN_PIN` low, so the board stayed dark with a working readback. The two
+recovery paths are separate; a restored transport does not restore the rail.
+
+**Unresolved, and the discriminating question.** `--info` cannot answer it: the
+`battery: 100%` seen before the BT session was the module's init constant, not a
+reading (`md_info.bat` is populated only on a non-USB transport; see
+`FINDINGS.md`), so no pre-session battery value exists. Two possibilities remain
+and they differ in what is defective:
+
+- the pack genuinely was low, so the ordered-sleep path (the low-battery path)
+  fired correctly and BT-with-no-host merely exposed it; or
+- `wls_sleep_ordered()` was set by something other than a low battery, in which
+  case **our firmware extinguished the board on a non-low pack** — a defect.
+
+**The test that separates them:** run on battery, on BT, long enough for the real
+level to matter, and watch whether the radio-path battery value (`--info` with a
+live link, or the `0xA4` push) ever differs from `100`. A real healthy value plus
+a STOP means the sleep *order* is the defect.
+
+**Non-flashing recovery:** replug the left half's USB — `wls_lifecycle.c`
+re-raises the rail at init. Flipping the switch does not.
+**CONFIRMED 2026-10-14:** the replug brought the LEDs back on **both halves**,
+while the switch-to-USB had not. The recovery asymmetry is measured, not
+inferred.
+
 ## Charging and battery sensing
 
 - There is **no ADC and no charge-controller telemetry**. The firmware cannot

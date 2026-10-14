@@ -44,12 +44,22 @@ trees clean, both ahead of origin. The board's identity is the submodule hash.
    (no `.send_raw_hid` on the wireless driver); the confirmation is "no reply +
    still enumerated", and the discriminating test is that it *types* on the radio.
 
-**Two small instrument questions remain open from this session** (neither is a
-defect): (a) `bootcnt` read `1` **before and after** the flash — `.data`/`.bss`
-do not survive a reset, so either it lives in `.ram0` (intended) or it is
-re-seeded identically each boot; one deliberate power-cycle settles it. (b) the
-runtime **BT→USB switch edge** (Test C, § 2.3) and the cold-boot 2.4 GHz read
-(§ 2.2) were **not run** this session — the switch was flipped at runtime only.
+**One instrument question remains open from this session, and one is now settled
+(neither was a defect).** **SETTLED 2026-10-14 — `bootcnt` is not an open
+question.** `wls_boot_count` is a plain
+`static uint8_t` (`wls.c:62`, so in `.bss`), incremented once by `wls_note_boot()`
+(`wls.c:64-65`) from `keyboard_post_init_kb`. `.bss` does not survive a reset, so
+the counter **re-seeds and reaches 1 on every boot** — `1` is the correct reading
+after any flash, replug or power-cycle, and `boot_code_logic.h:119` states the
+design ("1 = first boot this power session"). It rises above 1 only if the MCU
+resets *without* losing `.bss`, which is exactly the reset-loop it exists to
+detect. **Do not re-open this.**
+
+**STILL NOT RUN: the runtime BT→USB switch edge** (Test C, § 2.3) and the
+cold-boot 2.4 GHz read (§ 2.2) — the switch was flipped at runtime only.
+*(Test C was partly exercised by accident — see the STOP finding below: the
+switch-to-USB at runtime DID repair the transport without a power cycle, which is
+the property Test C checks.)*
 
 **The Tier-1 battery measurement remains BLOCKED AT THE TOOLING LEVEL, not by
 firmware.** No dongle has ever enumerated on this host (only ever one
@@ -57,6 +67,43 @@ firmware.** No dongle has ever enumerated on this host (only ever one
 sweeps, `journalctl -k`, or a live `udevadm monitor`). So `md state` stays `NONE`
 and the level stays at the module's init constant `100` — **that `100` is not a
 firmware finding** and must not be recorded as one.
+
+**MEASURED 2026-10-14: the wireless STOP extinguishes BOTH halves, from one
+cause.** During the first BT session (switch on **Bluetooth**, no host bonded),
+**both halves went dark mid-session**; a keypress did not restore it, and neither
+did flipping the switch to USB. The left half was alive throughout — once on USB
+it answered `--info` (`transport=USB`, `usb_line=1`, `switch=1`, `bootcnt=1`, no
+reset loop) and typed. The right half typed nothing.
+
+**One defect, not two.** The right half has **no battery and no supply of its
+own** (`docs/HARDWARE.md` `## Split-link power`, `## Batteries`) — it is powered
+solely by the left half over the link. So it went dark *because the left half
+stopped*, not independently. Do not diagnose the halves separately.
+
+**Mechanism, in our code.** `lpwr_stop_hook_pre()` (`wls/wls.c:390-397`) lowers
+the LED rail (`gpio_write_pin_low(LED_POWER_EN_PIN)`). On BT with no host the
+module reports `md state = 3 (DISCONNECTED)`, which `hsm_link_watch()` maps to
+`HSM_LINK_ACT_SLEEP` -> `lpwr_set_timeout_manual(true)` (`wls.c:317-318`); the
+master is **not USB-exempt on BT**, so a real STOP is reachable. This is exactly
+what `lpwr_stop_is_allowed()`'s own comment already predicted (*"dark and
+unresponsive (observed on Bluetooth, where the master is not USB-exempt)"*) — the
+prediction is now demonstrated on hardware.
+
+**Transport recovery is not rail recovery.** The switch-to-USB repaired the
+transport but left `LED_POWER_EN_PIN` low, so the board stayed dark with a live
+readback. Non-flashing recovery is **replug the left half's USB** (lifecycle
+re-raises the rail); the switch does not. **CONFIRMED:** the replug restored the
+LEDs on **both halves**; the switch flip had not.
+
+**OPEN — and this is the question, not the answer.** Whether `wls_sleep_ordered()`
+was set by a genuinely low pack (correct behaviour, merely exposed by BT) or by
+something else (in which case **our firmware extinguished the board on a
+non-low pack — a defect**). The pre-session `battery: 100%` cannot discriminate:
+it is the module's init constant (only a non-USB transport populates
+`md_info.bat`). **The test:** run on battery, on BT, and watch whether the
+radio-path battery value ever differs from `100`. A real healthy value plus a
+STOP means the sleep *order* is the defect. See `docs/HARDWARE.md` "The wireless
+STOP extinguishes both halves".
 
 **THE EARLIER FLASH (`a45a9762…`) RESTORED USB TYPING after ~36 hours.** The
 36-hour fault — *enumerates as `342d:e4c6`/`mfr=LEO`, presents the raw-HID
