@@ -15,10 +15,46 @@ The live record: work, defects, and status. Sections below are marked **LIVE**
 
 **The walk arc is COMMITTED and signed** — root `18f0294`, submodule
 `split65-overlay` `8f381870e4`, userspace `966549f`; both trees clean, both ahead
-of origin. The board's identity is the submodule hash. **Flashed board = the
-Stage-4 build (`2ec21c44…`, 63.5 KB), which predates every walk fix**; the on-disk
-artefact is `a45a9762…` (64,736 B), built from the committed tree and reviewed in
-`docs/RUNBOOK-flash-and-measure.md` § 0.0.5.
+of origin. The board's identity is the submodule hash. **Flashed board =
+`a45a9762…` (64,736 B), built from the committed tree, flashed 2026-10-14**
+(reviewed in `docs/RUNBOOK-flash-and-measure.md` § 0.0.5).
+
+**THE FLASH HAPPENED, 2026-10-14 — and it WORKS. The board TYPES OVER USB for
+the first time in ~36 hours.** The flashed build is `a45a9762…` (64,736 B, built
+from `split65-overlay` `8f381870e4`), i.e. the build carrying every fix from the
+exhaustive walk. The 36-hour fault — *enumerates as `342d:e4c6`/`mfr=LEO`,
+presents the raw-HID collection, yet never types* — is **resolved by the walk**.
+The most likely single cause is **KF-1**: under the old numbering
+`HSM_HOST_USB(3) == CONNECTION_HOST_BLUETOOTH`, so every transport commit stored
+"Bluetooth" while the switch said USB, and keystrokes were routed to a listener
+that was not there. That is precisely "enumerates but never types".
+
+**The live readback over USB (the measurement the walk had never taken):**
+```
+battery:   100%  charge=2 (full)  transport=USB
+host(raw): 2 (USB)   bt profile:0   md state: 0 (NONE)
+DIAG:      switch=1 (USB)  devs=0  host=2  usb_line=1  bootcnt=1  link=0
+PINS:      C14=1  C15=1  B9=1
+RESET:     cause_bits=0x30  (power-on, external-pin)
+BOOT CODE: 7 amber, 5 white  ->  stage=RSTCAUSE code=5
+JUMP:      no journal
+```
+**Two things this settles.** (1) **The firmware's boot code is `(7, 5)` — correct.**
+The LED shows 5 amber, so the *undercount is a rendering defect only*; the code's
+value is trustworthy over USB and must be read there. (2) **The pin lie is not
+present on this boot** — `C14=1 C15=1 B9=1` read correctly, and `cause_bits=0x30`
+shows the reset latch held **two** bits (power-on *and* external-pin), which
+corrects the doc's "a single reset normally sets exactly one / lowest bit wins"
+claim as not universally true on this board.
+
+**The LED undercount is now the ONLY open instrument question, and it is
+cosmetic** — the diagnostic value was never lost (the `0xA4` reply carries the
+same code). It has been read as 5 amber on every flash including this one. **Cause
+is NOT yet measured**: a "frame starvation during boot" theory was written and a
+settle-delay fix was built, then **reverted unflashed** because there was no
+measurement behind it. Do not ship a fix for this without instrumenting the paint
+path to report frames actually painted. Full mechanism and the corrected bearing:
+`docs/HARDWARE.md` "Second measurement of the same event".
 
 **THE GOVERNING PLAN FOR THE NEXT PHASE IS `docs/PLAN-fcis-audit.md` — read it
 first.** Flashing is paused. The sequence is: (1) research what FC/IS is and how

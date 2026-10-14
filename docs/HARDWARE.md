@@ -1016,16 +1016,24 @@ exactly once (`wls_note_reset_cause()`, read-and-clear at
 readers — the LED code and the `0xA4` diag block — cannot disagree. See
 `docs/INDICATORS.md` §2 for how the value is spoken.
 
-**Caveat — now MEASURED, for the power-on bit (2026-10-14).** The register set is
-confirmed from the vendor CMSIS header, and `RCC->` is already used elsewhere in
-the tree (`keyboards/linker/wireless/lpwr_wb32.c`). On 2026-10-14 the instrument
-was read on hardware: a deliberate cold boot spoke `(7 amber, 5 white)` — stage
-`RSTCAUSE`, white 5 = bit 4 = `PORRSTF` (power-on) — which is the honest answer
-for that event. **So the latch is real, this board's silicon reports it, and bit 4
-is confirmed.** The *other* five bits have not been observed; in particular the
-loop's own cause has still not been seen (every reading so far was a clean
-power-on). Do not treat "the register works" as evidence about which bit the
-fault sets — that is exactly what the next reading must establish.
+**Caveat — now MEASURED (2026-10-14).** The register set is confirmed from the
+vendor CMSIS header, and `RCC->` is already used elsewhere in the tree
+(`keyboards/linker/wireless/lpwr_wb32.c`). On 2026-10-14 the instrument was read
+on hardware: a deliberate cold boot spoke `(7 amber, 5 white)` — stage
+`RSTCAUSE`, white 5 = bit 4 = `PORRSTF` (power-on). **So the latch is real, this
+board's silicon reports it, and bit 4 is confirmed.**
+
+**The latch held TWO bits, which corrects an earlier claim here and in
+`boot_code_logic.h`.** The USB readback (`--info`) reports
+`RESET: cause_bits=0x30 (power-on, external-pin)` — bits 4 **and** 5 set. So the
+"a single reset normally sets exactly one, the lowest set bit wins" statement is
+**not universally true on this board**: a power-on event also latches the pin
+bit, and the reported white 5 is the lowest set bit of a two-bit word. The code's
+lowest-bit rule is therefore *correct as a tie-break*, but the reading is not
+proof that only one cause occurred. The *other* four bits have not been observed;
+in particular the loop's own cause has still not been seen. Do not treat "the
+register works" as evidence about which bit the fault sets — that is what the
+next reading must establish.
 
 **Second measurement of the same event, and a withdrawn defect hypothesis
 (2026-10-14).** After flashing the Stage-4 build (sha256 `2ec21c44…`) the board
@@ -1034,14 +1042,18 @@ pause, five white, pause, backlight**. That is stage `RSTCAUSE` / white 5 =
 `PORRSTF` again — the same event as the `(7, 5)` reading above — but the **amber
 group showed five pulses where the code says seven**.
 
-**This was first written down as a live instrument defect — a two-pulse loss in
-the painting. It is not, and the claim is withdrawn.** A host simulation of the
-pure boot-code core (`wls_boot_code_at` and its frame/window helpers,
-re-implemented verbatim and scanned at 1 ms resolution) swept the origin offset
-across the full pulse period and counted the visible pulses at every offset:
-counts `(amber 7, white 5)` render as **exactly seven amber and five white at
-every offset**, with `show == frame == 11 700 ms`. Three properties of the
-current source make a truncation impossible:
+**First written as a live instrument defect; then withdrawn as a phantom of the
+old artifact; now REINSTATED (2026-10-14, second flash).** The withdrawal
+reasoned from a host simulation of the *pure core* — and the pure core is indeed
+correct (see below). But this reading was reproduced on the **new flash**
+(`a45a9762…`, built from the committed tree with the show-window fix), so the
+loss is real, survives the fix, and is **not** an artifact of the old build.
+
+The simulation modelled `wls_boot_code_at` and its helpers verbatim, swept the
+origin offset across the full pulse period, and counted visible pulses at every
+offset: `(amber 7, white 5)` renders as **seven amber and five white at every
+offset**, with `show == frame == 11 700 ms`. Three properties of the core make a
+*rule-level* truncation impossible:
 
 - `wls_boot_code_show_ms()` returns exactly `wls_boot_code_frame_ms()`, so the
   window cannot end mid-group;
@@ -1051,24 +1063,37 @@ current source make a truncation impossible:
 - `wls_boot_code_at(t = 0)` is already lit, so a late origin can begin a little
   into the first pulse but can never skip a whole one.
 
-**So the `(5 amber, 5 white)` reading belongs to the flashed Stage-4 artifact
-(`2ec21c44…`), which predates the current tree** — the same relationship as the
-other findings from that flash (the `0xA4` journal overflow, the `ENC_SIZE`
-mismatch). The current source cannot produce it; do not chase a phantom.
+**What the simulation did not model — and the honest state of the cause.** It
+assumed a clean 1 ms tick and an unbroken frame cadence. A "frame starvation
+during boot" theory was then written: the origin is armed on the first *live*
+paint, and the amber group is the first 4200 ms of the 11 700 ms window, when the
+RGB frame limiter (`RGB_MATRIX_LED_FLUSH_LIMIT`, 16 ms), matrix scan, USB
+enumeration and the RSTCAUSE gathering all compete for the frame. **That theory
+was never measured, and a settle-delay fix built on it was reverted unflashed.**
+It is recorded here as a hypothesis, not a finding.
 
-**The one real hazard found while walking this code was fixed.** The shell used
-`boot_code_started == 0` to mean "armed, not yet started", aliasing a *real* time
-value onto the sentinel: `timer_read32()` genuinely returns 0 during the first
-millisecond after `timer_init()` (`platforms/chibios/timer.c`), so an origin
-stamped at exactly 0 would re-enter the "not started" branch forever and hold the
-matrix black for the whole window. It is now a separate latch (`boot_code_armed`,
-`wls_indicator.c`), so the sentinel and the time value cannot be confused.
+**What IS measured (2026-10-14, the working flash, `--info` over USB):** the
+firmware reports `BOOT CODE: 7 amber, 5 white -> stage=RSTCAUSE code=5`. **The
+code is correct in the firmware.** The eye reads 5 amber, so the discrepancy is a
+**rendering defect only** — the count's *value* is trustworthy over USB (the
+`0xA4` reply carries the same code the LED plays, `wls_boot_code_encode()`), and
+must be read there. The LED undercount is cosmetic and its cause is unmeasured.
 
-**Bearing.** The reading is legible — white 5 is unambiguous and the amber
-group's presence distinguishes a fault from the healthy case — and the amber
-*count* is now understood to be sound in the current source. Treat a `(5, 5)`
-reading as `RSTCAUSE`/`PORRSTF` and not as a stage-5 fault; **stage 5
-(`INCOMPLETE`) has no code path at all**.
+**Bearing (corrected again).** Read the code over USB (`host/battery_polybar.py
+--info --transport usb`). The LED is a fallback for when no host is available: its
+white group (5) is stable and reads `RSTCAUSE`, but **its amber count must not be
+trusted to the pulse until the render path is instrumented**. Treat a `(5, 5)`
+reading as `RSTCAUSE`; **stage 5 (`INCOMPLETE`) has no code path at all**.
+
+**The sentinel hazard found while walking this code is fixed, but it was not the
+cause.** The shell used `boot_code_started == 0` to mean "armed, not yet
+started", aliasing a *real* time value onto the sentinel: `timer_read32()`
+genuinely returns 0 during the first millisecond after `timer_init()`
+(`platforms/chibios/timer.c`), so an origin stamped at exactly 0 would re-enter
+the "not started" branch forever and hold the matrix black for the whole window.
+It is now a separate latch (`boot_code_armed`, `wls_indicator.c`), so the
+sentinel and the time value cannot be confused. **That fixes a distinct hazard;
+it does not address the sampling loss above.**
 
 ## The cabled-but-wireless fault (measured 2026-10-14, the Stage-4 flash)
 
