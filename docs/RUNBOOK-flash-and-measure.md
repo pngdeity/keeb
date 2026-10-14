@@ -587,19 +587,37 @@ done
 
 ## 7. Session log (fill in)
 
+**Session 2026-10-14: the `aec73138…` flash** (walk fixes + byte-order + req-2
+reform), left half, switch left on USB then flipped to 2.4 GHz. The board typed
+over USB throughout.
+
 | # | Check | Expected | Observed | Verdict |
 | --- | --- | --- | --- | --- |
-| 1 | Both halves flash, both return as `342d:e4c6` | yes | | |
-| 2.1 | Cold boot, switch USB: transport/host/diag | USB / 2 / switch=1, usb_line=1 | | |
-| 2.1 | `bootcnt` advances by exactly 1 on clean replug | +1 | | |
-| 2.2 | Cold boot, switch 2.4G | 2.4G / 4 / switch=3, devs=6 | | |
-| 2.3 | **Runtime BT→USB switch edge types over USB** | types, no power cycle | | |
-| 3.1 | 2.4 GHz: real percentage != 100 | a changing value | | |
-| 3.1 | 2.4 GHz: `md state` = CONNECTED | 2 | | |
-| 3.2 | Cable in, switch 2.4G: stays wireless, level updates | yes | | |
-| 3.2 | `charge` moves 1 → 2 | 1 then 2 | | |
-| 4 | Dongle enumerates with keyboard on 2.4G | yes, iface 2 | | |
-| 5 | Self-detach: `bootcnt` unchanged across a drop | unchanged (line drop, not reset) | | |
+| 0 | Boot code colour: amber renders amber | amber | **amber** | **PASS** — byte order was the cause; closes `HARDWARE.md` |
+| 1 | Flash returns as `342d:e4c6` | yes | `342d:e4c6` `mfr=LEO`, dev 060 | PASS |
+| 2.1 | Cold boot, switch USB: transport/host/diag | USB / 2 / switch=1, usb_line=1 | USB / 2 / `switch=1 devs=0 host=2 usb_line=1` | PASS |
+| 2.1 | `bootcnt` advances by exactly 1 on clean replug | +1 | read `1` before and after | **UNRESOLVED** — see note |
+| 2.2 | Cold boot, switch 2.4G | 2.4G / 4 / switch=3, devs=6 | not read cold (switch flipped at runtime) | not run |
+| 2.3 | **Runtime BT→USB switch edge types over USB** | types, no power cycle | not run this session | not run |
+| 3.1 | 2.4 GHz: real percentage != 100 | a changing value | **blocked** — no dongle enumerates | blocked (tooling) |
+| 3.1 | 2.4 GHz: `md state` = CONNECTED | 2 | `md state=0 (NONE)` | blocked (no dongle) |
+| 3.2 | Cable in, switch 2.4G: **stays wireless** | yes | **stays wireless** — `0xA4` unanswered, still enumerated | **PASS** — closes req 2; was `host=2 (USB)` pre-reform |
+| 3.2 | `charge` moves 1 → 2 | 1 then 2 | `charge=2 (full)` while cabled | partial |
+| 4 | Dongle enumerates with keyboard on 2.4G | yes, iface 2 | **no `MILE` device ever** | blocked (tooling) |
+| 5 | Self-detach: `bootcnt` unchanged across a drop | unchanged (line drop, not reset) | not run this session | not run |
+
+**Note on 2.1 — `bootcnt`.** Read `1` both before and after the flash. `.bss`/
+`.data` do not survive a reset, so an identical value across a flash means either
+the counter lives in `.ram0` (which does survive, and would be the intended
+design) or it is re-seeded to the same value each boot. One deliberate
+power-cycle settles it; it is an instrument question, not a defect.
+
+**Bearing of this session.** Both software fixes waiting on this flash are
+**confirmed on hardware**: the boot code renders amber, and a cable with the
+switch on 2.4 GHz leaves the board on the radio. The Tier-1 battery measurement
+remains **blocked at the tooling level** — no dongle has ever enumerated on this
+host, so `3.1`/`4` could not be attempted and the reading stays at the module's
+init constant `100`, which is *not* a firmware finding.
 
 Afterwards: record the durable findings in `docs/FINDINGS.md` (battery
 semantics, the self-detach trace, the switch-edge confirmation), and update the

@@ -12,39 +12,56 @@ The live record: work, defects, and status. Sections below are marked **LIVE**
 ## RESUME HERE (written 2026-10-13; **updated 2026-10-14 after the first
 ## hardware readings of the Stage 1 instrument**; **updated again after the
 ## exhaustive walk closed**; **updated again after the colour fix and the
-## requirement-2 transport reform**)
+## requirement-2 transport reform**; **updated again after the `aec73138…` flash
+## CONFIRMED BOTH FIXES ON HARDWARE**)
 
-**The arc is COMMITTED and signed** — root `5002fd4` (plus this landing's
-commit), submodule `split65-overlay` `8aa4680a5c` (the `WS2812_BYTE_ORDER_RGB`
-fix), userspace `966549f`; both trees clean, both ahead of origin. The board's
-identity is the submodule hash. **Flashed board = `a45a9762…` (64,736 B)**, the
-walk-close build that restored USB typing.
-**On-disk artefact = `aec731388c…` (64,600 B)** — walk-close **+ the byte-order
-(colour) fix + the requirement-2 transport reform**; reviewed in
-`docs/RUNBOOK-flash-and-measure.md` § 0.0.5 and **not yet flashed**.
+**The arc is COMMITTED and signed** — root `432fe4c` (plus this landing's
+commit), submodule `split65-overlay` `f771dee5a7`, userspace `966549f`; both
+trees clean, both ahead of origin. The board's identity is the submodule hash.
+**Flashed board = `aec731388c…` (64,600 B)** — walk-close **+ the byte-order
+(colour) fix + the requirement-2 transport reform** — flashed 2026-10-14 and
+**both new fixes are now CONFIRMED ON HARDWARE.**
 
-**TWO FIXES ARE WAITING ON THE SAME FLASH (2026-10-14).**
-1. **The amber-renders-green defect is SOLVED in source.** The board never set
-   `WS2812_BYTE_ORDER`, so upstream's `GRB` default applied; the struct is `{g,r,b}`
-   and the serializer writes `g,r,b`, so the two swaps **cancel** and the panel
-   received `[G,R,B]` — amber `(255,96,0)` arriving as `(96,255,0)`, a saturated
-   yellow-green. Fixed with `#define WS2812_BYTE_ORDER WS2812_BYTE_ORDER_RGB` in
-   the board `config.h`. **Every LED colour on the board was wrong, not just the
-   boot code.** See `docs/HARDWARE.md`.
-2. **Requirement 2 is now implemented as the user defined it** (a power-only cable
-   must not force USB). The pure `hsm_switch_apply_with_cable` forced USB on any
-   cable read; it is replaced by `hsm_input_rule` — the cable is a *power* fact and
-   reaches no transport decision, the switch is authoritative, and a confirmed host
-   settles only an *unreadable* switch read to USB. Measured defect it fixes:
-   `switch=3 (2.4G)` with `host(raw)=2 (USB)`. Requirement 2's wording corrected in
-   `docs/FINDINGS.md`. **The cable prediction is the falsifier to watch.**
+**THE `aec73138…` FLASH CONFIRMED BOTH WAITING FIXES (2026-10-14).**
+1. **The boot code now renders AMBER.** The amber-renders-green defect is closed:
+   the board never set `WS2812_BYTE_ORDER`, so upstream's `GRB` default applied;
+   the struct is `{g,r,b}` and the serializer writes `g,r,b`, so the two swaps
+   **cancelled** and the panel received `[G,R,B]` — amber `(255,96,0)` arriving as
+   `(96,255,0)`, a saturated yellow-green. Fixed with
+   `#define WS2812_BYTE_ORDER WS2812_BYTE_ORDER_RGB` in the board `config.h`.
+   **Every LED colour on the board was wrong, not just the boot code.** One look
+   was the falsifier; it passed. See `docs/HARDWARE.md`.
+2. **Requirement 2 holds on hardware.** With the switch on 2.4 GHz and the cable
+   attached, the board **stays on the radio** — the `0xA4` request goes
+   unanswered while the USB peripheral stays enumerated (charging). The
+   pre-reform build measurably did the opposite (`switch=3 (2.4G)` with
+   `host(raw)=2 (USB)`). The fix is `hsm_input_rule`: the cable is a *power* fact
+   and reaches no transport decision; the switch is authoritative, and a confirmed
+   host settles only an *unreadable* switch read to USB. Requirement 2's wording
+   corrected in `docs/FINDINGS.md` (it named "a phone or tablet", a real host on
+   the same single port). § 7's cable falsifier did **not** fire.
+   *Limit of the evidence:* `host(raw)=4` cannot be read directly in that state
+   (no `.send_raw_hid` on the wireless driver); the confirmation is "no reply +
+   still enumerated", and the discriminating test is that it *types* on the radio.
 
-**THE FLASH HAPPENED, 2026-10-14 — and it WORKS. The board TYPES OVER USB for
-the first time in ~36 hours.** The flashed build is `a45a9762…` (64,736 B, built
-from `split65-overlay` `8f381870e4`), i.e. the build carrying every fix from the
-exhaustive walk. The 36-hour fault — *enumerates as `342d:e4c6`/`mfr=LEO`,
-presents the raw-HID collection, yet never types* — is **resolved by the walk**.
-The most likely single cause is **KF-1**: under the old numbering
+**Two small instrument questions remain open from this session** (neither is a
+defect): (a) `bootcnt` read `1` **before and after** the flash — `.data`/`.bss`
+do not survive a reset, so either it lives in `.ram0` (intended) or it is
+re-seeded identically each boot; one deliberate power-cycle settles it. (b) the
+runtime **BT→USB switch edge** (Test C, § 2.3) and the cold-boot 2.4 GHz read
+(§ 2.2) were **not run** this session — the switch was flipped at runtime only.
+
+**The Tier-1 battery measurement remains BLOCKED AT THE TOOLING LEVEL, not by
+firmware.** No dongle has ever enumerated on this host (only ever one
+`342d:e4c6`, `mfr='LEO'` = the keyboard; no `MILE` device in `lsusb`, sysfs
+sweeps, `journalctl -k`, or a live `udevadm monitor`). So `md state` stays `NONE`
+and the level stays at the module's init constant `100` — **that `100` is not a
+firmware finding** and must not be recorded as one.
+
+**THE EARLIER FLASH (`a45a9762…`) RESTORED USB TYPING after ~36 hours.** The
+36-hour fault — *enumerates as `342d:e4c6`/`mfr=LEO`, presents the raw-HID
+collection, yet never types* — was **resolved by the walk**. The most likely
+single cause is **KF-1**: under the old numbering
 `HSM_HOST_USB(3) == CONNECTION_HOST_BLUETOOTH`, so every transport commit stored
 "Bluetooth" while the switch said USB, and keystrokes were routed to a listener
 that was not there. That is precisely "enumerates but never types".

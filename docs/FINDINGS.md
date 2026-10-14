@@ -73,6 +73,22 @@ USB — it is requirement 3.) The rule is `hsm_input_rule` in
 `wls/transport_logic.{c,h}`: the cable is a *power* fact and reaches no transport
 decision at all.
 
+**CONFIRMED ON HARDWARE 2026-10-14** (build `aec73138…`, 64,600 B). With the
+switch on 2.4 GHz and the host cable attached, the board **stays on the radio**:
+the raw-HID `0xA4` request gets no reply, which is the expected signature of a
+non-USB committed transport (`--info`'s own message: "On a keyboard whose
+committed transport is not USB, this is expected — keystrokes and the report path
+go to the module, not the host"). The USB peripheral remains enumerated, so the
+board charges. **The pre-reform build measurably did the opposite** — `switch=3
+(2.4G)` with `host(raw)=2 (USB)`, the cable forcing USB and stranding the radio.
+This is the reading that closes requirement 2; § 7's falsifier did not fire.
+
+Note the limit of this evidence: `host(raw)=4` **cannot be read directly** in this
+state (the `0xA4` reply is unreachable while the transport is not USB — the
+wireless driver has no `.send_raw_hid`), so the confirmation is "no reply + still
+enumerated" rather than a positive field read. The discriminating test is that it
+*types* on the radio.
+
 **Accepted tradeoff.** The firmware's cable-insert auto-switch (in
 `housekeeping_task_user()`) forced `DEVS_USB` when a cable appeared, which would
 defeat requirement 2. Removing it is sanctioned: the keyboard has a physical

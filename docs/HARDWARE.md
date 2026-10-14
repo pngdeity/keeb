@@ -115,9 +115,12 @@ right one.
 `config.h`. It is board-local (our panel's fact, not upstream's), and it is not
 a change to the colour constants — the constants were always correct.
 
-**Status: built (`633d5886…`, 64,736 B), not yet seen on hardware.** The falsifier
-is one look: if amber renders amber after this flash, the cause is confirmed; if
-it still renders green, byte order is innocent and this section is wrong again.
+**Status: CONFIRMED ON HARDWARE 2026-10-14.** Built (`633d5886…`, 64,736 B; then
+`aec73138…`, 64,600 B, which carries this fix plus the requirement-2 transport
+reform) and flashed. **The boot code now renders amber.** The one look was the
+falsifier, and it passed: the fault was the byte order, and the panel is
+RGB-ordered. Every colour on the board was affected before this fix, not just the
+boot code.
 
 **It does not affect the reading.** Colour only groups the code
 (category = amber, value = white); **the pulse count carries the message**, so
