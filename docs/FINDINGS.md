@@ -54,20 +54,35 @@ reporting described below is a means to them.
    `HARDWARE.md` "Batteries").
 3. **USB while charging.** Both halves operate over USB-C with a cable attached.
 
-**Why requirement 2 exists.** The operator may charge the halves from an
-external PSU while connecting them to a *different, power-limited host* (e.g. a
-phone or tablet that cannot supply charging current) purely for input. In that
-arrangement the keyboard must keep typing over its wireless link while the
-charge comes from elsewhere — so "a cable is present" must not by itself mean
-"switch to USB".
+**Why requirement 2 exists.** A cable that only *powers* the keyboard — a wall
+charger, a power bank, a USB hub's charging port — must not change the transport:
+the board should keep typing over its wireless link while charge comes from the
+cable. So "a cable is present" must not by itself mean "switch to USB".
+
+**Wording corrected 2026-10-14.** This requirement previously read "charge from an
+external PSU while connecting to a *different, power-limited host* (e.g. a phone
+or tablet)". That is not realisable and was wrong: there is ONE USB-C port, and
+a phone is a real USB host that enumerates exactly as a PC does. On a single port
+the board cannot distinguish "a phone supplying charge" from "a PC", so
+"a real host on the cable" and "a power-only supply on the cable" cannot be told
+apart by any means available to the firmware. Requirement 2 therefore means what
+is implementable and was always the intent: **a power-only cable must not force
+USB; the switch stays authoritative; a real enumerating host still wins.** (A
+phone attached as a host is precisely the "real host" case and correctly takes
+USB — it is requirement 3.) The rule is `hsm_input_rule` in
+`wls/transport_logic.{c,h}`: the cable is a *power* fact and reaches no transport
+decision at all.
 
 **Accepted tradeoff.** The firmware's cable-insert auto-switch (in
-`housekeeping_task_user()`) forces `DEVS_USB` when a cable appears, which would
+`housekeeping_task_user()`) forced `DEVS_USB` when a cable appeared, which would
 defeat requirement 2. Removing it is sanctioned: the keyboard has a physical
 mode switch, so mode selection can belong to the switch alone. `hs_modeio_detection()`
 already forces `DEVS_USB` when the switch is in the USB position, and
 `wls_process_long_press()` already makes `KC_BT*`/`KC_2G4` no-ops unless the
 switch reports BT/wireless — so the switch becomes the single, coherent control.
+The same reasoning was applied to the second cable consumer, the pure
+`hsm_switch_apply_with_cable` (which forced USB on any cable read): it was
+replaced by `hsm_input_rule`, so no cable read reaches the transport decision.
 
 **Unverified.** Whether VBUS presence disturbs the module UART or the radio link
 is unknown; nothing in the firmware gates wireless on `charging_state`. That is

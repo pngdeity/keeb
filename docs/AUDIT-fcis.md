@@ -1259,8 +1259,9 @@ unreadable variant carries no transport); they do nothing about a readable switc
 that reads wrong.** That is the gap this reading measures.
 
 **The rescue path did not fire, and its own read is suspect.**
-`hsm_switch_apply_with_cable(pos, last_bt, cable_here)` (transport_logic.c:111)
-puts the cable **above** the switch: `cable_here` true forces USB regardless of
+`hsm_switch_apply_with_cable(pos, last_bt, cable_here)` (transport_logic.c:111,
+**since replaced by `hsm_input_rule` — see below**) put the cable **above** the
+switch: `cable_here` true forced USB regardless of
 the switch — the documented "the half with the host cable is the master" rule
 (`docs/HARDWARE.md` "Halves and handedness"). It did not force USB, so
 `cable_here` read false with the cable attached. `cable_here` is

@@ -147,23 +147,23 @@ signed tree, so the runbook's checklist wording "confirmed clean against HEAD" i
 now met.**
 
 **1. The artefact.** `qmk_firmware/.build/epomaker_epomaker_split65_nathan.bin`,
-**64,736 bytes** (`text 0 / data 64736 / bss 0`, `fce0`), sha256
-**`633d5886c2ba4e5c5815183de2d07eea6e6eb320f4d17907c11e89fabe140b5e`**. This is
+**64,600 bytes** (`text 0 / data 64600 / bss 0`, `fc58`), sha256
+**`aec731388c8c478c1264aebf1efa23dc1db8ba4aeabf86722d914be1d0886144`**. This is
 the walk-close build **plus the `WS2812_BYTE_ORDER_RGB` fix** (see the colour
-prediction in § 4); the earlier walk-close hash `a45a9762…` was byte-identical in
-size but carried the wrong (GRB-default) colour order.
+prediction in § 4) **plus the requirement-2 transport reform** (the cable is no
+longer a transport input; see § 4's cable prediction and § 7). It is 136 bytes
+*smaller* than the byte-order build `633d5886…`, because the reform removed the
+`hsm_switch_apply_with_cable` / `hsm_transport_decide` pair in favour of one rule.
 
-- **Submodule `split65-overlay` = `8f381870e4…`, signed (`G`)**, with the
-  byte-order `config.h` change on top (committed by the same landing as this
+- **Submodule `split65-overlay` = `8aa4680a5c…`** (the byte-order commit), signed
+  (`G`), with the transport reform on top (committed by the same landing as this
   edit — the gitlink pins it).
 - **Root `main` = the commit that carries this runbook section, signed (`G`)**.
-- `git status --short` is **empty in both trees** once the byte-order landing is
-  committed.
+- `git status --short` is **empty in both trees** once the landing is committed.
 
 The board currently runs the **walk-close** build (`a45a9762…`, 64,736 B) — the
 build whose flash **restored USB typing** and which reported `(7 amber, 5 white)`
-over USB. This next flash changes only the LED colour order; the code values,
-counts and every `0xA4` field are unchanged from `a45a9762…`.
+over USB.
 
 **2. Untested assumptions (state each as measured or inherited).**
 - *`.ram0` survives a `NVIC_SystemReset` across a real reset* — **inherited**
@@ -178,8 +178,12 @@ counts and every `0xA4` field are unchanged from `a45a9762…`.
   link is not.
 - *The battery level will move off 100 on 2.4 GHz* — **inherited** (only the radio
   path is known to answer `INQVOL`); this session is the measurement.
-- *A cable with the switch on 2.4 GHz leaves the board wireless* — **source done**
-  (`hs_transport_arbitrate_cable()` is a no-op) but **never hardware-confirmed**.
+- *A cable with the switch on 2.4 GHz leaves the board wireless* — **now true by
+  construction** (`hsm_input_rule`; the cable is no longer a transport input at
+  all) but **never hardware-confirmed**. Note it was **falsified** on the
+  pre-reform build: the old `hsm_switch_apply_with_cable` forced USB on any cable
+  read, and the board measurably went to USB with `switch=3 (2.4G)`
+  (`host(raw)=2`). See `docs/FINDINGS.md` requirement 2 and `TODO.md`.
 
 **3. The four review questions.**
 - *Does any effect feed back into its own trigger?* **No new feedback loop is
@@ -219,6 +223,7 @@ counts and every `0xA4` field are unchanged from `a45a9762…`.
   that is the result: `INQVOL` is never answered on this module revision.
 - *Cable in, switch on 2.4 GHz:* the board **stays wireless** (does not switch to
   USB) and the level keeps updating; `charge` reads `1` then `2` as it tops.
+  *(This is requirement 2, and it is the reading that falsified the old build.)*
 - *Runtime BT→USB switch edge (Test C):* with the switch on BT and no host, flip
   to USB **without power-cycling** and type — **it types over USB**, `--info`
   shows `transport=USB`, `usb_line=1`. This is the single highest-value check and
@@ -241,14 +246,18 @@ a last resort (it enters DFU, it does not resume typing).
 samples with `md state=2`* ⇒ `INQVOL` is unanswered on this revision; the
 "default 100" is the module's constant and the honesty fix (defect 1) becomes the
 only path — the retry-harder option is closed. *The board switches to USB when a
-cable is inserted with the switch on 2.4 GHz* ⇒ `hs_transport_arbitrate_cable()`
-is not the only cable consumer and requirement 2 is unmet. *A `(N, 5)` reading
+cable is inserted with the switch on 2.4 GHz* ⇒ **this has already fired once**
+(against the pre-reform build: `hsm_switch_apply_with_cable` forced USB on any
+cable read, measured as `switch=3 (2.4G)` with `host(raw)=2`). It is what the
+reform fixes; if it fires again on the new build, the cable still reaches the
+transport decision by some path not yet found, and requirement 2 is unmet. *A
+`(N, 5)` reading
 with `N != 7` and a plausible stage* ⇒ the boot-code counts disagree with the
 source, reopening the instrument question with the walk's fixes in place. *The
 board drops USB while the switch says USB* ⇒ the self-detach path, unchanged by
 this build; read the diag block for `bootcnt`/`usb_line` at the drop.
 
-**8. Verify the artefact on disk** matches `a45a9762…` (§ 0.2) before flashing;
+**8. Verify the artefact on disk** matches `aec73138…` (§ 0.2) before flashing;
 it was rebuilt from the committed tree during this pre-flight and matched.
 
 The flash is a **human action** — see the note above.
@@ -468,7 +477,8 @@ Same session, cable in:
 
 1. Stay on **2.4 GHz** (this is also requirement-2 verification, item 8): plug
    USB while the switch is on 2.4 GHz. Expected: **the keyboard stays wireless**
-   (it must NOT switch to USB) and the level keeps updating.
+   (it must NOT switch to USB) and the level keeps updating. This is the check
+   that failed on the pre-reform build.
 2. Watch `charge`: `1` (charging) while charging, then `2` (full) once topped.
    `CHARGE_NAMES = {0: discharging, 1: charging, 2: full}`.
 

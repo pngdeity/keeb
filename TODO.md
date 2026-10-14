@@ -11,13 +11,33 @@ The live record: work, defects, and status. Sections below are marked **LIVE**
 
 ## RESUME HERE (written 2026-10-13; **updated 2026-10-14 after the first
 ## hardware readings of the Stage 1 instrument**; **updated again after the
-## exhaustive walk closed**)
+## exhaustive walk closed**; **updated again after the colour fix and the
+## requirement-2 transport reform**)
 
-**The walk arc is COMMITTED and signed** — root `18f0294`, submodule
-`split65-overlay` `8f381870e4`, userspace `966549f`; both trees clean, both ahead
-of origin. The board's identity is the submodule hash. **Flashed board =
-`a45a9762…` (64,736 B), built from the committed tree, flashed 2026-10-14**
-(reviewed in `docs/RUNBOOK-flash-and-measure.md` § 0.0.5).
+**The arc is COMMITTED and signed** — root `5002fd4` (plus this landing's
+commit), submodule `split65-overlay` `8aa4680a5c` (the `WS2812_BYTE_ORDER_RGB`
+fix), userspace `966549f`; both trees clean, both ahead of origin. The board's
+identity is the submodule hash. **Flashed board = `a45a9762…` (64,736 B)**, the
+walk-close build that restored USB typing.
+**On-disk artefact = `aec731388c…` (64,600 B)** — walk-close **+ the byte-order
+(colour) fix + the requirement-2 transport reform**; reviewed in
+`docs/RUNBOOK-flash-and-measure.md` § 0.0.5 and **not yet flashed**.
+
+**TWO FIXES ARE WAITING ON THE SAME FLASH (2026-10-14).**
+1. **The amber-renders-green defect is SOLVED in source.** The board never set
+   `WS2812_BYTE_ORDER`, so upstream's `GRB` default applied; the struct is `{g,r,b}`
+   and the serializer writes `g,r,b`, so the two swaps **cancel** and the panel
+   received `[G,R,B]` — amber `(255,96,0)` arriving as `(96,255,0)`, a saturated
+   yellow-green. Fixed with `#define WS2812_BYTE_ORDER WS2812_BYTE_ORDER_RGB` in
+   the board `config.h`. **Every LED colour on the board was wrong, not just the
+   boot code.** See `docs/HARDWARE.md`.
+2. **Requirement 2 is now implemented as the user defined it** (a power-only cable
+   must not force USB). The pure `hsm_switch_apply_with_cable` forced USB on any
+   cable read; it is replaced by `hsm_input_rule` — the cable is a *power* fact and
+   reaches no transport decision, the switch is authoritative, and a confirmed host
+   settles only an *unreadable* switch read to USB. Measured defect it fixes:
+   `switch=3 (2.4G)` with `host(raw)=2 (USB)`. Requirement 2's wording corrected in
+   `docs/FINDINGS.md`. **The cable prediction is the falsifier to watch.**
 
 **THE FLASH HAPPENED, 2026-10-14 — and it WORKS. The board TYPES OVER USB for
 the first time in ~36 hours.** The flashed build is `a45a9762…` (64,736 B, built
@@ -731,9 +751,17 @@ sections below.
 8. **Wireless while charging (requirement 2).** ~~Disable the cable-insert
    auto-switch in `housekeeping_task_user()`~~ **SOURCE DONE** — the
    cable-insert auto-switch (`hs_transport_arbitrate_cable()`) is now a no-op
-   (Tier 0 item 3 pass); mode selection belongs to the physical switch. **Still
-   to verify on hardware:** a cable with the switch on 2.4 GHz must leave the
-   keyboard wireless and the level still updating. The hardware behaviour (VBUS
+   (Tier 0 item 3 pass). **A SECOND cable consumer was found and removed
+   2026-10-14**: the pure `hsm_switch_apply_with_cable` forced USB on *any* cable
+   read, so a power-only cable still overrode a wireless switch position —
+   measured as `switch=3 (2.4G)` with `host(raw)=2 (USB)`. It is replaced by
+   `hsm_input_rule` (`wls/transport_logic.{c,h}`): the cable is a *power* fact and
+   reaches no transport decision; the switch is authoritative, a confirmed host
+   settles only an *unreadable* switch read to USB. Requirement 2's own wording
+   was corrected (it named "a phone or tablet", which is a real host on the same
+   single port and cannot be distinguished from a PC) — see `docs/FINDINGS.md`.
+   **Still to verify on hardware:** a cable with the switch on 2.4 GHz must leave
+   the keyboard wireless and the level still updating. The hardware behaviour (VBUS
    vs module UART/radio) is unverified. Needs the user at the keyboard.
 
 **Tier 2 — feature completeness (in scope, not yet probed):**
