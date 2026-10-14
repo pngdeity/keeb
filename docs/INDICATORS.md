@@ -9,6 +9,13 @@
 > `docs/BOARD-LAYER.md` (the `wls_indicator` row), and the discovery narrative —
 > why the previous instrument was unreadable — is the `boot instrument` FINDING
 > in `docs/FINDINGS.md`.
+>
+> **This is the instrument contract, for a debugging audience.** What the LEDs
+> owe *the person typing* — the user-facing meanings, which are a different and
+> shorter set, and the requirement that a colour never be the sole carrier of a
+> state — is `docs/UX-REQUIREMENTS.md`. A user-facing indicator and an instrument
+> may share a pattern; they must not share a *meaning* by accident (see that
+> file's X-11).
 
 Read this when you need to **interpret** the board, not when you change it. A
 change to what the lights mean must update this file in the same commit.

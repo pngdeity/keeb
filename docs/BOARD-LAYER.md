@@ -226,3 +226,8 @@ After every slice: build clean, all tests pass, `bin/test-sanitized` clean,
   to the persisted BT index), the fixed types make it unrepresentable
   (measures A–D), and the seam now has a second exporter that does not ride the
   line under test. Hardware confirmation is the remaining step.
+- Every state the **user** must be able to infer is a state the machine
+  *exposes* — the user-facing contract (`docs/UX-REQUIREMENTS.md`) is a contract
+  on this layer's state machine, not on its rendering. A state the firmware
+  collapses (e.g. "connected" for a link that carries no input) cannot be
+  indicated honestly by any renderer; the fix belongs here, not in the LEDs.

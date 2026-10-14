@@ -44,8 +44,15 @@ work are in `TODO.md`.
 
 ## Functional requirements
 
-The user-facing requirements, in priority order. These are the end; the battery
-reporting described below is a means to them.
+**These are the *engineering* requirements** — the transport behaviours the
+firmware must have, in priority order. They are the end the battery reporting
+described below serves; they are not user outcomes. **The *user-facing*
+requirements — what a person must be able to infer from the keyboard, and the
+method that derived them — are `docs/UX-REQUIREMENTS.md`.** The distinction is
+deliberate: these three say what the board must *do*; that document says what the
+person must be able to *see and act on*. The 2026-10-14 dark board satisfied all
+three of these and still presented a dead keyboard, which is why both sets are
+needed.
 
 1. **Wireless while discharging.** Both halves operate on a wireless transport
    (2.4 GHz or Bluetooth) with no cable attached.

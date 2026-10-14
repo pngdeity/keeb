@@ -2149,6 +2149,58 @@ Caveats to confirm empirically:
 
 ## User experience / usability review of the keyboard mappings
 
+**Governing document: `docs/UX-REQUIREMENTS.md`** (added 2026-10-14). It states the
+user-facing requirements — what a person must be able to infer from the keyboard —
+derived from the human-interface literature with the derivation method recorded
+(Apple's four-step design process and ten-step observation protocol, Nielsen's
+heuristics, the 1992 *Macintosh HIG*). Items below are **decisions against that
+standard**: resolve them by citing the requirement (X-n) they satisfy or violate,
+not by taste. The minimum-brightness floor is requirement **X-7**; the charging
+LED placement is **X-5**.
+
+- **DECIDED — the audience is one owner, multi-host, occasionally shared (settled
+  2026-10-14).** `docs/UX-REQUIREMENTS.md` §1 now derives the audience from **four
+  circumstances the owner described**: home-office desktop (USB), library laptop
+  (wireless, charged from a brick), presenting from a phone (wireless, unattended),
+  and a friend's laptop (wireless, one-off). Four hosts, one owner — so the earlier
+  "one owner, one desk" wording was **wrong**: those are separate axes.
+  **Consequences:** the active host IS a primary user state, so §8's BT-profile trim
+  is **reversed** and X-4 extends to *which host* (new requirement **X-20**). The
+  four circumstances also minted **X-21** (a transient guest host must be usable and
+  its slot reclaimable — measured: the protocol has no non-bonded connection, only
+  `DEVCTRL_PAIR` into five slots and `DEVCTRL_CLEAN` to reclaim), **X-22** (a
+  presentation session must survive unattended), and **X-23** (the board must be
+  legible to a first-time reader — the guest case). Circumstance 2 *is* engineering
+  requirement 2, now measured from the user side. **The board already handles BT1..5
+  in its core (`hsm_devs_is_bt`, `wls_indicator.c` renders BT4/BT5); the limit is
+  purely in the board's surfacing — three keycodes and three names — so X-20/X-21
+  are a surfacing change, not a protocol one.**
+- **Capability derivation is now a named method (`docs/UX-REQUIREMENTS.md` § 0.5).**
+  Four stages — **intended → actual → possible → surfaced** — with the rule that
+  **the vendor's documentation is a *claim*, not a fact**: an OEM manual is
+  aspirational at worst, so a documented capability is a hypothesis tested against
+  the hardware, never a requirement. Applied twice so far (§ 0.6 2.4 GHz, § 0.7
+  Bluetooth), each with a rank-ordered intent stack (manual → ODM protocol →
+  upstream contract). `docs/METHOD.md` § 1 points at it.
+- **NEW REQUIREMENT X-30 — a state the firmware carries must not be silently
+  flattened (added 2026-10-14).** Found by the § 0.7 Bluetooth derivation: the
+  module reports **`REJECT`** (a connection the module refused) and the board
+  carries it end-to-end — `module.c:216-218` → `wls.c:283` → `HSM_LINK_REJECT`
+  (`transport_logic.h:307`) — **but then treats it as inert**: `hsm_link_watch`
+  folds it into `HSM_LINK_ACT_NONE` with `NONE`/`PAIRING` (`transport_logic.c:275`),
+  and no renderer paints it apart from an ordinary non-connection. **"Rejected"
+  and "not connected" need opposite user actions**, so this violates **X-2**; it is
+  implementable with data and a modelled state **already in hand** — the gap is
+  indication policy, not plumbing. Decide it before the next BT indication change.
+- **2.4 GHz capability set derived, stage 4 (the UX choice) still deferred
+  (2026-10-14).** `docs/UX-REQUIREMENTS.md` § 0.6: the manual documents `Fn+R`,
+  flash→steady, one slot, and **1000 Hz / 5 ms**; measured, the hardware already
+  implements all of it (`DEVCTRL_2G4`, `HSM_DEVS_2G4`, `wls_indicator.c:310-316`)
+  and 2.4 GHz is the **degenerate case of the BT state machine**. **Two claims stay
+  UNVERIFIED: that the link is actually 5 ms / 1000 Hz, and that the battery
+  readback completes over 2.4 GHz** — both are owed measurements. Also: **our board
+  binds `KC_2G4` to `Fn+5` where the vendor documents `Fn+R`** — a deliberate
+  divergence, but a guest would reach for `Fn+R`.
 - **Minimum-brightness floor (added 2026-10-14).** The Fn-layer encoder is
   `RM_VALD`/`RM_VALU` and `RGB_MATRIX_VAL_STEP` is 30 against a default of 128, so
   ~4 accidental CCW clicks take the backlight to 0 — after which the board looks

@@ -44,6 +44,7 @@ earlier build, not the current tree's** — see Status.
 | `docs/DEPENDENCIES.md` | Toolchain, flashing procedure, host dependencies. |
 | `docs/FINDINGS.md` | Research notes and design decisions. |
 | `docs/METHOD.md` | **How we work** — the authoritative process in two halves: the **engineering loop** (exhaust analysis before any flash → standard → audit → slice → class → fitness function → hardware) and the **debugging loop** (observe → instrument → layer → class), generalized from practice, each rule citing its incident. Read before changing code or investigating a fault. |
+| `docs/UX-REQUIREMENTS.md` | **What a person must be able to infer from the keyboard** — the user-facing requirements, derived from the human-interface literature with the derivation method recorded. The standard that `docs/USAGE.md` describes behaviour against. |
 | `TODO.md` | **The live record** — outstanding work, defects, and verification status. |
 | `CHANGELOG.md` | Notable changes. |
 | `CONTRIBUTING.md` | Lint/build/commit conventions and the traps in this tree. |
@@ -107,9 +108,11 @@ If you are new to this project, read in this order:
 5. **`docs/PROTOCOL.md`** — the `0xA4` battery wire format.
 6. **`docs/DEPENDENCIES.md`** — toolchain, flashing, host dependencies.
 7. **`docs/FINDINGS.md`** — why the design is the way it is.
-8. **`docs/USAGE.md`** — the end-user guide: layers, backlight, battery, wireless,
+8. **`docs/UX-REQUIREMENTS.md`** — what a person must be able to infer from the
+   keyboard; the user-facing requirements and the method that derived them.
+9. **`docs/USAGE.md`** — the end-user guide: layers, backlight, battery, wireless,
    sleep, and recovery, from the desk.
-9. **`CONTRIBUTING.md`** — conventions and the traps in this tree.
+10. **`CONTRIBUTING.md`** — conventions and the traps in this tree.
 
 ## Development
 

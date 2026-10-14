@@ -208,7 +208,11 @@ keymap is **not** in the tree — it lives in the sibling userspace repo
 - Why the design is as it is -> `docs/FINDINGS.md`
 - A structural decision and its rejected alternatives -> `docs/ADR-*.md`
 - What runs from reset to steady state, in order -> `docs/BOOT-SEQUENCE.md`
-- What each LED means and how to read the board -> `docs/INDICATORS.md`
+- What each LED means and how to read the board -> `docs/INDICATORS.md` (the
+  *instrument* contract, for debugging)
+- What the keyboard owes the person at the desk, and what they must be able to
+  infer from it -> `docs/UX-REQUIREMENTS.md` (the user-facing contract; how it is
+  derived and verified is in its §0)
 - Work, defects, status -> `TODO.md` (the live record)
 
 ## Before flashing anything (the pre-flight rule)

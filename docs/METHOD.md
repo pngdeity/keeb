@@ -93,6 +93,19 @@ Recorded lesson: the same review was repeated after the first pass
 (`docs/AUDIT.md` "Post-audit FC/IS remediation") and produced a *different*
 score because a different source set was used. Research is not one-and-done.
 
+**"The standard" is not only a coding value — it is also the capability set.** A
+value says the code must *be* a certain way; a capability says what the artefact
+can *do*. Both are research findings, and both may be asserted only with their
+evidence. The derivation for capabilities is **four stages — intended (the
+vendor's documentation) → actual (our measurements + the vendor source) →
+possible (their intersection) → surfaced (the 80% subset)** — and it is stated in
+full at `docs/UX-REQUIREMENTS.md` § 0.5. **The vendor's documentation is a
+*claim*, not a fact:** an OEM manual is aspirational at worst and approximate at
+best, so a documented capability is a hypothesis to test against the hardware,
+never a requirement. This is § 1's rule — *a value with no measurement is an
+opinion* — applied to capability rather than to code, and it is the rule that
+caught the pre-reform `USAGE.md` text and the stale `DEVICE.md` dongle row.
+
 ## 2. Audit the existing code against the standard — and write the verdict last
 
 **Depth-first, cores before shells. A verdict is only written after the

@@ -9,6 +9,13 @@ source; where a value lives in code it is named so you can find it.
 Audience: the person typing. For how the firmware is built, see `README.md` and
 `docs/`.
 
+> **This file describes what the keyboard does. What it *must* do — the
+> user-facing requirements, and the effects a person must be able to infer from
+> the board — is `docs/UX-REQUIREMENTS.md`.** Where this guide and the
+> requirements differ, the requirements state the intended behaviour and this
+> file either follows or is behind. The LED *instrument* contract (a debugging
+> channel, not a user message) is `docs/INDICATORS.md`.
+
 > **Which keymap?** Two keymaps exist: `default` (the vendor layout, in the
 > `qmk_firmware` submodule) and `nathan` (the personal layout, in the sibling
 > `keeb-userspace` repo). This guide describes **`nathan`**, which is the keymap
@@ -154,15 +161,21 @@ separated so a single fumble cannot hit both.
 > `default` keymap has no `_RST` layer; do not expect these chords on stock
 > firmware.
 
-> **`EE_CLR` is the only non-flashing way out of a stuck transport.** The
-> wireless mode keys (`Fn`+`Q`/`W`/`E` = BT 1/2/3, `Fn`+`R` = 2.4 GHz) do **not**
-> just pair — they persist the chosen host to EEPROM, and at the next boot the
-> firmware restores that stored choice *instead of* the physical mode switch. So
-> if you select a wireless mode whose link is not up and then plug in USB, the
-> keyboard can enumerate but type nothing, and flipping the switch back does
-> **not** recover it. `EE_CLR` clears the stored choice and restores USB. (Hold
-> Esc at plug-in does **not** help — bootmagic enters the bootloader rather than
-> clearing settings.) See `TODO.md` defect 4.
+> **Transport is chosen by the switch, not by stored state.** The mode keys
+> (`Fn`+`2`/`3`/`4` = BT 1/2/3, `Fn`+`5` = 2.4 GHz) select *which host within the
+> switch's position* — they persist only the BT sub-slot (`confinfo.last_btdevs`),
+> which the firmware consults **only when the switch reads BT**, and only to pick
+> among BT1..5. The physical switch is authoritative: see
+> `wls/transport_logic.c` `hsm_input_rule()`. So flipping the switch to USB
+> recovers a stuck wireless session — the cable is a *power* fact and never
+> forces USB (engineering requirement 2).
+>
+> There is one case where nothing in the firmware can type: a wireless mode whose
+> link is not up, with no cable. The board is then alive and correctly on the
+> radio, but has nothing to talk to. The recovery is the switch, the cable, or
+> re-pairing — and `EE_CLR` clears all persisted state if the stored BT sub-slot
+> is wrong. (Hold Esc at plug-in does **not** help — bootmagic enters the
+> bootloader rather than clearing settings.)
 
 | Combo | Effect |
 |---|---|

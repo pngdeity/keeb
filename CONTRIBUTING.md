@@ -20,6 +20,15 @@ Firmware lives in the `qmk_firmware/` submodule under
 - **`docs/PROTOCOL.md`** — the wire format of the `0xA4` battery command.
 - **`docs/FINDINGS.md`** — research narrative, design decisions and their
   rationale.
+- **`docs/METHOD.md`** — how we work: the engineering loop and the debugging
+  loop. Cite it as the authority for *how*, as `docs/HARDWARE.md` is for *what*.
+- **`docs/UX-REQUIREMENTS.md`** — what the user must be able to infer from the
+  keyboard, and the method that derived those requirements. A change to what the
+  user-facing indicators mean updates this file.
+- **`docs/USAGE.md`** — the end-user guide: how the keyboard is used at the desk.
+- **`docs/INDICATORS.md`** — the LED instrument contract (what each light means
+  to a *debugger*); a change to what the lights mean updates this in the same
+  commit.
 - **`TODO.md`** — outstanding work and known defects. **This is the live record**;
   read it first and update it rather than scattering status elsewhere.
 - **`docs/DEPENDENCIES.md`** — toolchain, flashing procedure and host

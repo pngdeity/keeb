@@ -13,6 +13,9 @@ Ownership of facts across this project:
 | `HARDWARE.md` | Measured electrical and pin facts (USB IDs, GPIOs, DFU, power). |
 | `PROTOCOL.md` | The `0xA4` wire format. |
 | `FINDINGS.md` | Why the design is shaped the way it is. |
+| `UX-REQUIREMENTS.md` | What the user must be able to infer from the device — the user-facing requirements. |
+| `USAGE.md` | How the keyboard is actually used at the desk (the end-user guide). |
+| `INDICATORS.md` | What each LED means and how to read the board (the instrument contract). |
 | `TODO.md` | Live status, outstanding work, defects. |
 
 Where a fact could belong to two documents, it lives in one and is linked, not
@@ -229,8 +232,8 @@ Selected by the `mode switch`; the active mode is reported by firmware as
 | VID:PID | `342d:e4c6` (same as the keyboard) |
 | Manufacturer string | `MILE` |
 | Product string | `2.4G Dongle` |
-| HID interfaces | **Unverified** — no dongle has ever been confirmed on the bus in this project (`TODO.md`, defect 3). Reported upstream as 3 (keyboard/mouse/consumer/system/LEDs; a 120-key bitmap; the raw HID tunnel). |
-| Raw HID tunnel | **Unverified** — reported as usage page `0xFF60`, usage `0x61`, 32-byte IN/OUT (the same collection QMK exposes). |
+| HID interfaces | **Verified 2026-10-09** — with the keyboard actively on the 2.4 GHz link the dongle enumerates as `342d:e4c6` (`bcdDevice 20.04`, product `2.4G Dongle`, mfr `MILE`) and exposes the QMK raw-HID collection at **interface 2** (`/dev/hidraw5`, usage page `0xFF60`/usage `0x61`). See `HARDWARE.md` "The 2.4 GHz dongle". |
+| Raw HID tunnel | **Verified** — usage page `0xFF60`, usage `0x61`, 32-byte IN/OUT; a `0xA4` pull round-trips (`a4 64 00 00 00 04 01 00 …` = level 100, transport `0x04` = 2.4 GHz). |
 
 - The dongle and the keyboard share a VID:PID, so they are told apart only by the
   manufacturer/product string and by their interfaces. A raw HID write addressed
