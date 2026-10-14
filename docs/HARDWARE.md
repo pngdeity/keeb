@@ -89,30 +89,35 @@ level below the instrument itself, so it is measured rather than assumed.
   boot report (see below) so this stays a *verified* fact, not a standing
   assumption.
 
-### Open: the amber group renders green
+### RESOLVED 2026-10-14: the amber group rendered green because the byte order was wrong
 
-**Observed 2026-10-14, unexplained.** The boot code paints its first group with
-`WLS_BOOT_CODE_AMBER_{R,G,B} = {0xFF, 0x60, 0x00}` — a warm orange. The operator
-consistently sees that group as **green**. Verifying the whole path ruled out
-every software explanation:
+**Cause found by reading the whole chain, not by theory about timing.** The board
+never defined `WS2812_BYTE_ORDER`, so the driver took upstream's default
+(`drivers/led/ws2812.h`: `#ifndef WS2812_BYTE_ORDER` → `WS2812_BYTE_ORDER_GRB`).
+Under that order the driver's `ws2812_led_t` is laid out `{g, r, b}`, and
+`set_led_color_rgb()` (`platforms/chibios/drivers/ws2812_spi.c`) serialises the
+channels `g, r, b`. **The two swaps cancel:** `rgb_matrix_set_color_all(r,g,b)`
+stores `{g,r,b}` in memory, then the serializer reads those fields back in `g,r,b`
+slots — so the bytes on the wire are source `[G,R,B]`, i.e. pure pass-through.
 
-- the pure core emits `(255, 96, 0)` for that group (confirmed by executing
-  `boot_code_logic` on the host, not by reading it);
-- `wls_indicator_boot_code()` passes those bytes to `rgb_matrix_set_color_all()`
-  unmodified;
-- `rgb_matrix_set_color_all` → `rgb_matrix_driver.set_color()` applies no
-  scaling, brightness multiply, or channel reorder between the call and the
-  driver;
-- the paint happens inside the frame pass, so no later stage overwrites it
-  (the boot code owns the matrix while it plays).
+Amber is `(255, 96, 0)`. On the wire that became `96, 255, 0` — which **an
+RGB-ordered panel reads as (R=96, G=255, B=0)**: a fully saturated yellow-green
+the eye calls green. The fault hit **every** colour, not just the boot code
+(ambient white only looked right because R=G=B).
 
-So the firmware asks for orange and the panel shows green. The remaining
-candidates are hardware-side and **unmeasured**: a WS2812 bit-timing error at
-`WS2812_SPI_DIVISOR 32` (a small duty deviation changes the relative channel
-brightness, and green is the most perceptually sensitive), or the panel's own
-colour order differing from what the driver assumes. **Do not "fix" this in the
-colour constants without a measurement** — the fault may be in the drive, in
-which case changing the constants would move the error rather than remove it.
+**This corrects the earlier text in this section**, which listed "WS2812
+bit-timing at `WS2812_SPI_DIVISOR 32`" as a candidate. Timing governs pulse
+*widths* (`WS2812_TIMING`/`T1H`/`T0H`/`TRST_US`) and **cannot permute byte
+order**; the divisor only sets the SPI clock. The panel-order candidate was the
+right one.
+
+**Fix:** `#define WS2812_BYTE_ORDER WS2812_BYTE_ORDER_RGB` in the board
+`config.h`. It is board-local (our panel's fact, not upstream's), and it is not
+a change to the colour constants — the constants were always correct.
+
+**Status: built (`633d5886…`, 64,736 B), not yet seen on hardware.** The falsifier
+is one look: if amber renders amber after this flash, the cause is confirmed; if
+it still renders green, byte order is innocent and this section is wrong again.
 
 **It does not affect the reading.** Colour only groups the code
 (category = amber, value = white); **the pulse count carries the message**, so

@@ -148,22 +148,22 @@ now met.**
 
 **1. The artefact.** `qmk_firmware/.build/epomaker_epomaker_split65_nathan.bin`,
 **64,736 bytes** (`text 0 / data 64736 / bss 0`, `fce0`), sha256
-`a45a97621963b27ebec5cbf93e2f5091b96a98b10c8e2903b9d1a3ebba9566e1`
-(md5 `b8e2131c8d8f35a5da67df8d351e7981`, informational). **Rebuilt fresh from the
-committed tree during the pre-flight and byte-identical to the reviewed hash** —
-the artefact's identity is the signed submodule hash below, not a working-tree
-delta.
+**`633d5886c2ba4e5c5815183de2d07eea6e6eb320f4d17907c11e89fabe140b5e`**. This is
+the walk-close build **plus the `WS2812_BYTE_ORDER_RGB` fix** (see the colour
+prediction in § 4); the earlier walk-close hash `a45a9762…` was byte-identical in
+size but carried the wrong (GRB-default) colour order.
 
-- **Submodule `split65-overlay` = `8f381870e4…`, signed (`G`)** — *"fix(wireless):
-  correct the defects found by the exhaustive reset-to-steady-state walk"*.
-- **Root `main` = the commit that carries this runbook section, signed (`G`)** —
-  its gitlink pins the submodule above.
-- `git status --short` is **empty in both trees** (verified before writing this).
+- **Submodule `split65-overlay` = `8f381870e4…`, signed (`G`)**, with the
+  byte-order `config.h` change on top (committed by the same landing as this
+  edit — the gitlink pins it).
+- **Root `main` = the commit that carries this runbook section, signed (`G`)**.
+- `git status --short` is **empty in both trees** once the byte-order landing is
+  committed.
 
-The board currently runs the **Stage-4** build (`2ec21c44…`, 63.5 KB) — the
-previous flash. That build **predates every walk fix**, so any `(5 amber, 5
-white)` boot reading taken from it describes the old hand-chosen window, not this
-source (see `docs/HARDWARE.md`, "the `(5, 5)` reading").
+The board currently runs the **walk-close** build (`a45a9762…`, 64,736 B) — the
+build whose flash **restored USB typing** and which reported `(7 amber, 5 white)`
+over USB. This next flash changes only the LED colour order; the code values,
+counts and every `0xA4` field are unchanged from `a45a9762…`.
 
 **2. Untested assumptions (state each as measured or inherited).**
 - *`.ram0` survives a `NVIC_SystemReset` across a real reset* — **inherited**
@@ -206,9 +206,11 @@ source (see `docs/HARDWARE.md`, "the `(5, 5)` reading").
 
 **4. Predicted hardware effect.**
 - *After flashing, first cold boot (switch wherever it sits):* the boot LED code
-  plays **one full frame** and this time the **amber group renders its true
-  count** (panel renders amber as green). Read the pair `(amber, white)` against
-  the stage/code rule (amber = stage, 0 = OK; white = code + 1).
+  plays **one full frame**. **With the byte-order fix in this build the amber
+  group should now render as amber** (`WS2812_BYTE_ORDER_RGB`); on every earlier
+  build it rendered green. Read the pair `(amber, white)` against the stage/code
+  rule (amber = stage, 0 = OK; white = code + 1). Amber correct confirms the
+  byte-order cause; amber still green falsifies it.
 - *Switch on USB, cold boot, `python3 host/battery_polybar.py --info`:*
   `transport=USB`, `host(raw)=2`, `DIAG: switch=1`, `DIAG: devs=0`,
   `DIAG: usb_line=1`, `bootcnt` **+1** vs the previous read.

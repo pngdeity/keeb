@@ -322,13 +322,17 @@ its `#if !defined(...)` branches always compile the real code — inert, low
 priority). The walk's full record, with the measurement behind each fix, is
 `docs/AUDIT-fcis.md` ("Stage 5 — the exhaustive walk").
 
-**ALSO OPEN (2026-10-14, unexplained): the amber group renders green.** The core
-emits `(255,96,0)` — verified by executing it — and no software stage alters it
-before the driver, yet the operator sees green. Recorded in `docs/HARDWARE.md`
-("Open: the amber group renders green") with the candidates (WS2812 bit-timing at
-`WS2812_SPI_DIVISOR 32`, or panel colour order) and the instruction **not to
-"fix" it in the colour constants without a measurement**. It does not affect the
-reading: colour only groups the code, the count carries the message.
+**RESOLVED (2026-10-14): the amber group rendered green because the byte order was
+wrong.** The board never defined `WS2812_BYTE_ORDER`, so the driver took
+upstream's `GRB` default. Under `GRB` the struct is `{g,r,b}` and the serializer
+writes `g,r,b` — the two swaps cancel, so the panel received source `[G,R,B]`.
+Amber `(255,96,0)` arrived as `96,255,0`, which an RGB-ordered panel reads as
+saturated yellow-green. Every colour was wrong (white looked right only because
+R=G=B). **Fix:** `#define WS2812_BYTE_ORDER WS2812_BYTE_ORDER_RGB` in the board
+`config.h` — board-local, and *not* a change to the colour constants, which were
+always correct. Built (`633d5886…`, 64,736 B), **not yet seen on hardware**; the
+falsifier is one look at the boot code. Full mechanism: `docs/HARDWARE.md`
+("RESOLVED: the amber group rendered green").
 
 **SANITY CHECK vs OUTSIDE RESEARCH (2026-10-14) — one real finding, one erratum.**
 Per the operator's request ("ensure no known issue exists with any hardware under
