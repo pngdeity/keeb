@@ -102,24 +102,38 @@ withdrawn (the *observation* stands):
 - `lpwr_stop_is_allowed()` = `is_master && lower_sleep` (`lowpower_logic.c:6-11`),
   hence unreachable with `lower_sleep` impossible.
 
-**The live candidate: the rail is a pure function of the RGB value.**
-`wls_led_rail_apply()` sets the rail to `rgb_matrix_get_val() != 0` (`wls.c:32-40`),
-called from the keycode handler (`wls_keymap.c:390,397` — brightness keycodes) and
-the wakeup path. So the backlight can go dark with **no STOP at all**, including a
-retained-LOW write of defect 5's shape (a stray `0xBB` whose matching `0xCC`
-re-raise was USB-gated off). `lpwr_stop_hook_pre()` is the only *raw* writer and
-provably did not run.
+**ROOT CAUSE: NOT ESTABLISHED — two bad mechanisms retracted 2026-10-14.** Read
+this before proposing a third.
 
-**OPEN, correctly posed.** Not "which sleep path" (both dead) but **"what wrote the
-RGB value to zero, or the rail low, while the switch was on BT"** — to be settled by
-reading the keycode/rail path. A replug recovers because boot init calls
-`wls_led_rail_apply()` with a freshly non-zero RGB value; the switch flip repairs
-only the transport. See `docs/HARDWARE.md` "Both halves went dark on Bluetooth".
+**What is settled.** `wls_lifecycle_housekeeping()` calls `wls_led_rail_apply()`
+**every tick** (`wls_lifecycle.c:292-303`, from `housekeeping_task_user`), so the
+rail is re-derived continuously from `rgb_matrix_get_val() != 0` and **cannot be
+latched**. (This also confirms regression 5's rearchitecture is effective: the
+per-tick reassertion it claims does exist.) Therefore **the board was dark because
+the RGB value was genuinely 0 and stayed 0** — which is *designed* behaviour at
+minimum brightness (`RGB_MATRIX_DEFAULT_VAL` is `128`, `val_steps: 30`, so a few
+`QK_RGB_MATRIX_VALUE_DOWN` presses reach 0).
 
-**Method note.** This is the fourth instance of the failure `docs/METHOD.md` Part II
-§0 names: a mechanism written before its gates were checked. It was caught by
-reading (`md_getp_bat`'s init value; `HSM_LINK_ACT_SLEEP`'s precondition), not by a
-flash — which is exactly what §I.0 requires.
+**The real question, re-posed.** Not "what dropped the rail" but **"what walked the
+brightness value to 0"** — a stray `RM_VALD` (physical or encoder), a persisted 0
+restored at boot, or a save/restore path writing 0. Next step is to read the value
+persistence (`rgb_record/rgb_record.c`, `keyboard_post_init_*`) and the encoder
+mapping. **Analysis, not a flash.**
+
+**The two retracted mechanisms** (kept so they are not re-proposed): (a) the STOP
+chain — refuted, `HSM_LINK_ACT_SLEEP` needs `HSM_LINK_CONNECTED` and does not set
+the ordered flag; (b) a stale rail — refuted by the per-tick `wls_led_rail_apply()`
+above. Both were written from a plausible partial reading before the deciding gate
+was checked: `docs/METHOD.md` Part II §0, its **fifth instance**. The omitted check
+both times was **enumerate every writer/caller before asserting the mechanism**.
+
+**Durable observation only.** Both halves went dark mid-BT; a keypress did not
+restore; the switch flip did not; **a replug restored the LEDs on both halves** —
+consistent with a zeroed brightness value being re-established at boot, but that is
+a hypothesis, not a finding.
+
+**NB: defect 4 (master half STOP, line ~1736) shares this fault's description.** It
+too was written as an ordered-STOP claim and needs the same re-examination.
 
 **The withdrawn mechanism (kept for the record, marked refuted).**
 ~~`lpwr_stop_hook_pre()` (`wls/wls.c:390-397`) lowers the LED rail
