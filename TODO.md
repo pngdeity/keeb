@@ -68,8 +68,9 @@ sweeps, `journalctl -k`, or a live `udevadm monitor`). So `md state` stays `NONE
 and the level stays at the module's init constant `100` — **that `100` is not a
 firmware finding** and must not be recorded as one.
 
-**MEASURED 2026-10-14: the wireless STOP extinguishes BOTH halves, from one
-cause.** During the first BT session (switch on **Bluetooth**, no host bonded),
+**MEASURED 2026-10-14: BOTH halves went dark on BT, from one cause (the "STOP"
+explanation was later REFUTED — see below).** During the first BT session (switch
+on **Bluetooth**, no host bonded),
 **both halves went dark mid-session**; a keypress did not restore it, and neither
 did flipping the switch to USB. The left half was alive throughout — once on USB
 it answered `--info` (`transport=USB`, `usb_line=1`, `switch=1`, `bootcnt=1`, no
@@ -80,30 +81,58 @@ own** (`docs/HARDWARE.md` `## Split-link power`, `## Batteries`) — it is power
 solely by the left half over the link. So it went dark *because the left half
 stopped*, not independently. Do not diagnose the halves separately.
 
-**Mechanism, in our code.** `lpwr_stop_hook_pre()` (`wls/wls.c:390-397`) lowers
-the LED rail (`gpio_write_pin_low(LED_POWER_EN_PIN)`). On BT with no host the
-module reports `md state = 3 (DISCONNECTED)`, which `hsm_link_watch()` maps to
+**ANALYSIS 2026-10-14 CORRECTS THE ABOVE — the STOP hypothesis is REFUTED.** The
+"Mechanism, in our code" paragraph below was written by composing a plausible
+chain before checking whether each gate could hold. None can, so the mechanism is
+withdrawn (the *observation* stands):
+
+- `HSM_LINK_ACT_SLEEP` cannot fire on a disconnected link — `hsm_link_watch()`
+  returns it only in `HSM_LINK_CONNECTED` (`transport_logic.c:262-270`), and the
+  fault reading was `md state = 3 (DISCONNECTED)` -> `HSM_LINK_DISCONNECTED`
+  (`wls.c:280-281`), which returns `HSM_LINK_ACT_NONE`.
+- Even if it had fired it would not set the ordered flag: `HSM_LINK_ACT_SLEEP`
+  calls only `lpwr_set_timeout_manual(true)` (`wls.c:317-319`), never
+  `wls_order_sleep()`.
+- The low-battery path was impossible: its one master-side setter
+  (`wls_indicator.c:177-182`) requires `bat_level <= BATTERY_CAPACITY_STOP` (**0**)
+  `&& !charging`, but `bat_level` is `*md_getp_bat()` = `md_info.bat`, **initialised
+  to `100`** and written only by a `MD_REV_CMD_BATVOL` reply (`module.c:75,224`).
+  The split path is not independent: `wls_lifecycle.c:218` forwards the master's
+  *own* flag, so both halves derive from this one setter.
+- `lpwr_stop_is_allowed()` = `is_master && lower_sleep` (`lowpower_logic.c:6-11`),
+  hence unreachable with `lower_sleep` impossible.
+
+**The live candidate: the rail is a pure function of the RGB value.**
+`wls_led_rail_apply()` sets the rail to `rgb_matrix_get_val() != 0` (`wls.c:32-40`),
+called from the keycode handler (`wls_keymap.c:390,397` — brightness keycodes) and
+the wakeup path. So the backlight can go dark with **no STOP at all**, including a
+retained-LOW write of defect 5's shape (a stray `0xBB` whose matching `0xCC`
+re-raise was USB-gated off). `lpwr_stop_hook_pre()` is the only *raw* writer and
+provably did not run.
+
+**OPEN, correctly posed.** Not "which sleep path" (both dead) but **"what wrote the
+RGB value to zero, or the rail low, while the switch was on BT"** — to be settled by
+reading the keycode/rail path. A replug recovers because boot init calls
+`wls_led_rail_apply()` with a freshly non-zero RGB value; the switch flip repairs
+only the transport. See `docs/HARDWARE.md` "Both halves went dark on Bluetooth".
+
+**Method note.** This is the fourth instance of the failure `docs/METHOD.md` Part II
+§0 names: a mechanism written before its gates were checked. It was caught by
+reading (`md_getp_bat`'s init value; `HSM_LINK_ACT_SLEEP`'s precondition), not by a
+flash — which is exactly what §I.0 requires.
+
+**The withdrawn mechanism (kept for the record, marked refuted).**
+~~`lpwr_stop_hook_pre()` (`wls/wls.c:390-397`) lowers the LED rail
+(`gpio_write_pin_low(LED_POWER_EN_PIN)`). On BT with no host the module reports
+`md state = 3 (DISCONNECTED)`, which `hsm_link_watch()` maps to
 `HSM_LINK_ACT_SLEEP` -> `lpwr_set_timeout_manual(true)` (`wls.c:317-318`); the
-master is **not USB-exempt on BT**, so a real STOP is reachable. This is exactly
-what `lpwr_stop_is_allowed()`'s own comment already predicted (*"dark and
-unresponsive (observed on Bluetooth, where the master is not USB-exempt)"*) — the
-prediction is now demonstrated on hardware.
+master is **not USB-exempt on BT**, so a real STOP is reachable.~~
 
 **Transport recovery is not rail recovery.** The switch-to-USB repaired the
 transport but left `LED_POWER_EN_PIN` low, so the board stayed dark with a live
 readback. Non-flashing recovery is **replug the left half's USB** (lifecycle
 re-raises the rail); the switch does not. **CONFIRMED:** the replug restored the
 LEDs on **both halves**; the switch flip had not.
-
-**OPEN — and this is the question, not the answer.** Whether `wls_sleep_ordered()`
-was set by a genuinely low pack (correct behaviour, merely exposed by BT) or by
-something else (in which case **our firmware extinguished the board on a
-non-low pack — a defect**). The pre-session `battery: 100%` cannot discriminate:
-it is the module's init constant (only a non-USB transport populates
-`md_info.bat`). **The test:** run on battery, on BT, and watch whether the
-radio-path battery value ever differs from `100`. A real healthy value plus a
-STOP means the sleep *order* is the defect. See `docs/HARDWARE.md` "The wireless
-STOP extinguishes both halves".
 
 **THE EARLIER FLASH (`a45a9762…`) RESTORED USB TYPING after ~36 hours.** The
 36-hour fault — *enumerates as `342d:e4c6`/`mfr=LEO`, presents the raw-HID
@@ -2243,6 +2272,13 @@ no `/dev/ttyACM*` or `/dev/ttyUSB*`).
 drive it. Until (1), installing the software changes nothing.
 
 ### Pre-flight discipline for a hardware test (added 2026-10-09, generalised 2026-10-13)
+
+**This is one section of the project's process, which is stated in full in
+`docs/METHOD.md`.** That file has two halves — the **engineering loop** (how a
+change is made) and the **debugging loop** (how a fault is run to ground) — and
+generalizes the rules below (and the instrument rule, and the class remedy) from
+the incidents that produced them; it is the authority for *how* we work. This
+section is the hardware-session form of `docs/METHOD.md` §II.4.
 
 **"Ready to flash" means airworthy, not "it compiled."** Before any flash, the
 operator must be able to state, in writing, every assumption the build rests on

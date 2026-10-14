@@ -43,6 +43,7 @@ earlier build, not the current tree's** — see Status.
 | `docs/HARDWARE.md` | Immutable hardware facts (USB IDs, interfaces, DFU entry, sleep/wake). |
 | `docs/DEPENDENCIES.md` | Toolchain, flashing procedure, host dependencies. |
 | `docs/FINDINGS.md` | Research notes and design decisions. |
+| `docs/METHOD.md` | **How we work** — the authoritative process in two halves: the **engineering loop** (exhaust analysis before any flash → standard → audit → slice → class → fitness function → hardware) and the **debugging loop** (observe → instrument → layer → class), generalized from practice, each rule citing its incident. Read before changing code or investigating a fault. |
 | `TODO.md` | **The live record** — outstanding work, defects, and verification status. |
 | `CHANGELOG.md` | Notable changes. |
 | `CONTRIBUTING.md` | Lint/build/commit conventions and the traps in this tree. |

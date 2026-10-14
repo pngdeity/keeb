@@ -32,8 +32,9 @@ powered before the switch is read.
 observed, the instrument comes first, and it must itself be trustworthy. An
 instrument that races other output, whose timing is not what its comment claims,
 or that plays once from an arbitrary phase is not an instrument — it is a second
-source of ambiguity. See `TODO.md` "Pre-flight discipline" and the four defects
-in §5 below for what "trustworthy" means concretely.
+source of ambiguity. See `docs/METHOD.md` (§II.1) for the process this belongs
+to, `TODO.md` "Pre-flight discipline" and the four defects in §5 below for what
+"trustworthy" means concretely.
 
 ## 1. The boot code — how to read it
 
@@ -192,7 +193,8 @@ unlikely.
 ## 5. What a trustworthy instrument requires — the four defects
 
 These are the constraints any future LED instrument must satisfy. They are not
-history: they are the test a replacement has to pass. The previous boot
+history: they are the test a replacement has to pass. (This is `docs/METHOD.md`
+§II.1 stated concretely for this instrument.) The previous boot
 instrument (`wls/boot_report_logic` + `wls/boot_blink_logic`, both deleted) failed
 all four.
 

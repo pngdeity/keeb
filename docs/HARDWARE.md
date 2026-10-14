@@ -190,7 +190,7 @@ the boot code is legible regardless.
   battery-bearing half) answers `0xA4` with its own module's value. One battery,
   one reported number; there is no second cell whose level could differ.
 
-## The wireless STOP extinguishes both halves (2026-10-14, observed)
+## Both halves went dark on Bluetooth (2026-10-14, observed; the STOP explanation was refuted)
 
 **Observed, on the `aec73138…` build:** with the switch on **Bluetooth** and no
 host bonded, **both halves went dark during the session** — the backlight did not
@@ -205,37 +205,71 @@ by the left half over the link, left to right. So the right half going dark is
 not a second fault — it is the direct consequence of the left half stopping. Do
 not diagnose the two halves as independent.
 
-**The mechanism, in our own code.** `lpwr_stop_hook_pre()`
-(`wls/wls.c:390-397`) lowers the LED rail outright —
-`gpio_write_pin_low(LED_POWER_EN_PIN)`. On BT with no host attached the module
-reports `md state = 3 (DISCONNECTED)`, which `hsm_link_watch()` turns into
-`HSM_LINK_ACT_SLEEP` → `lpwr_set_timeout_manual(true)` (`wls.c:317-318`). The
-master is **not USB-exempt on BT**, so a real STOP is reachable. This is the
-failure `lpwr_stop_is_allowed()`'s own comment already predicted verbatim —
-*"the half then re-enters STOP with no rail re-raise and no matrix re-init: dark
-and unresponsive (observed on Bluetooth, where the master is not USB-exempt)"*
-(`wls.c:399-413`). **This session is that prediction demonstrated on hardware.**
+**The mechanism: ANALYSIS 2026-10-14 — the STOP hypothesis is REFUTED, and the
+first recorded explanation was wrong.** A plausible chain (`md state 3` →
+`HSM_LINK_ACT_SLEEP` → STOP → rail lowered) was written here before each gate was
+checked. Every gate of it is false, so it must not stand:
+
+- **`HSM_LINK_ACT_SLEEP` cannot fire on a disconnected link.** `hsm_link_watch()`
+  returns it only in `HSM_LINK_CONNECTED` (`transport_logic.c:262-270`); the fault
+  reading was `md state = 3 (DISCONNECTED)` → `HSM_LINK_DISCONNECTED`
+  (`wls.c:280-281`), which returns `HSM_LINK_ACT_NONE`.
+- **And it would not set the ordered flag anyway.** `HSM_LINK_ACT_SLEEP` calls only
+  `lpwr_set_timeout_manual(true)` (`wls.c:317-319`) — it does not call
+  `wls_order_sleep()`, so it cannot make `lpwr_stop_is_allowed()` true.
+- **The low-battery path was impossible.** `wls_order_sleep(true)` has exactly one
+  master-side setter (`wls_indicator.c:177-182`), gated on
+  `bat_level <= BATTERY_CAPACITY_STOP` (**0**) `&& hsm_should_order_sleep()` =
+  `!charging && level <= 0` (`transport_logic.c:282`). But `bat_level` is
+  `*md_getp_bat()` = `md_info.bat`, **initialised to `100`** and written only by a
+  `MD_REV_CMD_BATVOL` reply (`module.c:75,224`). With no module reply it is `100`,
+  so `level <= 0` is false. The split path is not an independent cause either:
+  `wls_lifecycle.c:218` sends the master's *own* flag to the slave, so both halves
+  derive from this one setter.
+- **`lpwr_stop_is_allowed()` = `is_master && lower_sleep`** (`lowpower_logic.c:6-11`),
+  so with `lower_sleep` unreachable, an ordered stop was unreachable.
+
+**The rail is a pure function of the RGB value, and that is the live candidate.**
+`wls_led_rail_apply()` sets the rail to `rgb_matrix_get_val() != 0` (`wls.c:32-40`),
+called from the wakeup path and from the keycode handler
+(`wls_keymap.c:390,397` — the brightness keycodes). So the backlight can go dark
+with **no STOP at all**, whenever the RGB value reaches 0 — including a
+retained-LOW write path of exactly the shape defect 5 described (a stray `0xBB`
+whose matching `0xCC` sender is USB-gated off). `lpwr_stop_hook_pre()`
+(`wls.c:390-397`) is the only *raw* writer, and it cannot have run (above).
+
+**Therefore the recording here is corrected:** the observation (both halves dark
+on BT, left alive, replug restores) **stands**; the mechanism does **not**. The
+open question is no longer "which sleep path" but **"what wrote the RGB value to
+zero (or the rail low) while the switch was on BT"** — to be settled by reading
+the keycode/rail path, not by instrumenting a STOP that provably did not happen.
 
 **Transport recovery is not rail recovery.** Flipping the switch to USB repaired
 the transport (`transport=USB`, typing worked, `0xA4` answered) but left
 `LED_POWER_EN_PIN` low, so the board stayed dark with a working readback. The two
 recovery paths are separate; a restored transport does not restore the rail.
 
-**Unresolved, and the discriminating question.** `--info` cannot answer it: the
-`battery: 100%` seen before the BT session was the module's init constant, not a
-reading (`md_info.bat` is populated only on a non-USB transport; see
-`FINDINGS.md`), so no pre-session battery value exists. Two possibilities remain
-and they differ in what is defective:
+**The open question, correctly posed.** The old framing (low pack vs a spurious
+sleep order) is dead — both were refuted above. What remains is: **the rail went
+low while the switch was on BT, by a writer other than a stop.** The candidates,
+all readable:
 
-- the pack genuinely was low, so the ordered-sleep path (the low-battery path)
-  fired correctly and BT-with-no-host merely exposed it; or
-- `wls_sleep_ordered()` was set by something other than a low battery, in which
-  case **our firmware extinguished the board on a non-low pack** — a defect.
+- a brightness keycode reaching `rgb_matrix_get_val() == 0` via
+  `wls_keymap.c:390,397` — the rail then follows the RGB value down by design;
+- a retained-LOW write from the cross-half `0xBB`/`0xCC` relay (defect 5's shape)
+  whose matching re-raise was USB-gated off; or
+- `wls_led_rail_apply()` never being called after the RGB value was zeroed, so the
+  rail stayed low until the next `wls_lifecycle_wireless_post_task`/wakeup.
 
-**The test that separates them:** run on battery, on BT, long enough for the real
-level to matter, and watch whether the radio-path battery value (`--info` with a
-live link, or the `0xA4` push) ever differs from `100`. A real healthy value plus
-a STOP means the sleep *order* is the defect.
+**Why a replug recovered it and the switch did not.** The transport apply and the
+rail apply are different paths (`wls.c:32-40` vs the transport owner); a replug
+runs `wls_lifecycle.c`'s boot init, which calls `wls_led_rail_apply()` with a
+freshly non-zero RGB value. The switch flip repairs only the transport.
+
+**Method note.** This correction is the price of writing a mechanism before
+checking its gates — the failure `docs/METHOD.md` Part II §0 names, and this is
+its fourth instance. It was caught by reading the two gates (`md_getp_bat`'s
+init value, and `HSM_LINK_ACT_SLEEP`'s state requirement), not by a flash.
 
 **Non-flashing recovery:** replug the left half's USB — `wls_lifecycle.c`
 re-raises the rail at init. Flipping the switch does not.

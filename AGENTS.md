@@ -3,6 +3,25 @@
 Working rules for this repository. Read this first, then `TODO.md` (the live
 record). See `README.md` for the reading order and layout.
 
+## How we work (read before changing code or investigating a fault)
+
+**`docs/METHOD.md` is the authoritative process**, and it has two halves, in this
+order. **Part I, the engineering loop**, is how the clean code was made: **§0
+exhaust software analysis before any flash** (research → audit/transform →
+analysis → hardware, never skipped ahead), then state the standard *with its
+measurement* before applying it, audit and write the verdict last, refactor in
+slices, retire the fault *class* not the instance, ship the fitness function that
+keeps it fixed, close the loop on hardware. **Part II, the debugging loop**:
+observe before you explain, make the unobservable observable first, locate the
+layer, work the class, keep policy in a pure core, pre-flight every hardware
+session.
+
+It is *generalized from practice*: every rule cites the incident that paid for
+it. When a session starts to feel like "reach for a theory and gather confirming
+evidence," that is the failure mode Part II §0 names, and it has recurred three
+times. Cite `docs/METHOD.md` as the authority for **how** we work, exactly as
+`docs/HARDWARE.md` is cited for **what the hardware is**.
+
 ## What this project is
 
 Firmware and host tooling for one keyboard: the EPOMAKER Split65 (WB32FQ95,

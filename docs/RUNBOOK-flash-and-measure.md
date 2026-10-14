@@ -30,7 +30,8 @@ trusted.
 begin until every assumption is stated and every effect predicted — closer to an
 aviation pre-flight than to "run the test set and see." Three live livelocks in
 the transport work were caught by this review rather than on hardware; the
-cheapest place to find a defect is a review, not a flash.
+cheapest place to find a defect is a review, not a flash. **The general process
+this belongs to is `docs/METHOD.md`; this section is its hardware-session form.**
 
 Leave the artefact — **§ 0.0.1-0.0.4 written out** — in the session notes or a
 `docs/` file before flashing. The checklist:
