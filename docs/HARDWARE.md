@@ -190,7 +190,7 @@ the boot code is legible regardless.
   battery-bearing half) answers `0xA4` with its own module's value. One battery,
   one reported number; there is no second cell whose level could differ.
 
-## Both halves went dark on Bluetooth (2026-10-14, observed — cause NOT yet established)
+## Both halves went dark on Bluetooth (2026-10-14, observed — cause found: brightness at 0, not a defect)
 
 **Observed, on the `aec73138…` build:** with the switch on **Bluetooth** and no
 host bonded, **both halves went dark during the session** — the backlight did not
@@ -258,19 +258,69 @@ does not restore the LEDs. Only a replug did (below).
   a persisted 0 restored at boot, or a save/restore path writing 0. Whether that
   is a defect at all depends on whether the user asked for it.
 
-**Not yet determined, and not to be guessed.** The next step is to read the value
-persistence path (`rgb_record/rgb_record.c`, `keyboard_post_init_*`) and the
-encoder mapping, to see whether the value can reach 0 *without* an operator
-keypress — and whether a boot with a persisted 0 correctly leaves the board dark
-by design or incorrectly so. **This is analysis work, not a flash.**
+**RESOLVED 2026-10-14 by analysis — NOT a defect. It is intended behaviour at
+minimum brightness, with a persisted value.** Reading the persistence path closes
+it:
 
-**Method note — this is the two-bad-mechanisms point.** Both explanations written
-for this fault (the STOP chain, and the stale rail) were composed from a plausible
-partial reading and refuted by reading one more gate (HSM_LINK_ACT_SLEEP's
+- The brightness value persists to EEPROM. `rgb_matrix_decrease_val_helper(true)`
+  → `rgb_matrix_sethsv_eeprom_helper(..., write_to_eeprom = true)` →
+  `eeconfig_flag_rgb_matrix(true)` (`rgb_matrix.c:632-640, 712-713`).
+- `rgb_matrix_init` restores `rgb_matrix_config.hsv` **including `v`**, so a
+  persisted `v = 0` comes back at boot.
+- With `v = 0`, `rgb_matrix_get_val() == 0`, and `wls_led_rail_apply()` correctly
+  turns the rail **off** — the designed consequence, not a latch.
+- The value reaches 0 easily: `RGB_MATRIX_DEFAULT_VAL` is `128` with
+  `val_steps: 30` (`keyboard.json`), so ~4 `RM_VALD` steps. **And the Fn-layer
+  encoder is mapped to `RM_VALD`/`RM_VALU`**
+  (`../keeb-userspace/.../nathan/keymap.c:96`, `ENCODER_MAP_ENABLE = yes`), so a
+  few CCW clicks of the brightness knob do it — a very plausible accidental path,
+  while the switch was on BT.
+
+**Why "a keypress did not restore it" is consistent, not contradictory.** Only a
+brightness control restores it: `RM_VALU` → `qadd8(v, VAL_STEP)`
+(`rgb_matrix.c:703`), unguarded against `v == 0`. An ordinary keypress does not
+touch the value, so it cannot bring the LEDs back — by design. **The untried
+recovery was `RM_VALU`** (Fn+`↑`, or the encoder CW), which would have restored the
+backlight without a replug. A replug also works because boot re-runs the rail
+apply with the (still-zero) value and the matrix's *default* val … — see the
+caveat below.
+
+**Why a replug restored the LEDs — traced, and it closes the loop.** The `nathan`
+keymap's `keyboard_post_init_user`
+(`../keeb-userspace/.../nathan/keymap.c:123-126`) runs at every boot:
+
+```c
+rgb_matrix_mode_noeeprom(RGB_MATRIX_SOLID_COLOR);
+rgb_matrix_sethsv_noeeprom(RGB_MATRIX_DEFAULT_HUE, RGB_MATRIX_DEFAULT_SAT, RGB_MATRIX_DEFAULT_VAL);
+```
+
+So a boot reseeds the live value to `RGB_MATRIX_DEFAULT_VAL` (`128`) — `noeeprom`,
+so persisted state is untouched, but the running value is non-zero and the rail
+comes back. **This is exactly why a replug worked and a switch flip did not** (the
+switch flip does not reboot). And it means the value cannot be *persistently* 0
+across boots: the dark board was a **runtime** 0, reached mid-session (a few
+`RM_VALD`/encoder clicks) and held until a replug or an `RM_VALU`.
+
+**Conclusion: not a defect.** The firmware behaved correctly — a zero brightness
+value means no backlight, and the rail followed the value as designed. There is
+nothing to fix here; the earlier STOP and stale-rail theories were both wrong, and
+so was the initial framing of "the BT session darkened the board": **Bluetooth was
+incidental**, and a `RM_VALD` pressed at any time would do the same.
+
+**Still worth a small note (usability, not a defect).** The Fn-layer encoder is
+`RM_VALD`/`RM_VALU` and `val_steps` is 30, so a few accidental CCW clicks can take
+the backlight to zero, and nothing warns or floors it. A minimum-brightness floor
+(so the value cannot rest at 0 without an explicit toggle) would remove the
+"board looks dead" surprise — a design change for `TODO.md`, not a bug fix.
+
+**Method note — this is the point of the whole exercise.** Three explanations were
+produced for this fault: the STOP chain (refuted), the stale rail (refuted), and
+this one (established). The first two were each refuted by reading **one more
+gate** — and the check they both omitted was the same: **enumerate every
+writer/caller of the thing before asserting the mechanism** (`HSM_LINK_ACT_SLEEP`'s
 precondition; the per-tick `wls_led_rail_apply()`). That is `docs/METHOD.md` Part II
-§0 exactly, and it is now its **fifth instance**. The lesson is not "think harder"
-— it is to **enumerate every writer/caller of the thing before asserting the
-mechanism**, which is the check both times omitted.
+§0, its fifth instance — and the correct output of the process was a **retraction**,
+not a patch.
 
 **Durable observation (unchanged, and the only thing here that is measured).** Both
 halves went dark mid-BT-session; a keypress did not restore it; flipping the switch

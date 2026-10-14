@@ -68,9 +68,9 @@ sweeps, `journalctl -k`, or a live `udevadm monitor`). So `md state` stays `NONE
 and the level stays at the module's init constant `100` — **that `100` is not a
 firmware finding** and must not be recorded as one.
 
-**MEASURED 2026-10-14: BOTH halves went dark on BT, from one cause (the "STOP"
-explanation was later REFUTED — see below).** During the first BT session (switch
-on **Bluetooth**, no host bonded),
+**2026-10-14: BOTH halves went dark on Bluetooth — cause found, NOT a defect (see
+the RESOLVED block below).** During the first BT session (switch on **Bluetooth**,
+no host bonded),
 **both halves went dark mid-session**; a keypress did not restore it, and neither
 did flipping the switch to USB. The left half was alive throughout — once on USB
 it answered `--info` (`transport=USB`, `usb_line=1`, `switch=1`, `bootcnt=1`, no
@@ -81,10 +81,13 @@ own** (`docs/HARDWARE.md` `## Split-link power`, `## Batteries`) — it is power
 solely by the left half over the link. So it went dark *because the left half
 stopped*, not independently. Do not diagnose the halves separately.
 
-**ANALYSIS 2026-10-14 CORRECTS THE ABOVE — the STOP hypothesis is REFUTED.** The
-"Mechanism, in our code" paragraph below was written by composing a plausible
-chain before checking whether each gate could hold. None can, so the mechanism is
-withdrawn (the *observation* stands):
+**Two explanations were written and REFUTED before the real cause was found** (kept
+so neither is re-proposed). Both were composed from a plausible partial reading
+before their deciding gate was checked — `docs/METHOD.md` Part II §0, its **fifth
+instance**; the omitted check both times was **enumerate every writer/caller before
+asserting the mechanism**.
+
+**(a) The STOP chain — refuted.**
 
 - `HSM_LINK_ACT_SLEEP` cannot fire on a disconnected link — `hsm_link_watch()`
   returns it only in `HSM_LINK_CONNECTED` (`transport_logic.c:262-270`), and the
@@ -102,51 +105,45 @@ withdrawn (the *observation* stands):
 - `lpwr_stop_is_allowed()` = `is_master && lower_sleep` (`lowpower_logic.c:6-11`),
   hence unreachable with `lower_sleep` impossible.
 
-**ROOT CAUSE: NOT ESTABLISHED — two bad mechanisms retracted 2026-10-14.** Read
-this before proposing a third.
+**(b) A stale rail — refuted by its own premise.** `wls_led_rail_apply()` sets the
+rail from `rgb_matrix_get_val() != 0`, and a theory held that the rail was left
+stale when the value changed underneath it. But `wls_lifecycle_housekeeping()`
+calls `wls_led_rail_apply()` **every tick** (`wls_lifecycle.c:292-303`), so the rail
+is re-derived continuously and **cannot** be latched.
 
-**What is settled.** `wls_lifecycle_housekeeping()` calls `wls_led_rail_apply()`
-**every tick** (`wls_lifecycle.c:292-303`, from `housekeeping_task_user`), so the
-rail is re-derived continuously from `rgb_matrix_get_val() != 0` and **cannot be
-latched**. (This also confirms regression 5's rearchitecture is effective: the
-per-tick reassertion it claims does exist.) Therefore **the board was dark because
-the RGB value was genuinely 0 and stayed 0** — which is *designed* behaviour at
-minimum brightness (`RGB_MATRIX_DEFAULT_VAL` is `128`, `val_steps: 30`, so a few
-`QK_RGB_MATRIX_VALUE_DOWN` presses reach 0).
+**RESOLVED 2026-10-14 by analysis — NOT a defect. The backlight was at brightness
+0, and that is intended.** Reading the persistence path + the keymap closes it:
 
-**The real question, re-posed.** Not "what dropped the rail" but **"what walked the
-brightness value to 0"** — a stray `RM_VALD` (physical or encoder), a persisted 0
-restored at boot, or a save/restore path writing 0. Next step is to read the value
-persistence (`rgb_record/rgb_record.c`, `keyboard_post_init_*`) and the encoder
-mapping. **Analysis, not a flash.**
+- The value reaches 0 easily: `RGB_MATRIX_DEFAULT_VAL` is `128` with
+  `val_steps: 30` (`keyboard.json`), i.e. ~4 `RM_VALD` steps. **The Fn-layer
+  encoder is `RM_VALD`/`RM_VALU`** (`../keeb-userspace/.../nathan/keymap.c:96`,
+  `ENCODER_MAP_ENABLE = yes`), so a few CCW clicks do it — a plausible accident.
+- `wls_led_rail_apply()` then turns the rail off **by design**
+  (`rgb_matrix_get_val() != 0`), re-derived every tick by
+  `wls_lifecycle_housekeeping()` (`wls_lifecycle.c:292-303`). Not a latch.
+- An ordinary keypress cannot restore it (only `RM_VALU` /
+  `qadd8(v, VAL_STEP)`, `rgb_matrix.c:703`). The untried recovery was **Fn+`↑`**.
+- A **replug** works because `keyboard_post_init_user`
+  (`../keeb-userspace/.../nathan/keymap.c:123-126`) reseeds the live value to
+  `RGB_MATRIX_DEFAULT_VAL` (`128`) at every boot. That is exactly why the switch
+  flip did not (it does not reboot), and it means the dark board was a **runtime**
+  0, not a persistent one. **Bluetooth was incidental** — a `RM_VALD` at any time
+  does the same.
 
-**The two retracted mechanisms** (kept so they are not re-proposed): (a) the STOP
-chain — refuted, `HSM_LINK_ACT_SLEEP` needs `HSM_LINK_CONNECTED` and does not set
-the ordered flag; (b) a stale rail — refuted by the per-tick `wls_led_rail_apply()`
-above. Both were written from a plausible partial reading before the deciding gate
-was checked: `docs/METHOD.md` Part II §0, its **fifth instance**. The omitted check
-both times was **enumerate every writer/caller before asserting the mechanism**.
-
-**Durable observation only.** Both halves went dark mid-BT; a keypress did not
-restore; the switch flip did not; **a replug restored the LEDs on both halves** —
-consistent with a zeroed brightness value being re-established at boot, but that is
-a hypothesis, not a finding.
+**Usability note (design, not a bug).** Because the encoder is `RM_VALD` and
+`val_steps` is 30, a few accidental clicks can zero the backlight with no warning
+and nothing floors it. A minimum-brightness floor (the value cannot rest at 0
+without an explicit toggle) would remove the "board looks dead" surprise. Candidate
+for the usability backlog, not a defect fix.
 
 **NB: defect 4 (master half STOP, line ~1736) shares this fault's description.** It
-too was written as an ordered-STOP claim and needs the same re-examination.
-
-**The withdrawn mechanism (kept for the record, marked refuted).**
-~~`lpwr_stop_hook_pre()` (`wls/wls.c:390-397`) lowers the LED rail
-(`gpio_write_pin_low(LED_POWER_EN_PIN)`). On BT with no host the module reports
-`md state = 3 (DISCONNECTED)`, which `hsm_link_watch()` maps to
-`HSM_LINK_ACT_SLEEP` -> `lpwr_set_timeout_manual(true)` (`wls.c:317-318`); the
-master is **not USB-exempt on BT**, so a real STOP is reachable.~~
+too was written as an ordered-STOP claim and needs the same re-examination — the
+analysis that closed this one likely applies to it.
 
 **Transport recovery is not rail recovery.** The switch-to-USB repaired the
-transport but left `LED_POWER_EN_PIN` low, so the board stayed dark with a live
-readback. Non-flashing recovery is **replug the left half's USB** (lifecycle
-re-raises the rail); the switch does not. **CONFIRMED:** the replug restored the
-LEDs on **both halves**; the switch flip had not.
+transport but did **not** restore the backlight; **the replug did** (it reboots,
+and boot reseeds the brightness value). The transport apply and the brightness/rail
+are separate concerns — a restored transport does not restore the LEDs.
 
 **THE EARLIER FLASH (`a45a9762…`) RESTORED USB TYPING after ~36 hours.** The
 36-hour fault — *enumerates as `342d:e4c6`/`mfr=LEO`, presents the raw-HID
@@ -2151,6 +2148,15 @@ Caveats to confirm empirically:
   documented even if the key-based method works.
 
 ## User experience / usability review of the keyboard mappings
+
+- **Minimum-brightness floor (added 2026-10-14).** The Fn-layer encoder is
+  `RM_VALD`/`RM_VALU` and `RGB_MATRIX_VAL_STEP` is 30 against a default of 128, so
+  ~4 accidental CCW clicks take the backlight to 0 — after which the board looks
+  dead (the rail follows the value off by design) until `RM_VALU` or a replug.
+  Consider flooring the brightness so it cannot rest at 0 without an explicit
+  toggle, and/or making the off state visibly distinct from "keyboard broken".
+  Found while investigating the 2026-10-14 dark board (`docs/HARDWARE.md` "Both
+  halves went dark on Bluetooth"): that fault was **this**, not a defect.
 
 The mappings and indicators are inherited from the vendor and were designed for
 the stock firmware; they have never been reviewed against how this keyboard is
