@@ -1220,3 +1220,213 @@ cross-build is clean at **63.5 KB, sha256
 `2ec21c449dcb775e69663210c9768986b6db61ad4b0272ff5ef91d91fe705ce6`** — **not
 flashed**. The board still runs `usbguard.bin`
 (`7659464ddc2153364f6476471d294661b650e49367b0c19d500cd6974902f81e`).
+
+---
+
+## Stage 5 — the first hardware reading of the Stage-4 build, and the fault it exposed (2026-10-14)
+
+**The Stage-4 build was flashed** (sha256 `2ec21c44…`), and the first reading is in.
+It was **not** a DFU event: the board booted normally, the boot LED read
+`RSTCAUSE` / white 5 (`PORRSTF`, a clean power-on), and the jump-journal
+discriminator was never exercised — there was no `dfa0` window to explain. So
+Stage 4's question is *still open*; what the flash did instead was expose a
+**different, pre-existing fault** loudly enough to measure.
+
+**The reading.** With the cable attached and the mode switch on USB (the
+operator confirms it had been on USB all session), the keyboard enumerated as
+`342d:e4c6`, `mfr=LEO` — our firmware, presenting the full QMK raw-HID
+collection `0xFF60`/`0x61` on interface 1 — and then **did not type on USB and
+did not answer `0xA4`**. No dongle was present.
+
+**Why the silence is one fact, not two.** `host_raw_hid_send()`
+(`tmk_core/protocol/host.c:388`) dispatches to
+`host_get_active_driver()->send_raw_hid`, and the wireless driver
+(`keyboards/linker/wireless/wireless.c:24`) has **no `.send_raw_hid` member**, so
+the call returns early and nothing is sent. An enumerated device that is silent on
+`0xA4` therefore proves **the committed transport was wireless while the switch
+said USB** — the HID went to the module, and the reply had no USB driver to ride.
+
+**The fault is the C14/C15 pin read, and it is the documented recurring one.** The
+build's switch seed (`wls_lifecycle_boot()`, `wls_lifecycle.c:96`) reads
+`hs_mode_switch_pos()` — which decides C14/C15 against the 2-bit patterns in
+`wls/wls.h:19-21` (`USB "1,1"`, `BT "0,1"`, `2.4G "1,0"`) — **after** enabling
+the pull-ups and calling `waitInputPinDelay()`. The wait is there, so this is not
+the missing-settle symptom of 2026-10-13. What the reading shows is the fault the
+settle cannot fix: **a settled read that returns a *valid but wrong* pair**. The
+committed transport was 2.4 GHz, which is only reachable from a readable
+`(1, 0)` — not from `UNKNOWN`. **Fixes A–D make an *unreadable* switch safe (the
+unreadable variant carries no transport); they do nothing about a readable switch
+that reads wrong.** That is the gap this reading measures.
+
+**The rescue path did not fire, and its own read is suspect.**
+`hsm_switch_apply_with_cable(pos, last_bt, cable_here)` (transport_logic.c:111)
+puts the cable **above** the switch: `cable_here` true forces USB regardless of
+the switch — the documented "the half with the host cable is the master" rule
+(`docs/HARDWARE.md` "Halves and handedness"). It did not force USB, so
+`cable_here` read false with the cable attached. `cable_here` is
+`wls_usb_cable_present()` (`wls_usb.c:33`), which is
+`gpio_set_pin_input(SPLIT_HAND_PIN); wait_us(100); return gpio_read_pin(SPLIT_HAND_PIN);`
+— **a bare input read with no pull-up, and a 100 µs wait that is not a settle**
+(`waitInputPinDelay()` is `CPU_CLOCK/1000000/4` ≈ 0.25 µs; 100 µs is upstream's
+idiom copied from `is_keyboard_left_impl()`, not a measured settle for this pin).
+Two things are wrong with it and both are worth a reading:
+
+1. **The pin is reconfigured on every call**, discarding whatever pull
+   QMK's split init established for the handedness pin
+   (`keyboard.json` `split.handedness.pin` = `B9`), so the read is of a floating
+   line. A floating line can read low with the cable present.
+2. **It is the same pin (`B9`) that `is_keyboard_master()` reads** for a
+   different question, and `docs/HARDWARE.md` records the two coinciding only
+   *because* the half with the cable is the master — an assumption, not a
+   measurement of "is a cable here". **`HS_BAT_CABLE_PIN` (`A7`) is the board's
+   documented USB-insertion-detect pin** (`config.h:9`); the cable question has
+   its own pin and this code does not use it.
+
+**Open, and this is the next software question.** Why did the switch read 2.4 GHz
+with the switch on USB? Either the switch truly presents `(1,0)` to C14/C15 at
+that instant (a hardware/contact fact, which no firmware change fixes), or the
+read is corrupted (a firmware defect). And separately: why did `cable_here` read
+false with the cable attached — is it the discarded pull, the wrong pin, or
+neither? **Both need a reading, and the `0xA4` diag block that would carry
+`pin_c14`/`pin_c15`/`pin_b9` is silent precisely because the transport is wrong.**
+The instrument rule applies: make the channel trustworthy (or take the reading
+through the LED) before re-engineering. **No flash is warranted until a
+discriminating build and a falsifier exist** — the same rule that produced
+Stage 4.
+
+**Nothing here is a regression from Stage 4.** The journal, the encoder, the
+guards and the tests are unaffected; the fault is in the transport seed, which
+Stage 4 did not touch.
+
+### What the next build must do (the discriminating measurement for Stage 5)
+
+The `0xA4` diag block already carries `pin_c14`, `pin_c15` and `pin_b9`
+(`wls.c:148-156`), but it is **silent in exactly the failure that needs it** —
+the reply rides the USB driver, which the wrong transport does not install. Two
+consequences:
+
+1. **The LED instrument is the only channel that survives**, as it was for the
+   unobservable boot region. The next build must **play the raw C14/C15 pair (and
+   the `cable_here` result) on the boot LED code** — an amber count of the packed
+   `(c14, c15, cable)` triple, or a short fixed code — so the reading that is
+   currently impossible becomes a look. That is the instrument rule applied to
+   the transport seed: make the channel trustworthy before re-engineering.
+2. **The `wls.c:146-147` comment is wrong and must be corrected**: it said `B9`
+   "uses the settled reader", but `wls_usb_cable_present()` waits `wait_us(100)`
+   and drops the pull-up — it is not the settled read its name and comment imply.
+   **Corrected during the walk** (`wls.c`, the `wls_diag_gather` pin block): the
+   comment now states the read is a bare input after `wait_us(100)`, the same
+   idiom upstream uses, and is not a measured settle.
+
+**The falsifier for Stage 5** (write it before flashing): if the LED reports
+`C14 == 1 && C15 == 0` at boot with the switch on USB, the switch genuinely
+presents 2.4 GHz to the pins and the defect is hardware/contact — no firmware
+change can fix it, and the mitigation is to stop trusting the switch alone
+(e.g. always attempt the USB line, or read `A7` instead). If the LED reports the
+USB pair (`1, 1`) while the committed transport is 2.4 GHz, the read was
+corrupted in firmware and the seed path is at fault. If `cable_here` is the
+liar, the LED must show it separately. **Each reading names a different repair;
+none of them is a flash away until the build reports all three.**
+
+**No flash until that build and that falsifier exist** — the rule that produced
+Stage 4.
+
+---
+
+## Stage 5 — the exhaustive walk: what it found and fixed (2026-10-14)
+
+The walk the user commissioned (reset to steady state, debugger specificity,
+fix-as-found) has completed its first pass over the pure cores and the board
+shells. Every fix below was verified by the fitness functions, not by reading
+alone.
+
+**Defects fixed (each with the measurement that proves it):**
+
+| # | Defect | Where | Why it was a defect |
+| --- | --- | --- | --- |
+| D1 | 12-byte journal encoded at offset 23 into a 32-byte report | `wls_battery.c` + `jump_journal_logic.*` | 3-byte stack overrun on every `0xA4` reply; host side had the mirrored error, so both agreed on an impossible layout |
+| KF-1 | `HSM_HOST_*` off by one vs upstream `connection_host_t` | `transport_logic.h` | `connection_set_host_noeprom((connection_host_t)decision.host)` wrote the *wrong host* on every commit; `HSM_HOST_USB(3)` == `CONNECTION_HOST_BLUETOOTH` |
+| KF-2 | Golden vector labelled `0x04` in the wrong vocabulary | `battery_polybar.py`, `wls_diag_tests.cpp`, `0xA4-golden-vector.md` | Two vocabularies for one byte; the fixtures encoded the pre-fix numbering |
+| KF-3 | Header prose contradicted code on multi-bit reset cause and amber clamping | `boot_code_logic.h` | A doc that lies is worse than no doc; code and tests already agreed |
+| KF-4 | `rgb_key_logic` declared the RGB mode-step rule but never emitted it | `rgb_key_logic.*`, `wls_keymap.c` | An omitted case disguised as dead vocabulary; the live rule was a shell literal |
+| C1 | Two unguarded NKRO popcount loops read `bits[30]` | `wls_2p4ghz.c` | One-past-end read when the key set is empty; both siblings already carried the guard |
+| — | Fabricated "98 kΩ bridge" figure | `diag_logic.h`, `docs/HARDWARE.md` | An invented hardware constant; purged |
+
+**The largest structural finding — the switch decode existed twice.** The walk
+reached `wls.c` and found the *same three pin macros* decoded in two functions
+with two vocabularies: `hs_mode_switch_pos()` returned `HSM_SWITCH_*` directly,
+while `hs_modeio_detection()` decoded them again into a `now_mode` 1/2/3
+vocabulary only to map it straight back through `hsm_switch_pos_of_mode`. The
+round-trip existed to feed `hsm_switch_pos_of_hs_mode`, a mapper for the
+detector's `enum modeio_mode` output — a vocabulary no production code ever
+read. Alongside it: `hs_modeio_detection`'s `mode` out-parameter was dead
+(`hs_mode_scan` took it by value, so the write never escaped), and `lsat_btdev`
+was threaded through three signatures and never read.
+
+The repair reduced the whole cluster to one decode:
+
+- `hs_modeio_detection(bool)` — the numeric mode is built once and delegated to
+  `hsm_switch_pos_of_mode`, so `hs_mode_switch_pos()` is now the *only* pin
+  decode in the firmware.
+- Deleted: `hsm_switch_pos_of_hs_mode`, `enum modeio_mode`, `hsm_mode_seed`,
+  `hsm_seed_btdev` (the last two were production-dead; `hsm_btdev_or` already
+  carries the live clamp rule).
+- `hs_mode_scan(bool)` and `hs_keycode_allowed(uint8_t target_devs)` lost their
+  dead parameters; the six keymap call sites stopped passing
+  `confinfo.last_btdevs` to a function that could not use it.
+- The `transport_logic` suite went 43 → 40 tests (three removed with their
+  subjects), the pure core still compiles `-Wall -Wextra` with an empty `nm -u`.
+
+**Fitness functions, all green after the pass:** `transport_logic` 40/40,
+`boot_code_logic` 31/31, `indicator_logic` 7/7, `sleep_order_logic` 6/6,
+`rgb_key_logic` 8/8, `wls_diag` 5/5, `wls_jump_journal` 3/3; `./bin/guard-invariants`
+all three OK; `python3 host/battery_polybar.py --self-check` OK; all six
+include-free cores compile clean with empty `nm -u`.
+
+**Later in the walk — the split log, the indicator, and a withdrawn hypothesis.**
+
+| # | Defect | Where | Why it was a defect |
+| --- | --- | --- | --- |
+| E1 | `wls_split_send`'s "did the RPC complete" logged as "Slave Sleep OK" | `wls_split.c`, `wls_lifecycle.c` | Five sites, four naming a command that was not a sleep; the log is the only signal and it lied about which one was sent |
+| — | `rgb_matrix_hs_set_remain_time(index, remain_time)` ignored `remain_time` | `wls_indicator.{c,h}`, `wls_keymap.c` | The name and signature promised an effect the body never performed; every caller passed 0 and meant "cancel". Renamed `rgb_matrix_hs_cancel_index(index)` with the dead parameter removed |
+| — | `boot_code_started == 0` used as an "not yet started" sentinel | `wls_indicator.c` | `timer_read32()` genuinely returns 0 in the first millisecond, so a real origin of 0 would re-enter the arm branch forever and hold the matrix black. Now a separate `boot_code_armed` latch |
+| G1 | `eeconfig_confinfo_default()` left `devs`, `filp` (and read `last_btdevs` as a bare `1`) unset | `wls_eeprom.c` | The bitfields share one `uint32_t` with `raw`, and the whole point of the version gate is that the block being discarded may be a *foreign* layout — so an unset field is not zero, it is whatever the foreign block held. Every field is now named |
+| E4 | the split body's device index reached board state unclamped | `split_logic.c`, `split_logic.h` | The body is untrusted wire input. `0xFF` reached `wls_module_devs_change()` and `hsm_host_of_devs()`, which maps anything outside `DEVS_USB`..`DEVS_2G4` to a transport — so a corrupt byte read as BLUETOOTH. Now clamped in the pure core (`clamp_devs`), so the shell cannot be handed an out-of-range index at all; two vectors pin it (corrupt clamps to USB; the full 0..6 round-trips) |
+
+**A hypothesis withdrawn — the "two-pulse loss" is not in the current source.**
+The `(5 amber, 5 white)` reading taken after the Stage-4 flash had been written up
+as a live painting defect (`docs/HARDWARE.md`). Walking `wls_indicator.c`, a host
+simulation of the pure core (`wls_boot_code_at` re-implemented verbatim, scanned
+at 1 ms over the window, origin offset swept across the whole pulse period)
+counted **seven amber and five white at every offset** with `show == frame`. The
+window is measured from the stamped origin, so the stamping pass is inside it;
+`wls_boot_code_at(0)` is already lit, so a late origin cannot skip a whole pulse.
+**The reading therefore describes the flashed Stage-4 artifact, which predates
+the current tree — the same relationship as D1 and the `ENC_SIZE` mismatch — and
+the claim was corrected in `docs/HARDWARE.md` rather than left for a future
+session to chase.** The one real hazard the walk did find there (the timer
+sentinel, above) was fixed.
+
+**The board build has since been run and passes.** `./bin/make
+epomaker/epomaker_split65:nathan` → `text 0 / data 64736 / bss 0`, no warnings,
+with the artifact copied to the tree and the userspace folder. **That compiles the
+`_Static_assert`s** (and every edit since), so the "still unproven" note below is
+now resolved for the asserts specifically; the driver-layer series is now walked
+(G1 and E4, above) with only the vendor-owned items outstanding. Note the artifact
+is **64 736 bytes** where the flashed Stage-4 build was 63.5 KB — the sha256 has
+changed, and any future pre-flight must verify the on-disk `.bin`, not the old
+hash.
+
+**Fitness functions, all green after the driver-layer walk:** the nine board
+suites (`transport_logic` 40, `boot_code_logic` 31, `rgb_key_logic` 8,
+`split_logic` 8, `indicator_logic` 7, `sleep_order_logic` 6, `wls_diag` 5,
+`reset_logic` 4, `wls_jump_journal` 3); `./bin/guard-invariants` all three OK;
+`python3 host/battery_polybar.py --self-check` OK. **`split_logic` is a seventh
+include-free core** (compiles clean with an empty `nm -u`, so its clamp rule is
+host-testable).
+
+**What remains unproven.** The vendor-owned items only — `module.c`'s
+`md_check_sum(..., 0)` length-0 underflow on an over-long raw frame, and
+`smsg_push`'s unchecked bool — both in `keyboards/linker/wireless/`, which the
+board does not own. Everything on this side of the edge has been walked and
+either fixed or dismissed with evidence.

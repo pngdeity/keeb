@@ -64,9 +64,12 @@ frame. **Every code plays for exactly one frame and no more**: the show window i
 *derived* from the frame length (`wls_boot_code_show_ms()` returns
 `wls_boot_code_frame_ms()`), so a group is never cut short and two frames are
 never merged into one reading. This matters on both sides — a window shorter than
-a frame truncates the group (the board once read five amber where the code said
-seven), and a window longer than a frame runs the *next* frame's amber group into
-this one, and since both groups are amber the reader counts them together.
+a frame truncates the group, and a window longer than a frame runs the *next*
+frame's amber group into this one, and since both groups are amber the reader
+counts them together. Both are historical hazards of a hand-chosen window; with
+the window derived from the frame neither can occur, and a host simulation of the
+core confirms the full count renders at every origin offset (see
+`docs/HARDWARE.md`, "the `(5, 5)` reading").
 
 **A worked example.** "Two white blinks, a pause, two white blinks, then the
 backlight comes on" reads as **`(0 amber, 2 white)`** — no amber, so the board

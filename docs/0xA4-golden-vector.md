@@ -24,7 +24,7 @@ header to generate from, and a generated header would add a build step for a
 | 4 | `0x01` | charge = charging |
 | 5 | `0x02` | transport = bluetooth |
 | 6 | `0x07` | model id |
-| 7 | `0x04` | host = `BLUETOOTH` |
+| 7 | `0x03` | host = `BLUETOOTH` (`connection_host_t`) |
 | 8 | `0x03` | BT sub-index 3 (`BT4`) |
 | 9 | `0x12` | module firmware version |
 | 10 | `0x02` | module state = `CONNECTED` |
@@ -32,14 +32,17 @@ header to generate from, and a generated header would add a build step for a
 | 21 | `0x07` | boot code amber = 7 (stage `RSTCAUSE`) |
 | 22 | `0x05` | boot code white = 5 (bit 4 = `PORRSTF`) |
 
-The diag block (bytes 11–20) is `{0x02, 0x04, 0x04, 0x03, 0x01, 0x02, 0x01,
-0x00, 0x01, 0x10}` — switch `BT`, devs `DEVS_BT4`, host bluetooth, boot count 3,
-USB line up, link connected, pins `C14=1 C15=0 B9=1`, reset cause bit 4.
+The diag block (bytes 11–20) is `{0x02, 0x04, 0x03, 0x03, 0x01, 0x02, 0x01,
+0x00, 0x01, 0x10}` — switch `BT`, devs `DEVS_BT4`, host `BLUETOOTH`
+(`connection_host_t`), boot count 3, USB line up, link connected, pins `C14=1
+C15=0 B9=1`, reset cause bit 4.
 
-**Bytes 23–34 — the jump journal (`wls_jump_journal`, `KB_BATTERY_IDX_JUMP 23`).**
+**Bytes 23–31 — the jump journal (`wls_jump_journal`, `KB_BATTERY_IDX_JUMP 23`).**
 The evidence a boot leaves behind so a later read can tell whether *our* `QK_BOOT`
 path ran (the magic word itself is cleared before our code runs; see
-`docs/AUDIT-fcis.md` "Stage 4"). Encoded by `jump_journal_logic`:
+`docs/AUDIT-fcis.md` "Stage 4"). Encoded by `jump_journal_logic`. The block ends
+the report: `23 + 9 == RAW_EPSIZE (32)`. Its field widths are the report's, not
+the struct's — `reset_cause` is one byte (a six-bit latch) and `uptime_ms` three.
 
 | Idx | Field | Vector | Meaning |
 | --- | --- | --- | --- |
@@ -48,8 +51,8 @@ path ran (the magic word itself is cleared before our code runs; see
 | 25 | generation | `0x09` | jumps performed since power-on |
 | 26 | stage | `0x00` | `wls_boot_code_t.stage` at the jump |
 | 27 | code | `0x00` | `wls_boot_code_t.code` at the jump |
-| 28–31 | reset_cause | `0x10 00 00 00` | `RSTSTAT` bits at the jump (LE) |
-| 32–34 | uptime_ms | `0xD2 0xB4 0x00` | `timer_read32()` at the jump (LE; 0x00B4D2) |
+| 28 | reset_cause | `0x10` | `RSTSTAT` low byte at the jump (a six-bit latch) |
+| 29–31 | uptime_ms | `0xD2 0xB4 0x00` | `timer_read32()` at the jump (LE; 0x00B4D2) |
 
 A presence byte of `0x00` means no jump has been recorded since power-on — the
 case that exonerates the keymap path when a `dfa0` window is seen.
@@ -66,9 +69,13 @@ zero) so a moved index changes the decode.
   `qmk_firmware/tests/boot_code_logic/boot_code_logic_tests.cpp` as
   `golden_vector_boot_code_pair_matches_the_host_fixture`, because
   `tests/wls_diag/test.mk` compiles only `diag_logic.c`. The jump journal
-  (23–34) is asserted in
+  (23–31) is asserted in
   `qmk_firmware/tests/wls_jump_journal/wls_jump_journal_tests.cpp` as
   `golden_vector_journal_block_matches_the_host_fixture`.
+- **Firmware, structurally:** `qmk_firmware/keyboards/epomaker/epomaker_split65/wls/wls_battery.c`
+  carries a `_Static_assert` that the last block ends within `RAW_EPSIZE`, so a
+  future block that would overrun the report fails the build rather than
+  corrupting the stack (the defect this guard was added for).
 - **Host:** `python3 host/battery_polybar.py --self-check` decodes the vector and
   compares every field to `GOLDEN_EXPECTED`; it needs no hardware. Wired into CI
   (`.github/workflows/build.yml`, "Check the 0xA4 golden vector (host side)").

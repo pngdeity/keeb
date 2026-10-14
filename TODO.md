@@ -227,6 +227,55 @@ frames (the "green burst") is what clips the leading pulses. The fix is correct
 independent of that, because both directions of disagreement are demonstrable
 arithmetic.
 
+**CORRECTION (2026-10-14, after the exhaustive walk).** The "lead-in clips the
+leading pulses" reading above is **withdrawn**: a host simulation of the pure
+core (`wls_boot_code_at` verbatim, scanned at 1 ms, origin offset swept across the
+full pulse period) renders **exactly seven amber and five white at every offset**
+once the window is derived from the frame. The `(5, 5)` reading therefore belongs
+to a build that still carried the hand-chosen `SHOW_MS 10000` window — i.e. an
+artifact that predates the fix — not to the current source. The `SHOW_MS`-shorter-
+than-a-frame defect was real and is fixed; the later `(5, 5)` reading is not
+evidence of a *surviving* one. See `docs/HARDWARE.md` "the `(5, 5)` reading" for
+the falsification and `docs/AUDIT-fcis.md` for the walk's record. The one real
+hazard found while walking `wls_indicator.c` was the `boot_code_started == 0`
+sentinel aliasing a genuine time value; it is now a separate `boot_code_armed`
+latch.
+
+**THE EXHAUSTIVE WALK: what it found, and where it stands (2026-10-14).** The
+reset-to-steady-state behavioural walk has now covered every board shell
+(`wls.c`, `wls_transport.c`, `wls_usb.c`, `wls_module.c`, `wls_lifecycle.c`,
+`wls_split.c`, `wls_battery.c`, `wls_keymap.c`, `wls_indicator.c`,
+`wls_bluetooth.c`, `wls_2p4ghz.c`, `epomaker_split65.c`) and every pure core.
+Defects fixed, each proven by the build and the suites: KF-1 (`HSM_HOST_*` off by
+one vs upstream `connection_host_t` — wrote the wrong host on every commit); KF-2
+(two host vocabularies on one `0xA4` byte); KF-3 (header prose that contradicted
+the code on multi-bit reset cause and amber clamping, plus a fabricated resistance
+figure removed); D1 (the `0xA4` jump journal encoded at offset 23 with 12 bytes,
+a 3-byte stack overrun past `RAW_EPSIZE`); C1 (NKRO `bits[30]` out-of-bounds in
+both wireless adapters); KF-4 (`rgb_key_logic` declared the RGB mode-step rule and
+never emitted it); E1 (five split log sites reporting "Slave Sleep OK" for the
+return of an RPC, four of them for a command that was not a sleep); G1
+(`eeconfig_confinfo_default()` left bitfields unset in a word whose whole purpose
+is to replace a *foreign* block); E4 (the split body's device index reached board
+state unclamped — `0xFF` read as BLUETOOTH via `hsm_host_of_devs()`). Plus two
+indicator fixes (`rgb_matrix_hs_set_remain_time` → `rgb_matrix_hs_cancel_index`,
+and the `boot_code_started == 0` timer sentinel → a `boot_code_armed` latch) and
+frame-size `_Static_assert`s pinning the module's KB/NKRO frame contracts.
+
+**Dismissed with evidence (not defects):** the `connection_get_host()` vs
+`_raw()` split (routing question vs diagnostic question); the crossed mouse-wheel
+`z`/`h` mapping (faithful to the vendor reference — a behaviour change, not
+unambiguous); `KC_LCMD`/`KC_RCMD` double-handling (idempotent); `process_record_wls`
+returning `false` for "handled" (the documented project-wide contract).
+
+**Still open, and vendor-owned:** `module.c`'s `md_check_sum(..., 0)` length-0
+underflow on an over-long raw frame, and `smsg_push`'s unchecked bool — both in
+`keyboards/linker/wireless/`, which the board does not own. Also the LSP-diagnosed
+`KEEP_USB_CONNECTION_IN_WIRELESS_MODE` being referenced but defined nowhere (so
+its `#if !defined(...)` branches always compile the real code — inert, low
+priority). The walk's full record, with the measurement behind each fix, is
+`docs/AUDIT-fcis.md` ("Stage 5 — the exhaustive walk").
+
 **ALSO OPEN (2026-10-14, unexplained): the amber group renders green.** The core
 emits `(255,96,0)` — verified by executing it — and no software stage alters it
 before the driver, yet the operator sees green. Recorded in `docs/HARDWARE.md`

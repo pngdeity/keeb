@@ -101,10 +101,12 @@ RESET_CAUSE_NAMES = {
 # next successful reply.
 BOOT_CODE_INDEX = 21
 # The jump journal (wls/wls_jump_journal), starting at index 23 (after the
-# 2-byte boot code at 21..22). Twelve bytes: a presence flag, then the boot-code
-# stage/code and the reset-cause bits and uptime that were live when
-# `bootloader_jump()` ran. The record lives in `.ram0` and survives the reset the
-# jump performs, so it is readable on the boot AFTER a DFU jump.
+# 2-byte boot code at 21..22) and ending the report. Nine bytes: a presence flag,
+# then the boot-code stage/code and the reset-cause bits and uptime that were live
+# when `bootloader_jump()` ran. The record lives in `.ram0` and survives the reset
+# the jump performs, so it is readable on the boot AFTER a DFU jump. The block is
+# sized to the report (`REPORT_LENGTH`), not the struct -- the widths are one byte
+# of reset cause (a six-bit latch) and three of uptime (see jump_journal_logic.h).
 JUMP_INDEX = 23
 # The stage names, from the firmware's wls_boot_code_logic.h. Amber is the
 # count of the stage (0 = healthy); white is the specific fault within it.
@@ -131,13 +133,13 @@ GOLDEN_VECTOR = bytes(
         0x01,  # 4  charge = charging
         0x02,  # 5  transport = bluetooth
         0x07,  # 6  model
-        0x04,  # 7  host = BLUETOOTH
+        0x03,  # 7  host = BLUETOOTH (connection_host_t)
         0x03,  # 8  btsub = 3 (BT4)
         0x12,  # 9  md_version = 18
         0x02,  # 10 md_state = CONNECTED
         0x02,  # 11 diag switch = BT
         0x04,  # 12 diag devs = DEVS_BT4
-        0x04,  # 13 diag host = bluetooth
+        0x03,  # 13 diag host = BLUETOOTH (connection_host_t)
         0x03,  # 14 diag bootcnt = 3
         0x01,  # 15 diag usb_line = 1
         0x02,  # 16 diag link = connected
@@ -152,13 +154,10 @@ GOLDEN_VECTOR = bytes(
         0x09,  # 25 jump journal: generation = 9
         0x00,  # 26 jump journal: stage = 0 (healthy at the jump)
         0x00,  # 27 jump journal: code = 0
-        0x10,  # 28 jump journal: reset_cause low byte (bit 4 PORRSTF)
-        0x00,  # 29 jump journal: reset_cause >>8
-        0x00,  # 30 jump journal: reset_cause >>16
-        0x00,  # 31 jump journal: reset_cause >>24
-        0xD2,  # 32 jump journal: uptime_ms low byte (0x00B4D2 = 46354 ms)
-        0xB4,  # 33 jump journal: uptime_ms >>8
-        0x00,  # 34 jump journal: uptime_ms >>16
+        0x10,  # 28 jump journal: reset_cause (bit 4 PORRSTF)
+        0xD2,  # 29 jump journal: uptime_ms low byte (0x00B4D2 = 46354 ms)
+        0xB4,  # 30 jump journal: uptime_ms >>8
+        0x00,  # 31 jump journal: uptime_ms >>16
     ]
 )
 
@@ -167,13 +166,13 @@ GOLDEN_EXPECTED = {
     "charging": 0x01,
     "transport": 0x02,
     "model": 0x07,
-    "host": 0x04,
+    "host": 0x03,
     "btsub": 0x03,
     "md_version": 0x12,
     "md_state": 0x02,
     "diag_switch": 0x02,
     "diag_devs": 0x04,
-    "diag_host": 0x04,
+    "diag_host": 0x03,
     "diag_bootcnt": 0x03,
     "diag_usb_line": 0x01,
     "diag_link": 0x02,
@@ -310,15 +309,15 @@ def parse_reply(report: bytes):
     # writes into `.ram0` before it jumps, which survives the reset. Its presence
     # byte is 1 only if OUR jump path ran; a `dfa0` window with presence 0 means
     # the DFU magic word was written by something else.
-    if len(report) > JUMP_INDEX + 11:
-        j = report[JUMP_INDEX : JUMP_INDEX + 12]
+    if len(report) > JUMP_INDEX + 8:
+        j = report[JUMP_INDEX : JUMP_INDEX + 9]
         result["jump_present"] = j[0]
         result["jump_version"] = j[1]
         result["jump_generation"] = j[2]
         result["jump_stage"] = j[3]
         result["jump_code"] = j[4]
-        result["jump_reset_cause"] = j[5] | (j[6] << 8) | (j[7] << 16) | (j[8] << 24)
-        result["jump_uptime_ms"] = j[9] | (j[10] << 8) | (j[11] << 16)
+        result["jump_reset_cause"] = j[5]
+        result["jump_uptime_ms"] = j[6] | (j[7] << 8) | (j[8] << 16)
     return result
 
 

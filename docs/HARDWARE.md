@@ -1027,6 +1027,97 @@ loop's own cause has still not been seen (every reading so far was a clean
 power-on). Do not treat "the register works" as evidence about which bit the
 fault sets — that is exactly what the next reading must establish.
 
+**Second measurement of the same event, and a withdrawn defect hypothesis
+(2026-10-14).** After flashing the Stage-4 build (sha256 `2ec21c44…`) the board
+was power-cycled and read again: the operator saw **five amber (rendered green),
+pause, five white, pause, backlight**. That is stage `RSTCAUSE` / white 5 =
+`PORRSTF` again — the same event as the `(7, 5)` reading above — but the **amber
+group showed five pulses where the code says seven**.
+
+**This was first written down as a live instrument defect — a two-pulse loss in
+the painting. It is not, and the claim is withdrawn.** A host simulation of the
+pure boot-code core (`wls_boot_code_at` and its frame/window helpers,
+re-implemented verbatim and scanned at 1 ms resolution) swept the origin offset
+across the full pulse period and counted the visible pulses at every offset:
+counts `(amber 7, white 5)` render as **exactly seven amber and five white at
+every offset**, with `show == frame == 11 700 ms`. Three properties of the
+current source make a truncation impossible:
+
+- `wls_boot_code_show_ms()` returns exactly `wls_boot_code_frame_ms()`, so the
+  window cannot end mid-group;
+- the window is measured *from the stamped origin*
+  (`timer_elapsed32(boot_code_started) >= show_ms`), so the pass that stamps the
+  origin is itself inside the window;
+- `wls_boot_code_at(t = 0)` is already lit, so a late origin can begin a little
+  into the first pulse but can never skip a whole one.
+
+**So the `(5 amber, 5 white)` reading belongs to the flashed Stage-4 artifact
+(`2ec21c44…`), which predates the current tree** — the same relationship as the
+other findings from that flash (the `0xA4` journal overflow, the `ENC_SIZE`
+mismatch). The current source cannot produce it; do not chase a phantom.
+
+**The one real hazard found while walking this code was fixed.** The shell used
+`boot_code_started == 0` to mean "armed, not yet started", aliasing a *real* time
+value onto the sentinel: `timer_read32()` genuinely returns 0 during the first
+millisecond after `timer_init()` (`platforms/chibios/timer.c`), so an origin
+stamped at exactly 0 would re-enter the "not started" branch forever and hold the
+matrix black for the whole window. It is now a separate latch (`boot_code_armed`,
+`wls_indicator.c`), so the sentinel and the time value cannot be confused.
+
+**Bearing.** The reading is legible — white 5 is unambiguous and the amber
+group's presence distinguishes a fault from the healthy case — and the amber
+*count* is now understood to be sound in the current source. Treat a `(5, 5)`
+reading as `RSTCAUSE`/`PORRSTF` and not as a stage-5 fault; **stage 5
+(`INCOMPLETE`) has no code path at all**.
+
+## The cabled-but-wireless fault (measured 2026-10-14, the Stage-4 flash)
+
+The same Stage-4 flash re-exposed a fault this project has met before — **the
+C14/C15 pin lie** (`TODO.md` "THE STATE OF PLAY", and the boot-switch-settling
+derivation in `FINDINGS.md`). It is a bug in our own layer, not a wild pointer
+and not electrical.
+
+**What was observed.** The keyboard enumerated on USB as `342d:e4c6`, `mfr=LEO`
+(our firmware — the dongle's string is `MILE`), presenting the full QMK raw-HID
+collection `usage_page 0xFF60 / usage 0x61` on interface 1. **Yet it did not type
+on USB and did not answer `0xA4`** (a raw 32-byte probe on `/dev/hidraw1`
+returned nothing). No dongle was attached. **The mode switch was on USB, and had
+been all session.**
+
+**Why the silence is expected *given* the transport, and what that proves.**
+`host_raw_hid_send()` (`tmk_core/protocol/host.c:388`) dispatches to
+`host_get_active_driver()->send_raw_hid`, and the wireless driver
+(`keyboards/linker/wireless/wireless.c:24`) has **no `.send_raw_hid` member at
+all**, so the call returns early and nothing is sent. A silent `0xA4` with the
+device enumerated therefore means **the committed transport was wireless while
+the switch said USB** — the two observations are one fact.
+
+**The read that is wrong.** `hs_mode_switch_pos()` (`wls/wls.c:233`) decides from
+`HS_GET_MODE_PIN(HS_*_PIN_STATE)`, which reads **C14 and C15** and matches them
+against the 2-bit pattern per position (`wls/wls.h:17-24`):
+`HS_USB_PIN_STATE "1, 1"`, `HS_BT_PIN_STATE "0, 1"`, `HS_2G4_PIN_STATE "1, 0"`,
+`'x'` a wildcard. A USB-position switch therefore requires **C14 == 1 && C15 == 1**.
+The documented failure is that the boot seed reads these pins **immediately after
+enabling their pull-ups, before `palSetLineMode` settles**, so the read yields
+UNKNOWN or the wrong pair — here, 2.4 GHz — and the board commits wireless with
+the cable attached and the switch on USB.
+
+**The consequence chain is the project's named defect class.** With a wireless
+hint committed, `drive_line_for(WLS_TRANSPORT_INPUT_HINT)` (`wls_transport.c:65`)
+calls `hsm_transport_may_drive_line(want_usb)`, which for an **unconfirmed** input
+returns `decision_is_usb` — so with `want_usb == false` the line is neither
+driven down (correct) nor driven up. Stage 1 of `hsm_transport_decide`
+(`usb_active -> USB`) can only fire once `host_confirmed` is true, and
+`host_confirmed` is set only by `wls_transport_host_event()` from
+`notify_usb_device_state_change_kb()` — which needs the enumeration the unhurried
+line never reached. **The trigger depends on the state it should confirm.**
+
+**Open, not fixed.** `TODO.md` records that fixes A–D were built for exactly this
+(the settling wait, the promote-only rule, the UNKNOWN handling). This flash shows
+the fault recurring, so **the settling fix is not sufficient at this boot** — a
+live reading is needed to say which pin settled wrong. That is the next software
+question, and it must be settled and proven before it earns a flash.
+
 ## The USB restart erratum, and why our tree does not have the guard
 
 **Measured fact (2026-10-14, from the linked ELF, not from a forum).**
