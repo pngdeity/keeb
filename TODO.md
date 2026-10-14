@@ -10,9 +10,15 @@ The live record: work, defects, and status. Sections below are marked **LIVE**
   Reverse-engineering the board, Re-base.
 
 ## RESUME HERE (written 2026-10-13; **updated 2026-10-14 after the first
-## hardware readings of the Stage 1 instrument**)
+## hardware readings of the Stage 1 instrument**; **updated again after the
+## exhaustive walk closed**)
 
-**Nothing is committed. All work is in the working trees and is intact.**
+**The walk arc is COMMITTED and signed** — root `18f0294`, submodule
+`split65-overlay` `8f381870e4`, userspace `966549f`; both trees clean, both ahead
+of origin. The board's identity is the submodule hash. **Flashed board = the
+Stage-4 build (`2ec21c44…`, 63.5 KB), which predates every walk fix**; the on-disk
+artefact is `a45a9762…` (64,736 B), built from the committed tree and reviewed in
+`docs/RUNBOOK-flash-and-measure.md` § 0.0.5.
 
 **THE GOVERNING PLAN FOR THE NEXT PHASE IS `docs/PLAN-fcis-audit.md` — read it
 first.** Flashing is paused. The sequence is: (1) research what FC/IS is and how
@@ -71,11 +77,15 @@ at 63.5 KB sha256 `2ec21c449dcb775e69663210c9768986b6db61ad4b0272ff5ef91d91fe705
 (**not flashed**). Falsifier and the full pre-flight: `docs/AUDIT-fcis.md` "Stage 4"
 and `docs/RUNBOOK-flash-and-measure.md` § 0.0.4.
 
-**THE COMMIT IS OWED.** The whole arc (transport-owner + Stage 1 + pin diag +
-boot-count + reset cause + show-window fix + audit fixes F1–F10 + Stage 3 analysis +
-the Stage-4 journal) is **uncommitted** across root + submodule + userspace, and
-`stash@{0}` is the only insurance. Commit signed once a hardware reading gives the
-message an outcome.
+**THE COMMIT IS DONE (2026-10-14).** The whole arc (transport-owner + Stage 1 +
+pin diag + boot-count + reset cause + show-window fix + audit fixes F1–F10 +
+the exhaustive walk's fixes + the Stage-4 journal) is now **committed and signed**:
+root `18f0294`, submodule `split65-overlay` `8f381870e4`, userspace `966549f`
+(this tip is the firmware's identity). Both trees are clean and ahead of origin by
+two. `stash@{0}` (the old owner arc) is retained but no longer the only insurance.
+The board still runs the Stage-4 build (`2ec21c44…`); the committed on-disk
+artefact is `a45a9762…` (64,736 B), reviewed in `docs/RUNBOOK-flash-and-measure.md`
+§ 0.0.5 and **not yet flashed**.
 
 **THE STATE OF PLAY (2026-10-14).** The Stage 1 instrument is **verified on
 hardware** — it reads legibly, self-delimits, repeats, and is not overwritten.
@@ -442,12 +452,15 @@ It is harmless and may stay, but do not treat it as a fix for anything.
 
 ## Status
 
-- **All three repos are pushed and clean (2026-10-10).** Root `pngdeity/keeb`
-  `main`, submodule `pngdeity/cleave-keeb` `split65-overlay`, and the sibling
-  userspace `pngdeity/keeb-userspace` `main` are each in sync with `origin` and
-  have no uncommitted work. HEADs at last verification: root `fb83179`,
-  submodule `926345d08a`, userspace `a832a0b` (all signed). The audit is closed
-  (`docs/AUDIT.md`); the remaining project work is one hardware flash.
+- **All three repos are clean and signed; each is ahead of origin by two
+  (2026-10-14).** Root `pngdeity/keeb` `main` `18f0294`, submodule
+  `pngdeity/cleave-keeb` `split65-overlay` `8f381870e4`, userspace
+  `pngdeity/keeb-userspace` `main` `966549f` — all signed (`G`), no uncommitted
+  work. The audit and the exhaustive walk are both closed
+  (`docs/AUDIT-fcis.md`); the flash-cycle arc is committed. **The remaining
+  project work is one hardware session** — the Tier-1 batch in
+  `docs/RUNBOOK-flash-and-measure.md`, pre-flight written as § 0.0.5. **Not
+  merged into `main` upstream.**
 - **The tree holds our battery firmware, committed inside the `qmk_firmware`
   submodule.** `qmk_firmware/` is a **pinned submodule** of `pngdeity/cleave-keeb`
   branch `split65-overlay`, which now sits on **`qmk/qmk_firmware` master**

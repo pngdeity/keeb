@@ -13,9 +13,9 @@
 
 | Tree | Revision | Notes |
 | --- | --- | --- |
-| `qmk_firmware/` submodule | `75a5ee699e` (signed) | **clean**; the "owner arc" is stashed, not in the tree |
-| root repo | `ee3ad13` (signed) | topic docs only; nothing in it runs on the MCU |
-| userspace keymap | `a832a0b` (signed) | build with `-km nathan`; `is_keyboard_master()` lives here |
+| `qmk_firmware/` submodule | `8f381870e4` (signed) | **clean**; the whole walk arc is committed here (the older "owner arc" stash `stash@{0}` still exists, not in the tree) |
+| root repo | `18f0294` (signed) | topic docs only; nothing in it runs on the MCU |
+| userspace keymap | `966549f` (signed) | build with `-km nathan`; `is_keyboard_master()` lives here |
 
 The **keyspace the map is generated for** is the `nathan` build. Feature
 switches are not guessed: they are read from the build's own

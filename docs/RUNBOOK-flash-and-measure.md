@@ -138,6 +138,119 @@ flashing.
 The flash is a **human action**: `wb32-dfu-updater_cli -t -s 0x08000000 -D
 <bin>` then `-R` (or `./split65.py flash`). Do not run it from an agent.
 
+### 0.0.5 (filled in) — the walk-close flash (Tier 1, the deliverable batch)
+
+**This is the working pre-flight for the flash that first carries every fix from
+the exhaustive walk, and the first session that attempts the Tier-1 battery
+measurement with a clean baseline. Unlike § 0.0.4 it is built from a committed,
+signed tree, so the runbook's checklist wording "confirmed clean against HEAD" is
+now met.**
+
+**1. The artefact.** `qmk_firmware/.build/epomaker_epomaker_split65_nathan.bin`,
+**64,736 bytes** (`text 0 / data 64736 / bss 0`, `fce0`), sha256
+`a45a97621963b27ebec5cbf93e2f5091b96a98b10c8e2903b9d1a3ebba9566e1`
+(md5 `b8e2131c8d8f35a5da67df8d351e7981`, informational). **Rebuilt fresh from the
+committed tree during the pre-flight and byte-identical to the reviewed hash** —
+the artefact's identity is the signed submodule hash below, not a working-tree
+delta.
+
+- **Submodule `split65-overlay` = `8f381870e4…`, signed (`G`)** — *"fix(wireless):
+  correct the defects found by the exhaustive reset-to-steady-state walk"*.
+- **Root `main` = the commit that carries this runbook section, signed (`G`)** —
+  its gitlink pins the submodule above.
+- `git status --short` is **empty in both trees** (verified before writing this).
+
+The board currently runs the **Stage-4** build (`2ec21c44…`, 63.5 KB) — the
+previous flash. That build **predates every walk fix**, so any `(5 amber, 5
+white)` boot reading taken from it describes the old hand-chosen window, not this
+source (see `docs/HARDWARE.md`, "the `(5, 5)` reading").
+
+**2. Untested assumptions (state each as measured or inherited).**
+- *`.ram0` survives a `NVIC_SystemReset` across a real reset* — **inherited**
+  (reasoned from the linker script and `crt1.c`; never watched on silicon).
+  Predicted consequence if false: the jump journal reads `no journal` even after
+  a `QK_BOOT`, which is itself a finding.
+- *The strong `bootloader_jump()` performs the same jump the weak one did* —
+  **inherited**, but the ELF shows `T bootloader_jump` (strong, one symbol) and
+  `T enter_bootloader_mode_if_requested`; the body reuses upstream's real entry.
+- *The `0xA4` reply's bytes 11–22 and 23–31 are transported intact* — **measured
+  on the encoder side only** (unit-tested); the wider report over USB in a stable
+  link is not.
+- *The battery level will move off 100 on 2.4 GHz* — **inherited** (only the radio
+  path is known to answer `INQVOL`); this session is the measurement.
+- *A cable with the switch on 2.4 GHz leaves the board wireless* — **source done**
+  (`hs_transport_arbitrate_cable()` is a no-op) but **never hardware-confirmed**.
+
+**3. The four review questions.**
+- *Does any effect feed back into its own trigger?* **No new feedback loop is
+  introduced by the walk.** The one loop-shaped site changed is the split device
+  index: `wls_split.c` now clamps the wire value in the pure core **before** it
+  can reach `wls_module_devs_change()`, so the index that feeds the transport
+  decision cannot echo back a value the transport itself would produce. The
+  switch-decode consolidation in `wls.c` removes a second decoder rather than
+  adding a consumer.
+- *Does every signal have a real value (not a constant, not undefined)?* The
+  journal is `b wls_journal` at `0x20004fbc` (16 B, `.ram0`); `wls_reset_cause` is
+  `T`; `bootloader_jump` and `enter_bootloader_mode_if_requested` are both strong
+  `T`. `KB_BATTERY_IDX_DIAG 11`, `_BOOT_CODE 21`, `_JUMP 23` are all emitted
+  (`wls.h`). The three new `_Static_assert`s in `wls_battery.c` and the two
+  frame-size asserts in the adapters **compiled in this build**.
+- *Which code is even compiled?* `wls.mk` lists all 25 sources including
+  `split_logic.c` (the new clamp), `wls_module.c`, `wls_transport.c`,
+  `wls_jump_journal.c`, `wls_boot_jump.c`. `KB_BATTERY_IDX_JUMP` is under
+  `#ifndef VIA_ENABLE`; VIA is not enabled. `G1`'s `devs` default and `E4`'s clamp
+  are both in the compiled path.
+- *Measured vs inherited?* Listed in §2: the battery level and the
+  cable-plus-2.4GHz behaviour are the two genuinely unmeasured claims this session
+  attempts; both have a stated prediction below.
+
+**4. Predicted hardware effect.**
+- *After flashing, first cold boot (switch wherever it sits):* the boot LED code
+  plays **one full frame** and this time the **amber group renders its true
+  count** (panel renders amber as green). Read the pair `(amber, white)` against
+  the stage/code rule (amber = stage, 0 = OK; white = code + 1).
+- *Switch on USB, cold boot, `python3 host/battery_polybar.py --info`:*
+  `transport=USB`, `host(raw)=2`, `DIAG: switch=1`, `DIAG: devs=0`,
+  `DIAG: usb_line=1`, `bootcnt` **+1** vs the previous read.
+- *2.4 GHz, unplugged, 12 pulls over 60 s:* `battery: N%` **changes away from
+  100** and `md state=2` (CONNECTED). If it stays 100 for all twelve samples,
+  that is the result: `INQVOL` is never answered on this module revision.
+- *Cable in, switch on 2.4 GHz:* the board **stays wireless** (does not switch to
+  USB) and the level keeps updating; `charge` reads `1` then `2` as it tops.
+- *Runtime BT→USB switch edge (Test C):* with the switch on BT and no host, flip
+  to USB **without power-cycling** and type — **it types over USB**, `--info`
+  shows `transport=USB`, `usb_line=1`. This is the single highest-value check and
+  the fix that has never been hardware-confirmed.
+
+**5. What the build does not explain.** Present and **not** regressions: the `-71
+EPROTO` loop; the `342d:e4c6` self-detach (5 enumerations / 5 drops in 5 min, zero
+over-current); the pin-lie (`C14`/`C15` readable-but-wrong, which fixes A–D do not
+cover); the module's own firmware for BT (Layer 0, no dump/update path). The
+`0xA4` reply is **unreachable while the transport is not USB** — the wireless
+driver has no `.send_raw_hid` — so the diag/pin block stays silent on 2.4 GHz and
+must not be read as a fault.
+
+**6. Non-flashing recovery.** § 0.3: `EE_CLR` (hold Fn + `[7,8]`, then `[11,7]`
+for 3 s) re-defaults confinfo to USB; the physical switch to USB then power-cycle;
+the spacebar-hole short for DFU. Bootmagic `Esc`-hold is **left-half only** and is
+a last resort (it enters DFU, it does not resume typing).
+
+**7. The falsifier.** *Battery still reads exactly 100 after twelve 2.4 GHz
+samples with `md state=2`* ⇒ `INQVOL` is unanswered on this revision; the
+"default 100" is the module's constant and the honesty fix (defect 1) becomes the
+only path — the retry-harder option is closed. *The board switches to USB when a
+cable is inserted with the switch on 2.4 GHz* ⇒ `hs_transport_arbitrate_cable()`
+is not the only cable consumer and requirement 2 is unmet. *A `(N, 5)` reading
+with `N != 7` and a plausible stage* ⇒ the boot-code counts disagree with the
+source, reopening the instrument question with the walk's fixes in place. *The
+board drops USB while the switch says USB* ⇒ the self-detach path, unchanged by
+this build; read the diag block for `bootcnt`/`usb_line` at the drop.
+
+**8. Verify the artefact on disk** matches `a45a9762…` (§ 0.2) before flashing;
+it was rebuilt from the committed tree during this pre-flight and matched.
+
+The flash is a **human action** — see the note above.
+
 ### 0.1 Confirm what you are about to flash
 
 ```sh
@@ -147,10 +260,11 @@ git -C qmk_firmware --no-pager log --format='%h %G? %s' -1
 md5sum qmk_firmware/epomaker_epomaker_split65_nathan.bin
 ```
 
-Expected: submodule `7d984b781a`, signed (`G`). The board source lives **in the
-submodule**, so the submodule hash is the firmware's identity; the root hash is
-whatever `main` tip is current (it will be at least `f0ef830`, this runbook's
-own commit — check it is signed, but do not pin it in advance).
+Expected: submodule signed (`G`) at whatever `split65-overlay` tip is current —
+**do not pin a stale hash**; § 0.0.5 names the one this pre-flight reviewed. The
+board source lives **in the submodule**, so the submodule hash is the firmware's
+identity; the root hash is whatever `main` tip is current — check it is signed,
+but do not pin it in advance.
 
 The md5 is informational only — record it in the session log so a later build
 can be told apart. Do **not** write it into `TODO.md` (it goes stale on every
