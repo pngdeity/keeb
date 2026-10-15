@@ -163,7 +163,9 @@ requirement; both stay on the record with their reason.
 subset the primary audience needs, and § 8 records what was deliberately left out.
 
 A requirement that cites this method is **[derived]**, exactly as elsewhere in
-this document.
+this document. Ten worked examples are written up, all in the same form:
+§ 0.6 (2.4 GHz), § 0.7 (Bluetooth), **§ 0.8 (the split half)**, **§ 0.9 (the
+link, as a state set)** and **§ 0.10 (the host, as a readable state)**.
 
 ### 0.6 Worked example — 2.4 GHz, stages 1–3 (stage 4 deferred)
 
@@ -282,6 +284,147 @@ strongest stage-2 instrument that exists for this module — but reading it is a
 hardware-reversing session, not a documentation review.
 
 **Stage 4** (the UX choice) is **not made here.**
+
+### 0.8 Worked example — the split half (stages 1–3, stage 4 stated)
+
+The split is the board's most distinctive property and the only surface where
+**one keyboard is two objects with independent state**. § 4 already carries the
+requirements (X-13…X-15); what follows is the derivation behind them, which was
+previously asserted. It is run here because a *dark half* is the exact case
+`docs/METHOD.md` Part II exists for, and because the derivation shows the
+half-state is **already measured end-to-end** and dies at the same place § 0.7's
+does: the renderer.
+
+**Stage 1 — intended** (rank-ordered per § 0.5). Rank 1 (the reseller's material):
+a split 65% board, "both halves work independently", each half bears its own USB-C
+and its own mode switch. Rank 2 (**the ODM's own configuration, which is the real
+intent source here** — `keyboard.json`): `split.handedness.pin = "B9"`,
+`split.matrix_pins.right` distinct from the left, per-half `matrix_pins`, a
+right-half encoder, and — the decisive line — `split.transport.sync` with
+`activity`, `indicators`, `layer_state` and `matrix_state` all **true**, i.e. the
+design intends the halves to stay **synchronised**, not to lead separate lives on
+separate transports. Rank 3 (upstream): `is_keyboard_master_impl()` is
+`usb_bus_detected()` — *the half with the host cable is the master* — with
+`SPLIT_HAND_PIN`/`B9` feeding handedness.
+
+**Stage 2 — actual** (measured):
+
+| Claim | Status | Evidence |
+|---|---|---|
+| Handedness is a **pin**, not an EEPROM flag | **confirmed** | `keyboard.json` `split.handedness.pin = "B9"`; no `EE_HANDS`/`MASTER_RIGHT`/`SPLIT_HAND_PIN` macro anywhere in the board (`config.h` has neither) |
+| Master = **the half with the cable** | **confirmed** | the board overrides `is_keyboard_master()` (default keymap) to read `B9` **settled** (`wait_us(100)`); upstream's weak impl is `usb_bus_detected()` |
+| The role is therefore **runtime, not fixed** | **confirmed** | mastery follows the cable: plug the host into the right half and it becomes master. Corollary: the right half is not *inherently* the slave — the board is symmetric, and the asymmetry arrives at runtime |
+| The halves **exchange their device index** | **confirmed** | `master_sync_mms_slave(wireless_get_current_devs(), …, *md_getp_bat())` every 2 s (`epomaker_split65.c:168-173`) → `WLS_SPLIT_CMD_SYNC_MULTIMODE` (0x55) → the slave calls `wls_module_devs_change(last, now, false)` |
+| The sync carries **the same index twice** | **measured, and the point** | the live call passes `(now, now)` — `epomaker_split65.c:172` — so the slave is told the master's index, but never told that *it is a sync* (no last/now distinction reaches the wire) |
+| The slave **adopts the master's device index** | **confirmed** | `wls_split_decide_slave()` → `WLS_SPLIT_ACT_SYNC_DEVICE_INDEX` → `wls_module_devs_change` on the slave (`wls_split.c:49-50`) |
+| The **wire is clamped** (a corrupt byte cannot become state) | **confirmed** | `WLS_SPLIT_DEVS_MIN/MAX` 0..6, out-of-range rejected (`split_logic.h`, `wls_split_decide_slave`) |
+| The master-gated work is real and named | **confirmed** | master only: the transport decision, `hs_rgb_blink_hook`, the low-battery sleep order, the battery renderer, the split sync itself, the module's own sleep send (`wls.c:298,330,338`; `wls_lifecycle.c:205,217`; `wls_indicator.c:138`) |
+| A dark half is **rendered** (not a mystery) | ~~confirmed~~ **NO** | nothing distinguishes "intentionally dim/off" from "lost link/power"; the slave's rail is dropped by its *own* suspend path and only re-raised by `0xCC` when the master wakes — **a dark slave with a lit master is reachable, and renders as a plain dark half** |
+| **Which half is the slave** is observable | **NO** | `B9` is *cable detect* — the board never publishes "I am this half", so neither half can *say* its role to the user; it can only *be* it |
+
+**Stage 3 — possible.**
+
+1. **The half-state is synchronised by design and by wire, and the one thing
+   that is not synchronised is the one the user sees.** `split.transport.sync`
+   intends the halves to agree; `WLS_SPLIT_CMD_SYNC_MULTIMODE` enforces it every
+   2 s. And yet **nothing renders any of it**: `wls_indicator.c` has no notion of
+   the half state, so X-13 ("tell from either half that both are alive and
+   linked") and X-14 ("a dark half must be attributable") are implementable
+   **from data that already crosses the link** — the missing piece, exactly as in
+   § 0.7, is indication policy.
+2. **The role is a runtime fact derivable from the cable read.** `B9` settles to
+   "this half has the host", which is precisely what makes it master. So
+   "which half am I" is not a new capability — it is a re-read of an existing pin
+   — and X-15 ("no indicator may require the user to hold a belief about which
+   half is master") becomes satisfiable *without* the user needing the answer:
+   the board can know it for itself.
+3. **`KC_BATQ`'s `im_bat_req_charging_flag` is a second, narrower example in the
+   same family** — it is a request flag, not a rendered state, so a query key
+   exists whose *answer* has no dedicated display (`wls_keymap.c:337-343`).
+
+**Stage 4 — the UX choice, stated.** Because the halves are synchronised by
+configuration, the 80% does not need **per-half transport** legibility — a split
+keyboard is *one* keyboard, and X-29 forbids the halves settling on different
+hosts. What the 80% needs is only **(a)** "both halves are alive and linked"
+(X-13), **(b)** "this half is dark on purpose, not lost" (X-14), and **(c)** it
+works from either half (X-15). Per-half *state* is deliberately **not** surfaced;
+the existence of a synchronisation channel is what makes that safe.
+
+### 0.9 Worked example — the link, as a state set (stages 1–3)
+
+§ 0.7 derived BT and § 0.6 derived 2.4 GHz. Neither derived the thing they have in
+common: **the set of link states the board can be in, and which of them the user
+can distinguish.** This is the derivation behind X-1, X-2 and X-30, and it is the
+one that found X-30 in the first place.
+
+**Stage 1 — intended.** Rank 1 (Epomaker): the indicator blinks fast while
+pairing and "stops when connected". Rank 2 (**the ODM protocol** — the
+authoritative one): **five** states on `MD_REV_CMD_DEVCTRL` (0x5B),
+`NONE`/`PAIRING`/`CONNECTED`/`DISCONNECTED`/**`REJECT`** (0x31/0x32/0x33/0x36 —
+`module.h:18-22`, `module.c:207-218`), plus a reserved `UNPAIRED` (0x37). Rank 3
+(upstream): `connection_host_t` models *which host* is selected, not the link's
+health — upstream has no vocabulary for "the link rejected us".
+
+**Stage 2 — actual** (measured):
+
+| Claim | Status | Evidence |
+|---|---|---|
+| The module reports **five** link conditions | **confirmed** | `MD_STATE_NONE/PAIRING/CONNECTED/DISCONNECTED/REJECT` decoded from 0x5B sub-codes |
+| The board **maps all five** to core states | **confirmed** | `hs_link_state()` → `HSM_LINK_NONE/PAIRING/CONNECTED/DISCONNECTED/REJECT` (`wls.c:274-286`) |
+| The core **acts** on all five | ~~confirmed~~ **NO** | `hsm_link_watch` groups `NONE`/`PAIRING`/**`REJECT`** into one actionless arm → `HSM_LINK_ACT_NONE` (`transport_logic.c:275`) |
+| The renderer **shows** all five | ~~confirmed~~ **NO** | no renderer consumes the link state at all; `wls_indicator.c` paints a per-transport flash and nothing per-link-state |
+| The host channel reports it | **confirmed** | the `wls_diag` byte `link_state` carries the raw `MD_STATE_*` (0..4) |
+| A state the firmware **carries** is therefore **flattened** | **confirmed — this is X-30** | `REJECT` and `DISCONNECTED` render identically while requiring **opposite** user actions (fix the host's pairing vs wait/re-pair) |
+
+**Stage 3 — possible.** The capability is **five-for-five present and three-fifths
+rendered**. `NONE` and `PAIRING` legitimately share an "in progress" render; the
+flattening that matters is **`REJECT` collapsing into `DISCONNECTED`-look-alike**,
+which is exactly what X-2 forbids. So the requirement is not "add a state" (the
+state exists, is transported, and is already in the `0xA4` block) — it is **"stop
+flattening"**: a render must exist for every state the board carries, or the
+state must be *deleted* from the vocabulary. The general rule this yields is X-30
+itself: **a carried state is never silently flattened.**
+
+**Stage 4** (the UX choice — *which* render for `REJECT`) is **not made here**;
+it is the A7 work item, and X-9/X-11/X-12 (no colour-only, no reused pattern,
+two cues) constrain it.
+
+### 0.10 Worked example — the host, as a readable state (stages 1–3, stage 4 stated)
+
+X-20 and X-21 exist because § 1.1's four circumstances made "which host am I on?"
+a **primary** question. This derives what the board can actually say about it.
+
+**Stage 1 — intended.** Rank 1 (Epomaker): three BT slots, `Fn+Q/W/E`, and a
+`Fn+B` battery check. Rank 2 (**the ODM protocol**): **five** slots
+(`DEVS_BT1..BT5`, `DEVCTRL_BT1..BT5` 0x31–0x35), `DEVCTRL_PAIR` as the only connect
+verb, `DEVCTRL_CLEAN` to wipe a slot, and a reserved `UNPAIRED` (0x37). Rank 3
+(upstream): `QK_BLUETOOTH_PROFILE1..5` and `QK_BLUETOOTH_UNPAIR` exist **in
+`keycodes.h`** but upstream marks them **"not yet implemented"** — so their
+presence here is ours.
+
+**Stage 2 — actual** (measured):
+
+| Claim | Status | Evidence |
+|---|---|---|
+| The protocol has **five** slots | **confirmed** | `DEVS_BT1..BT5`, `DEVCTRL_BT1..BT5` |
+| The board exposes **three** as keycodes | **confirmed** | `KC_BT1/2/3` at `[2,1]..[2,3]`; `KC_2G4` at `[2,4]` (`keymap.c`, `keyboard.json` keycodes) |
+| The **core handles all five** | **confirmed** | `hsm_devs_is_bt()` accepts BT1..5; `wls_indicator.c` renders `DEVS_BT4`/`DEVS_BT5` — **but on LED indices 41/42 with the same `RGB_BLUE`**, so the profile is not distinguishable by colour |
+| The **active host** is readable by a host | **confirmed** | the `0xA4` reply carries transport and BT profile (`hsm_profile_of_devs`) |
+| The **active host** is readable on the **board** | ~~confirmed~~ **surfaced only as a momentary flash** | `wls_indicate_devs()` fires once on a genuine transition and then goes dark — a *transition* indicator, not a *state* indicator, so "which host am I on?" is unanswerable at rest |
+| A guest's slot is **reclaimable** | **confirmed, coarsely** | `DEVCTRL_CLEAN` wipes a slot; there is **no per-host un-pair** (the reserved `UNPAIRED` 0x37 is unused) |
+
+**Stage 3 — possible.** The capability is **five slots present, three surfaced, and
+the state not readable at rest.** So X-20 ("the active host is a readable
+**state**") is implementable with no new mechanism — the index is in hand, the
+render path exists, and the missing piece is that the render is owed to a
+*transition* rather than held as a *state*. X-21's measured promise follows
+directly: since the only connect verb pairs into a slot, the honest requirement is
+**"occupies a slot that can be taken back"**, not "leaves nothing behind".
+
+**Stage 4 — stated.** The 80% needs *which host*, not the slot number as a datum;
+a two-cue render (X-12) satisfies it, and the guest case (X-23) requires it be
+readable **without knowing our conventions**. Deliberately **not** surfaced: the
+raw index, and per-half host state (X-29 forbids the halves differing).
 
 ---
 
@@ -504,7 +647,9 @@ starts at the middle:
 and three wireless ones, **the active host is a readable state**: which transport is
 committed, and — on BT — **which** host. The first draft trimmed this as a
 power-user distinction; the four circumstances reverse that. This is X-4 extended
-from *which transport* to *which host*.
+from *which transport* to *which host*. *(Derivation: § 0.10 — five slots exist,
+three are surfaced, and the render is owed to a **transition**, not held as a
+state, which is the whole gap.)*
 
 **Requirement X-21.** A transient, one-off host must be **usable and leave no
 permanent claim**: the guest connects without the owner explaining anything, and
@@ -704,6 +849,11 @@ user state from "my keyboard is off" (see § 4). **[derived]**
 
 **This is the distinctive requirement of a split keyboard, and the one the
 dark-board event exposed.**
+
+**Derivation: § 0.8.** The half-state is measured end-to-end (the ODM's
+`split.transport.sync` intent, the `B9`-derived runtime mastery, and the 2 s
+`SYNC_MULTIMODE` wire) and dies at the renderer — which is why these are
+requirements and not yet behaviour.
 
 **Requirement X-13.** The user must be able to tell, **from either half**, that
 **both** halves are alive and linked — because the right half has **no battery

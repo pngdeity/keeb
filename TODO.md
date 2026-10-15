@@ -841,9 +841,9 @@ must not be read as requirement work. `H-n` is a horizon requirement.
 | A4 | Wireless while charging (engineering mode 2 in source; needs the hardware reading) | **X-20** | flash | `## Priority order` item 8; `## Outstanding verification` |
 | A5 | USB self-detach: confirm the fix on hardware, read the `BOOT:` line and the boot LED code | **X-7** | flash | `## Outstanding verification`; defect 8 |
 | A6 | Right-half keypress wake (defect 2) — **promoted 2026-10-14**, no longer "deferred" | **X-13**, **X-22** | a drained pack (or a scratch-build threshold bump) | defect 2 |
-| A7 | `X-30` — stop flattening `HSM_LINK_REJECT` to `NONE`/`PAIRING`; "rejected" and "not connected" need opposite user actions | **X-2** | nothing — data and state already in hand; the gap is indication policy | defect 4 (BT keycode hijack); `## Open-item re-audit` |
+| A7 | `X-30` — stop flattening `HSM_LINK_REJECT` to `NONE`/`PAIRING`; "rejected" and "not connected" need opposite user actions | **X-2** | nothing — derivation done (`UX-REQUIREMENTS.md` § 0.9); data and state already in hand; the gap is indication policy | defect 4 (BT keycode hijack); `## Open-item re-audit` |
 | A8 | `X-7` — minimum-brightness floor (Fn-layer encoder `RM_VALD`/`RM_VALU`, `RGB_MATRIX_VAL_STEP` 30, ~4 CCW clicks → 0 → board looks dead; the dark-board scare) | **X-7** | nothing — no hardware | `## User experience / usability review` |
-| A9 | `X-20`/`X-21` surfacing — BT4/BT5 names and keycodes (core already handles BT1..5) | **X-20**, **X-21** | nothing — no hardware | `## User experience / usability review` |
+| A9 | `X-20`/`X-21` surfacing — BT4/BT5 names and keycodes (core already handles BT1..5; derivation § 0.10) | **X-20**, **X-21** | nothing — no hardware | `## User experience / usability review` |
 | A10 | Charging/battery LED placement (master-only, opposite half from the battery, invisible at brightness 0) | **X-5** | a decision | `## User experience / usability review` |
 | A11 | `KC_BATQ` value (disabled on USB, blinks only ≤15%) | **X-5** | a decision | `## User experience / usability review` |
 | A12 | Bluetooth carries input? (module advertises and bonds; HID GATT rejects CCC writes, ATT `0x0E`) | **X-3**, **X-4** | interactive `bluetoothctl`; module-side fault | `## Outstanding verification` |
@@ -2300,9 +2300,11 @@ LED placement is **X-5**.
   Four stages — **intended → actual → possible → surfaced** — with the rule that
   **the vendor's documentation is a *claim*, not a fact**: an OEM manual is
   aspirational at worst, so a documented capability is a hypothesis tested against
-  the hardware, never a requirement. Applied twice so far (§ 0.6 2.4 GHz, § 0.7
-  Bluetooth), each with a rank-ordered intent stack (manual → ODM protocol →
-  upstream contract). `docs/METHOD.md` § 1 points at it.
+  the hardware, never a requirement. Applied five times so far (§ 0.6 2.4 GHz,
+  § 0.7 Bluetooth, **§ 0.8 the split half, § 0.9 the link as a state set, § 0.10
+  the host as a readable state** — the last three added 2026-10-15), each with a
+  rank-ordered intent stack (manual → ODM protocol → upstream contract).
+  `docs/METHOD.md` § 1 points at it.
 - **NEW REQUIREMENT X-30 — a state the firmware carries must not be silently
   flattened (added 2026-10-14).** Found by the § 0.7 Bluetooth derivation: the
   module reports **`REJECT`** (a connection the module refused) and the board
@@ -2849,3 +2851,43 @@ most-cheaply-falsifiable"**, with capability work (Tier 3, re-base, shell/core)
 in a separate lane ordered by leverage. The one item whose *position* genuinely
 moves is **defect 2**, which the old ordering deferred as ergonomics and which the
 authority inversion promotes to a first-class form of **X-13**.
+
+---
+
+## Capability derivation — the unrun surfaces (2026-10-15)
+
+`docs/UX-REQUIREMENTS.md` § 0.5 names the method and § 0.6–0.7 had applied it
+**twice** (2.4 GHz, Bluetooth — the second minting **X-30**). Two more were
+unrun, and a third was asserted without its derivation. All three are now written
+up in the same form (stages 1–3, with the stage-4 UX choice stated where it is
+already settled):
+
+- **§ 0.8 — the split half.** The half-state is **measured end-to-end**: the ODM
+  configuration *intends* the halves synchronised (`split.transport.sync`), `B9`
+  makes mastery a **runtime** fact (the half with the cable is master),
+  `WLS_SPLIT_CMD_SYNC_MULTIMODE` carries the device index across every 2 s, and
+  the wire is clamped in the pure core. And yet **nothing renders any of it** —
+  the same "dies at the renderer" shape as § 0.7. This is the derivation behind
+  **X-13/X-14/X-15**, which previously had none. Stage 4 stated: per-half
+  *transport* is deliberately not surfaced, because the halves are synchronised
+  and X-29 forbids them differing.
+- **§ 0.9 — the link, as a state set.** The module reports **five** link
+  conditions; the board maps all five; the core acts on three; **nothing renders
+  any of them**, and `REJECT` is folded into the `DISCONNECTED` look-alike. Five
+  present, three-fifths rendered. Stage 4 deferred — it *is* A7.
+- **§ 0.10 — the host, as a readable state.** Five slots exist, **three** are
+  surfaced as keycodes, and the active host is readable by a host but on the
+  board only as a **momentary flash** — a transition indicator, not a state one.
+  So X-20 is implementable with no new mechanism. This is A9's derivation.
+
+**What changed for the index:** A7 and A9 now cite their derivation as the thing
+that is *done*, leaving only the implementation. A8 (the brightness floor) is a
+straight defect-class fix under X-7 and needs no capability derivation — nothing
+is un-surfaced there; the value simply can rest at zero.
+
+**The three surfaces are now closed; the next derivation cannot be run without
+hardware.** § 0.6's two owed measurements (2.4 GHz rate, battery over the radio)
+and § 0.10's "readable at rest" verification are all Stage-2 *actual* inputs, and
+the process (`docs/METHOD.md` § I.0) forbids deriving on unmeasured transports.
+So the ordering is: the Tier-1 session supplies the actuals, **then** stage 4
+(the UX choice) is made on what it exposes.
