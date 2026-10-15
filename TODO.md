@@ -657,8 +657,8 @@ It is harmless and may stay, but do not treat it as a fix for anything.
   is the Tier-1 hardware session** — the batch in
   `docs/RUNBOOK-flash-and-measure.md`, pre-flight written as § 0.0.5; it is
   blocked on a human at the keyboard, and the no-hardware Lane A items (A7
-  X-30, A8 X-7) landed 2026-10-15; A9 X-20/X-21 is deferred to B14 (see the
-  index and the A9 note).
+  X-30, A8 X-7, A10 X-5, A11 X-5) landed or were decided 2026-10-15; A9
+  X-20/X-21 is deferred to B14 (see the index and the A9/A10/A11 notes).
   **Not merged into `main` upstream.**
 - **The tree holds our battery firmware, committed inside the `qmk_firmware`
   submodule.** `qmk_firmware/` is a **pinned submodule** of `pngdeity/cleave-keeb`
@@ -845,8 +845,8 @@ must not be read as requirement work. `H-n` is a horizon requirement.
 | A7 | `X-30` — stop flattening `HSM_LINK_REJECT` to `NONE`/`PAIRING`; "rejected" and "not connected" need opposite user actions | **X-2** | **SOURCE DONE 2026-10-15** — core + shell landed (submodule `5819516`), `transport_logic` 43/43; needs a flash to see | defect 4 (BT keycode hijack); `## Open-item re-audit` |
 | A8 | `X-7` — minimum-brightness floor (Fn-layer encoder `RM_VALD`/`RM_VALU`, `RGB_MATRIX_VAL_STEP` 30, **five** CCW clicks → 0 → board looks dead; the dark-board scare) | **X-7** | **SOURCE DONE 2026-10-15** — floor refused in `wls_rgb_key_decide()` (`WLS_RGB_VAL_FLOOR`), key consumed; `rgb_key_logic` 10/10; needs a flash to feel | `## User experience / usability review` |
 | ~~A9~~ | ~~`X-20`/`X-21` surfacing — BT4/BT5 names and keycodes~~ — **deferred 2026-10-15 to B14** (no circumstance needs a 4th/5th host; see the re-audit note) | ~~**X-20**~~ | — | `## Open-item re-audit` |
-| A10 | Charging/battery LED placement (master-only, opposite half from the battery, invisible at brightness 0) | **X-5** | a decision | `## User experience / usability review` |
-| A11 | `KC_BATQ` value (disabled on USB, blinks only ≤15%) | **X-5** | a decision | `## User experience / usability review` |
+| A10 | Charging/battery LED placement (master-only, opposite half from the battery, invisible at brightness 0) | **X-5** | **DECIDED 2026-10-15 — leave placement, document why** (see the note) | `## User experience / usability review` |
+| A11 | `KC_BATQ` value (disabled on USB, blinks only ≤15%) | **X-5** | **DEFERRED 2026-10-15 to the `md_info.bat` honesty work (A2/H-1)** | `## User experience / usability review` |
 | A12 | Bluetooth carries input? (module advertises and bonds; HID GATT rejects CCC writes, ATT `0x0E`) | **X-3**, **X-4** | interactive `bluetoothctl`; module-side fault | `## Outstanding verification` |
 | A13 | BT keycode hijack (defect 4) — the fix is in; confirmation still owed | **X-24**, **X-25** | flash | defect 4 |
 | A14 | Whether a host is chosen on the wireless switch edge without half asymmetry (defect 5) | **X-3**, **X-4** | flash | defect 5 |
@@ -873,6 +873,7 @@ must not be read as requirement work. `H-n` is a horizon requirement.
 | B12 | Code audit follow-ups; design-cleanup items from `docs/AUDIT.md` | Maintainability | `## Code audit`; `## Design cleanup` |
 | B13 | The boot-code vocabulary's white codes (deliberately unfrozen) | Revisited when the boot path changes; no requirement attaches to a code's identity | `## Other` |
 | B14 | Expose BT4/BT5 (keycodes + `Split65-4/5` names) — **A9, deferred 2026-10-15** | **X-20 asks which of the *used* hosts is active.** The four circumstances name exactly three wireless hosts (laptop, phone, friend's laptop), which map one-to-one onto BT1/2/3; a 4th/5th slot serves no named circumstance, and 2.4 GHz is asked for by none of them. Surfacing two more hosts would be capability for its own sake — the § 3 "complete then trim" rule (§ 0.3/§ 8), not this lane | `## Open-item re-audit` |
+| B15 | The battery readout vs the rest of the matrix — the animation-list trim, whether the soft indicator may override the solid fill, and the **brightness-zero carve-out** (the charge cue is currently gated on `rgb_matrix_get_val() != 0`, so a board at 0 also loses its charge readout) — **A10's real residue, 2026-10-15** | The X-7/X-5 seam: X-5 wants charge readable without a host, X-7 wants "dimmed to zero" distinguishable from dead. Both need a *flashed* check (does a val-0 board still answer "charging?"), not a layout change; the LED indices are PCB-fixed | `## User experience / usability review` |
 
 **One rule that keeps this honest:** an "open" item is not automatically
 requirement work. Most of what *felt* like the backlog is Lane B — the five
@@ -2355,6 +2356,21 @@ to trim the compiled-in animation list. The remainder stay here.
   is master-only, and is invisible when RGB brightness is zero. Consider a better
   location or a dedicated indicator, and whether the level colours are
   distinguishable.
+  **RESOLVED 2026-10-15 (X-5) — leave placement, documented.** Re-measured: all
+  three charge LEDs are on the **right** half (`HS_MATRIX_BLINK_INDEX_BAT` 63 at
+  `[11,3]`, plus the soft pair 64/65 at `[11,4]`/`[11,5]`), while the battery is in
+  the **left** half (`docs/HARDWARE.md` "Batteries"), and the renderer is
+  master-gated — so in the normal case the charge state is painted on the
+  battery-less, link-powered half. **This is not moved, deliberately:** the LED
+  index is fixed by the WS2812 chain order on the PCB, so relocating it is a
+  chain re-map, not a firmware preference, and the vendor layout is what the
+  hardware is. X-5 asks that charge be **readable without a host**, which it is
+  (the soft pair is an always-on, full-intensity two-LED bar and the level colours
+  are distinct). The one real finding is the *interaction with X-7*: the whole
+  block is gated on `rgb_matrix_get_val() != 0` (`wls_indicator.c:146`), so a
+  board at brightness 0 also loses its charge readout — folded into **B15** (the
+  brightness-zero carve-out), which is the X-7/X-5 seam and needs a flashed
+  check, not a layout change.
 - **Default RGB effects.** Partly addressed: the vendor rainbow is gone; the
   default is now solid white at 50%, declared in `keyboard.json`
   (`rgb_matrix.default`) with the keymaps re-applying it persistently in
@@ -2364,6 +2380,9 @@ to trim the compiled-in animation list. The remainder stay here.
   whether to review/trim the enabled animation list
   (`keyboard.json` `rgb_matrix.animations`, ~44 entries) and whether the battery
   indicator should override the fill.
+  **B15 (added 2026-10-15)** carries the animation trim, the fill-override, and
+  the brightness-zero carve-out as one Lane B item — they are all "the battery
+  readout vs the rest of the matrix".
 - **Battery indicator vs solid fill.** With a uniform white fill, the battery
   indicator is the only thing that breaks it (one LED on the right half shows the
   charge colour). Decide whether that single-LED exception is wanted, and whether
@@ -2389,6 +2408,18 @@ to trim the compiled-in animation list. The remainder stay here.
   (`confinfo.devs == DEVS_USB`) and only blinks when level <= 15, so it is nearly
   useless as a query key. Question whether it should report a real level instead
   (ties into the `md_info.bat` staleness defect above).
+  **DEFERRED 2026-10-15 (X-5) — pending honest battery reporting.** Re-measured:
+  `KC_BATQ` sets `im_bat_req_charging_flag`, consumed by
+  `wls_bat_action_of(charging, full, level, request, low)`, where `request` gates
+  **only** the two *charging* arms (`PAINT_RED` when full, `PAINT_GREEN` when
+  charging). While discharging it does nothing — which is exactly when a level
+  query is wanted. It could be made to paint the level (`wls_bat_colour_of`
+  already has the thresholds), but the value it would display is the one **defect
+  1 / H-1** says is unreliable (`md_info.bat` initialises to `100` and is only
+  updated by a module reply, so on USB the board would confidently show a number
+  it never measured). A query key that answers with an unmeasured number is worse
+  than one that stays quiet, so A11 lands **behind A2/H-1**: make the level
+  honest first, then let the key show it.
 
 Deliverable: a reviewed mapping with a written rationale for every deviation
 from the vendor default. Record findings here and in `docs/FINDINGS.md`.
@@ -2894,6 +2925,11 @@ brightness floor) is a straight defect-class fix under X-7 and needs no capabili
 derivation — nothing is un-surfaced there; the value simply could rest at zero,
 and since 2026-10-15 it cannot. **None of the three is still open in Lane A.**
 
+**A10 and A11 (both X-5) are also closed as decisions (2026-10-15)** — A10: the
+charge LEDs stay on the half the PCB put them on (documented, not moved); A11:
+`KC_BATQ` waits for honest battery reporting (A2/H-1). Their residue is **B15** and
+the deferred A11 respectively. See "A10 and A11 resolved" below.
+
 **The three surfaces are now closed; the next derivation cannot be run without
 hardware.** § 0.6's two owed measurements (2.4 GHz rate, battery over the radio)
 and § 0.10's "readable at rest" verification are all Stage-2 *actual* inputs, and
@@ -2932,3 +2968,45 @@ insertion point** (`RL_MOD`, `HS_BATQ`, `KC_FILP`, `KC_BATQ`, `MOR_1..5`), so
 `transport_logic.c`'s `HSM_KC_BT1..2G4` literals and both keymaps' keycode blocks
 must move together, and `keyboard.json`'s JSON reflow trap applies. It is not a
 mechanical change.
+
+---
+
+## A10 and A11 resolved — the charge readout stays where the PCB put it (2026-10-15)
+
+Both are **X-5** (charge readable without a host) and both were filed as "a
+decision". Both decisions are now taken, and **neither needs code today**.
+
+**A10 — the charge LED placement. Decision: leave it, documented.** Re-measured
+from `keyboard.json`'s LED layout: **all three charge LEDs are on the right half**
+— `HS_MATRIX_BLINK_INDEX_BAT` 63 (`[11,3]`), `HS_MATRIX_BAT_SOFT_INDEX` 64
+(`[11,4]`), `HS_MATRIX_BAT_SOFT_INDEX2` 65 (`[11,5]`) — while the battery is in the
+**left** half (`docs/HARDWARE.md` "Batteries"), and the renderer is master-gated
+(`wls_indicator.c:138`). So in the normal case the charge state is painted on the
+battery-less, link-powered half. It is deliberately **not moved**: the LED index is
+fixed by the WS2812 chain order on the PCB, so relocating it is a chain re-map, not
+a firmware preference — the vendor layout *is* the hardware. X-5 asks that charge be
+readable without a host, which it is: the soft pair is an always-on two-LED bar at
+full channel intensity with distinct level colours.
+
+**The one real finding is not placement, it is the gate.** The whole block sits
+inside `if (rgb_matrix_get_val() != 0)` (`wls_indicator.c:146`), so a board dialled
+to brightness zero — the exact state X-7 is about — also loses its charge readout.
+That is the X-7/X-5 seam, and it is **B15**: it needs a flashed check ("does a
+val-0 board still answer 'charging?'"), not a layout change.
+
+**A11 — `KC_BATQ`. Decision: defer behind honest battery reporting (A2/H-1).**
+Re-measured: the key sets `im_bat_req_charging_flag`, consumed by
+`wls_bat_action_of(charging, full, level, request, low)`, and `request` gates
+**only** the two *charging* arms (`PAINT_RED` when full, `PAINT_GREEN` when
+charging, `indicator_logic.c:79-95`). While discharging it does nothing — precisely
+when a level query is wanted. Making it paint the level is easy (`wls_bat_colour_of`
+already carries the green/orange/red thresholds), but the value it would show is the
+one **defect 1 / H-1** says is unreliable: `md_info.bat` initialises to `100` and is
+only updated by a module reply, so on USB the key would confidently display a number
+the board never measured. **A query key that answers with an unmeasured number is
+worse than one that stays quiet**, so A11 lands behind A2 — make the level honest
+first, then let the key show it.
+
+**What this leaves open in Lane A.** A10 and A11 were the last two no-hardware Lane
+A items that were only waiting on a decision. What remains is A17 (the rest of the UX
+review), the flash-gated batch (A1–A5, A12–A16), and their dependants.
