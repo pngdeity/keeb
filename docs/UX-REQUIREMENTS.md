@@ -163,7 +163,7 @@ requirement; both stay on the record with their reason.
 subset the primary audience needs, and § 8 records what was deliberately left out.
 
 A requirement that cites this method is **[derived]**, exactly as elsewhere in
-this document. Ten worked examples are written up, all in the same form:
+this document. Five worked examples are written up, all in the same form:
 § 0.6 (2.4 GHz), § 0.7 (Bluetooth), **§ 0.8 (the split half)**, **§ 0.9 (the
 link, as a state set)** and **§ 0.10 (the host, as a readable state)**.
 
