@@ -561,6 +561,78 @@ Two consequences follow, and both are re-derivations rather than new policy:
 Ordered the way a person actually does them (Apple: "Order the steps according to
 how people do them").
 
+### 2.0 "A day with the board" (the narrative — the four circumstances as one person's ordinary week)
+
+§ 1.1 records the four circumstances as *evidence* for the audience, and § 2.1–2.12
+turn them into *tasks*. What neither does is walk them in order, as **one person's
+ordinary week**, with the board's expected behaviour at each moment — which is the
+view Apple's "imagine a scenario in which a user uses your product" asks for, and
+the view a **non-technical reader** needs. That is this subsection. It invents
+nothing: every step below is one of § 1.1's circumstances, and every requirement it
+names is already stated in § 2 or § 4. Its purpose is **the reader's**, not the
+analyst's: it is where the board is judged as a *day*, and where an at-rest gap like
+A17's becomes visible (the requirement tables are framed around *actions*, and an
+action-framed table cannot show a moment with no action).
+
+**Monday, home office.** She sets the board on the desk. The **mode switch sits in
+the USB position** (right half, same plate as its port — § 3.4), and the cable is
+in. She types. There is nothing to choose and nothing to read: USB is the position
+and the position is the intent (**X-3**), the board is plainly alive (**X-7**), and
+keystrokes go where she looks (**X-24**'s USB end). *The board's whole job this
+morning is to be unremarkable.*
+
+**Tuesday, the library.** She carries the board, laptop on its own battery, and
+**charges it from a power brick while using it wirelessly** — circumstance 2
+verbatim. She flips the switch to **BT**, and the board connects to the laptop
+(paired as `Split65-1`). The one thing she must never see is the brick forcing USB:
+that is the whole point of the circumstance (**§ 1.2**, engineering mode 2). She
+types; the board is wireless and charging at once. — *This is where X-5 matters: the
+charge state has to be readable **with no host and no cable to the host**.*
+
+**Wednesday, the presentation.** She needs to drive slides from the floor, so the
+board goes to the **phone** (circumstance 3, BT profile 2). She sets it up
+**before** she walks away (**X-17**, and § 1.4-F: the state must be readable *at
+setup*), and once the link is up **it must not need her** — she is at the lectern,
+and a dropped link stops the slides in front of an audience. Space advances slides;
+that is a *task*, not a typing session (§ 1.2).
+
+**Thursday, the friend's house.** The friend needs to type a lot, once. She hands
+over the board; the friend pairs their laptop **as a guest** (circumstance 4,
+BT profile 3). **The friend has never seen this keyboard** — so nothing on it may
+require the owner's conventions, or knowing which half is master (**X-15**,
+§ 1.4-E). The friend must be able to answer "which machine will this type into,
+and is it connected?" from the board alone (**X-1**, **X-23**). Afterwards the slot
+must be **reclaimable** — the honest promise is "occupies a slot that can be taken
+back" (**X-21**).
+
+**Every evening.** She unplugs and puts the board away, or leaves it cabled and
+idle. Either way the board must **come back to the same host tomorrow without her
+re-selecting anything** (**X-25**) — and if it cannot, it must *say so* rather than
+come up dark-looking (**X-25** again, X-7).
+
+**What the walk exposes that the task tables do not.** At every *rest* moment above
+— the desk after the morning's type, the library after the connecting flash, the
+lectern once the link is up — the person's question is not "did it change?" but
+**"where am I, right now?"** A mode that is indicated only at its transition answers
+the first question and not the second, and that is exactly the gap A17 found: the
+channel is shown **when it changes** (`wls_indicate_devs`, fired from the switch
+edge, the keycode path and the re-pair long-press) and **not while it is in effect**
+— where **X-4** requires the latter, and § 1.4-B states it as "a mode must be
+visible **while it is in effect**, not only when it changed". The day-walk is what
+makes that visible, because a day is mostly *rest*, and a task list is mostly
+*action*.
+
+**A number the walk refuses to repeat.** `docs/USAGE.md` § 5 describes the
+sleep/wake behaviour, and the timings written there (a 30-minute idle timeout, a
+5-minute backlight dim) **do not match the source**. The link's sleep idle is
+`HS_SLEEP_TIMEOUT` = **1 minute** on a *connected* link (`wls/wls.h:27`,
+`wls.c:299` → `HSM_LINK_ACT_SLEEP`), and no backlight-dim timeout is defined in
+`config.h`. (`UX-REQUIREMENTS.md` § 0.6 quotes the vendor manual's *"30 min, will
+interrupt Bluetooth"* at :181 and :221 — that is the **vendor's** claim, which the
+source here does not implement.) This narrative therefore states no timeout; the
+discrepancy is a documentation-accuracy item recorded in `TODO.md`, not resolved
+here.
+
 ### 2.1 "Connect the keyboard to a computer" (the founding task)
 
 | # | The person does | What they must be able to tell | Where it is indicated |

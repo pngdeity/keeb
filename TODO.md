@@ -2824,6 +2824,20 @@ detect) are described in that commit. What follows is what the review left open.
   changed**, because editing the doc alone would desynchronise it from the
   passing fixture; the vector is a contract both sides assert. If the label is
   wrong it must change in the doc *and* the host comment together.
+- **`docs/USAGE.md` § 5's sleep timings disagree with the source (found
+  2026-10-15, while writing `UX-REQUIREMENTS.md` § 2.0).** *Owed: a fix.* The
+  guide says the idle timeout is **30 minutes** and the backlight dims at
+  **5 minutes**. The source says otherwise: the *connected-link* sleep idle is
+  `HS_SLEEP_TIMEOUT` = **1 minute** (`wls/wls.h:27`, consumed at `wls.c:299` →
+  `HSM_LINK_ACT_SLEEP`), and **no backlight-dim timeout is defined anywhere** in
+  the board's `config.h`. (`HS_LBACK_TIMEOUT` = 30 s is the *reconnect* retry, not
+  an idle timeout — a plausible source of the confusion, since 30 s and 30 min
+  differ only by a unit.) The "30 min" figure traces to the **vendor manual's
+  claim** (`UX-REQUIREMENTS.md` § 0.6 quotes it at :181/:221), which this source
+  does not implement. `USAGE.md` is a *what-it-does* document, so a wrong number
+  there is a direct user-facing lie and takes the same priority as the others
+  above. `TODO.md:1872` already records the 60 s value in another context, so the
+  guide's number is simply stale relative to our own tree.
 
 **Unverified claims (stated, not approved by default):**
 

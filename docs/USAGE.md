@@ -15,6 +15,12 @@ Audience: the person typing. For how the firmware is built, see `README.md` and
 > requirements differ, the requirements state the intended behaviour and this
 > file either follows or is behind. The LED *instrument* contract (a debugging
 > channel, not a user message) is `docs/INDICATORS.md`.
+>
+> **A narrative of an ordinary week with the board — the four circumstances
+> walked in order, with what the board should do at each moment — is
+> `docs/UX-REQUIREMENTS.md` § 2.0.** This file answers "what does this key do";
+> § 2.0 answers "what happens when I sit down", which is the question a
+> first-time reader has.
 
 > **Which keymap?** Two keymaps exist: `default` (the vendor layout, in the
 > `qmk_firmware` submodule) and `nathan` (the personal layout, in the sibling
