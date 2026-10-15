@@ -802,33 +802,83 @@ Three bodies of code exist here, and they do **not** have equal weight:
    "it already exists" is not a reason. `module.c`/`smsg.c` are kept because the
    CH582F UART wire is a fixed hardware fact, not because the code is good.
 
+## Open work, by requirement (the index)
+
+Every open item in this file, listed against the requirement it serves. Read this
+before `## Priority order`: this is the requirement-derived view, that section is
+the ordering rationale, and the sections below are the detail.
+
+An item with an X-n is **Lane A** and is ordered by *which requirement is
+most-failing or most cheaply falsifiable*. An item marked **Lane B** has no X-n
+parent and correctly so: it is engineering capability, ordered by leverage, and
+must not be read as requirement work. `H-n` is a horizon requirement.
+
+**Lane A — serves a user-facing requirement**
+
+| # | Item | Serves | Blocked by | Where |
+| --- | --- | --- | --- | --- |
+| A1 | 2.4 GHz: capture a real percentage (every `100` so far is the module's compile-time init constant) | **X-5**, **H-1** | flash (human) | `## Outstanding verification` |
+| A2 | USB: decide and implement the honesty fix for the fake 100 | **H-1**, **X-5** | A1 | `## Outstanding verification`; defect 1 |
+| A3 | 2.4 GHz: confirm `chg` moves 1→2 while charging | **X-5** | A1, same session | `## Outstanding verification` |
+| A4 | Wireless while charging (engineering mode 2 in source; needs the hardware reading) | **X-20** | flash | `## Priority order` item 8; `## Outstanding verification` |
+| A5 | USB self-detach: confirm the fix on hardware, read the `BOOT:` line and the boot LED code | **X-7** | flash | `## Outstanding verification`; defect 8 |
+| A6 | Right-half keypress wake (defect 2) — **promoted 2026-10-14**, no longer "deferred" | **X-13**, **X-22** | a drained pack (or a scratch-build threshold bump) | defect 2 |
+| A7 | `X-30` — stop flattening `HSM_LINK_REJECT` to `NONE`/`PAIRING`; "rejected" and "not connected" need opposite user actions | **X-2** | nothing — data and state already in hand; the gap is indication policy | defect 4 (BT keycode hijack); `## Open-item re-audit` |
+| A8 | `X-7` — minimum-brightness floor (Fn-layer encoder `RM_VALD`/`RM_VALU`, `RGB_MATRIX_VAL_STEP` 30, ~4 CCW clicks → 0 → board looks dead; the dark-board scare) | **X-7** | nothing — no hardware | `## User experience / usability review` |
+| A9 | `X-20`/`X-21` surfacing — BT4/BT5 names and keycodes (core already handles BT1..5) | **X-20**, **X-21** | nothing — no hardware | `## User experience / usability review` |
+| A10 | Charging/battery LED placement (master-only, opposite half from the battery, invisible at brightness 0) | **X-5** | a decision | `## User experience / usability review` |
+| A11 | `KC_BATQ` value (disabled on USB, blinks only ≤15%) | **X-5** | a decision | `## User experience / usability review` |
+| A12 | Bluetooth carries input? (module advertises and bonds; HID GATT rejects CCC writes, ATT `0x0E`) | **X-3**, **X-4** | interactive `bluetoothctl`; module-side fault | `## Outstanding verification` |
+| A13 | BT keycode hijack (defect 4) — the fix is in; confirmation still owed | **X-24**, **X-25** | flash | defect 4 |
+| A14 | Whether a host is chosen on the wireless switch edge without half asymmetry (defect 5) | **X-3**, **X-4** | flash | defect 5 |
+| A15 | Blink-forever (defect 6) | **X-1**, **X-2** | flash | defect 6 |
+| A16 | NKRO overflow (defect 7) | **X-1** | flash | defect 7 |
+| A17 | The rest of the UX review — layers, held-modifier comfort, switch discoverability, legends | the UX set | A1/A2 give what is even possible | `## User experience / usability review` |
+| A18 | Confirm right-half power path / master assignment / stock factory config / switch glyphs / layout count | **X-14** (one half) | physical inspection | `### Unmeasured device facts` |
+
+**Lane B — engineering capability (no X-n parent, and correctly so)**
+
+| # | Item | Why it is not requirement work | Where |
+| --- | --- | --- | --- |
+| B1 | Re-base onto upstream QMK (`split65-overlay`); remaining: the alignment plan | Prerequisite. It has no X-n parent; it decides the base every Lane A item lands on | `## Priority order` Tier 0 item 1; `## Re-base` |
+| B2 | Spec-driven `test/` harness for the module stack (`tests/wireless_nkro_parity` landed) | Makes Lane A claims checkable without a flash | `## Priority order` 10b |
+| B3 | Firmware unit tests for the `kb_battery_*` pure helpers | Coverage, not a user outcome | `## Priority order` 10 |
+| B4 | Test-suite efficiency review (measure first; never trade coverage for speed) | Cost of Lane B's own tooling | `## Priority order` 10c |
+| B5 | Key-based right-half DFU | Recovery convenience; the spacebar-hole short already exists | `## Right-half DFU without hardware shorting` |
+| B6 | FCC / CE filings into the hardware record | Record, not a user outcome | `## Priority order` 11b |
+| B7 | Mine the public same-family schematics | Reduces an unknown; changes no user-facing behaviour | `## Priority order` 12b |
+| B8 | Reverse-engineer the module BLE from `LIBCH58xBLE.a` | Feeds A12 and defect 1; not itself observable at the desk | `## Priority order` 12c |
+| B9 | **Shell/core balance review** — the areas we authored | The *fidelity mechanism* for X-19: it is what makes "does the implementation match the requirement" assertable rather than impressionistic | `## Other` |
+| B10 | The five unverified claims (2.4 GHz speed, battery over 2.4 GHz, BT rate, NKRO over BT, `B1` polarity) | **No person at the desk can observe any of them, and no X-n fails while they stay unmeasured.** X-1 asks that the link state be honest, not that it hit a spec | `## Documentation corpus review` |
+| B11 | The `0xA4` byte-8 "BT4" label decision | Protocol-documentation accuracy for the *secondary* (owner-debugging) audience | `## Documentation corpus review` |
+| B12 | Code audit follow-ups; design-cleanup items from `docs/AUDIT.md` | Maintainability | `## Code audit`; `## Design cleanup` |
+| B13 | The boot-code vocabulary's white codes (deliberately unfrozen) | Revisited when the boot path changes; no requirement attaches to a code's identity | `## Other` |
+
+**One rule that keeps this honest:** an "open" item is not automatically
+requirement work. Most of what *felt* like the backlog is Lane B — the five
+unverified claims in particular serve no requirement, because nothing a person
+can observe changes if they stay unknown. Lane A is short, and most of it is
+either flash-gated or blocked on the module's BT fault.
+
 ## Priority order
 
 Ordered by what unblocks what. Rationale and detail for each item follow in the
-sections below.
+sections below. **The requirement-by-requirement index is "Open work, by
+requirement" above** — that section defines the two lanes and lists every open
+item against its X-n; this section is the ordering rationale, not the index.
 
 > **Authority.** The governing requirements are user-facing
 > (`docs/UX-REQUIREMENTS.md`); the engineering modes are **derived from** them
 > (§ 1.5). So this order is not "which engineering goal first" — it is **which
-> requirement is most-failing or most cheaply falsifiable**, with capability work
-> (test harness, re-base, shell/core review) in a **separate lane** ordered by
-> leverage, not by tier. See **"Open-item re-audit against the new authority"**
-> at the end of this file for the item-by-item re-reading, and for why defect 2
-> is promoted from "deferred" to a first-class form of X-13.
+> requirement is most-failing or most cheaply falsifiable**. The tiers below are
+> the working order; the **two-lane** reading (Lane A requirement-serving vs Lane
+> B engineering capability) is defined in the index above and must not be
+> re-derived here. See also **"Open-item re-audit against the new authority"** at
+> the end of this file for the item-by-item re-reading, and for why defect 2 is
+> promoted from "deferred" to a first-class form of X-13.
 >
-> **Two lanes.** Read the tiers below as two separate lanes, not one ladder:
->
-> - **Lane A — requirement-serving** (Tiers 0–2, and defects 1–8): each item
->   serves an X-n, and is ordered by *which requirement is most-failing or most
->   cheaply falsifiable*. This is where the deliverable lives.
-> - **Lane B — engineering capability** (Tier 3, `## Re-base`, the shell/core
->   review): no X-n parent and correctly so. These make future work cheaper or
->   make claims checkable; they are ordered by **leverage**, not by tier. They
->   must not be interleaved with Lane A as if they were requirement work.
->
-> The tiers below are unchanged in content; the re-audit section at the end of
-> this file gives the item-by-item parent and re-timing. The one item whose
-> *position* moved is defect 2 (deferred → first-class X-13).
+> The tiers below are unchanged in content. The one item whose *position* moved
+> is defect 2 (deferred → first-class X-13).
 
 **Tier 0 — prerequisites and one-way doors (Lane B for item 1, Lane A for 2–3 —
 do first because everything after lands on them):**
