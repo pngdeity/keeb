@@ -657,7 +657,8 @@ It is harmless and may stay, but do not treat it as a fix for anything.
   is the Tier-1 hardware session** — the batch in
   `docs/RUNBOOK-flash-and-measure.md`, pre-flight written as § 0.0.5; it is
   blocked on a human at the keyboard, and the no-hardware Lane A items (A7
-  X-30, A8 X-7, A9 X-20/X-21) proceed in parallel (see the index).
+  X-30, A8 X-7) landed 2026-10-15; A9 X-20/X-21 is deferred to B14 (see the
+  index and the A9 note).
   **Not merged into `main` upstream.**
 - **The tree holds our battery firmware, committed inside the `qmk_firmware`
   submodule.** `qmk_firmware/` is a **pinned submodule** of `pngdeity/cleave-keeb`
@@ -843,7 +844,7 @@ must not be read as requirement work. `H-n` is a horizon requirement.
 | A6 | Right-half keypress wake (defect 2) — **promoted 2026-10-14**, no longer "deferred" | **X-13**, **X-22** | a drained pack (or a scratch-build threshold bump) | defect 2 |
 | A7 | `X-30` — stop flattening `HSM_LINK_REJECT` to `NONE`/`PAIRING`; "rejected" and "not connected" need opposite user actions | **X-2** | **SOURCE DONE 2026-10-15** — core + shell landed (submodule `5819516`), `transport_logic` 43/43; needs a flash to see | defect 4 (BT keycode hijack); `## Open-item re-audit` |
 | A8 | `X-7` — minimum-brightness floor (Fn-layer encoder `RM_VALD`/`RM_VALU`, `RGB_MATRIX_VAL_STEP` 30, **five** CCW clicks → 0 → board looks dead; the dark-board scare) | **X-7** | **SOURCE DONE 2026-10-15** — floor refused in `wls_rgb_key_decide()` (`WLS_RGB_VAL_FLOOR`), key consumed; `rgb_key_logic` 10/10; needs a flash to feel | `## User experience / usability review` |
-| A9 | `X-20`/`X-21` surfacing — BT4/BT5 names and keycodes (core already handles BT1..5; derivation § 0.10) | **X-20**, **X-21** | nothing — no hardware | `## User experience / usability review` |
+| ~~A9~~ | ~~`X-20`/`X-21` surfacing — BT4/BT5 names and keycodes~~ — **deferred 2026-10-15 to B14** (no circumstance needs a 4th/5th host; see the re-audit note) | ~~**X-20**~~ | — | `## Open-item re-audit` |
 | A10 | Charging/battery LED placement (master-only, opposite half from the battery, invisible at brightness 0) | **X-5** | a decision | `## User experience / usability review` |
 | A11 | `KC_BATQ` value (disabled on USB, blinks only ≤15%) | **X-5** | a decision | `## User experience / usability review` |
 | A12 | Bluetooth carries input? (module advertises and bonds; HID GATT rejects CCC writes, ATT `0x0E`) | **X-3**, **X-4** | interactive `bluetoothctl`; module-side fault | `## Outstanding verification` |
@@ -871,6 +872,7 @@ must not be read as requirement work. `H-n` is a horizon requirement.
 | B11 | The `0xA4` byte-8 "BT4" label decision | Protocol-documentation accuracy for the *secondary* (owner-debugging) audience | `## Documentation corpus review` |
 | B12 | Code audit follow-ups; design-cleanup items from `docs/AUDIT.md` | Maintainability | `## Code audit`; `## Design cleanup` |
 | B13 | The boot-code vocabulary's white codes (deliberately unfrozen) | Revisited when the boot path changes; no requirement attaches to a code's identity | `## Other` |
+| B14 | Expose BT4/BT5 (keycodes + `Split65-4/5` names) — **A9, deferred 2026-10-15** | **X-20 asks which of the *used* hosts is active.** The four circumstances name exactly three wireless hosts (laptop, phone, friend's laptop), which map one-to-one onto BT1/2/3; a 4th/5th slot serves no named circumstance, and 2.4 GHz is asked for by none of them. Surfacing two more hosts would be capability for its own sake — the § 3 "complete then trim" rule (§ 0.3/§ 8), not this lane | `## Open-item re-audit` |
 
 **One rule that keeps this honest:** an "open" item is not automatically
 requirement work. Most of what *felt* like the backlog is Lane B — the five
@@ -2880,12 +2882,17 @@ already settled):
 - **§ 0.10 — the host, as a readable state.** Five slots exist, **three** are
   surfaced as keycodes, and the active host is readable by a host but on the
   board only as a **momentary flash** — a transition indicator, not a state one.
-  So X-20 is implementable with no new mechanism. This is A9's derivation.
+  So X-20 is implementable with no new mechanism. This is A9's derivation —
+  though A9 is now **deferred to B14** (2026-10-15): the mechanism is not the
+  blocker, the *demand* is. No circumstance needs a fourth or fifth host.
 
-**What changed for the index:** A7 and A9 now cite their derivation as the thing
-that is *done*, leaving only the implementation. A8 (the brightness floor) is a
-straight defect-class fix under X-7 and needs no capability derivation — nothing
-is un-surfaced there; the value simply can rest at zero.
+**What changed for the index:** A7 cites its derivation (§ 0.9) as the thing that
+is *done*, leaving only the implementation — and that landed 2026-10-15. A9 was
+also derivation-done (§ 0.10) but is **now deferred to B14** (see below): the gap
+it named is real, yet no circumstance needs a fourth or fifth host. A8 (the
+brightness floor) is a straight defect-class fix under X-7 and needs no capability
+derivation — nothing is un-surfaced there; the value simply could rest at zero,
+and since 2026-10-15 it cannot. **None of the three is still open in Lane A.**
 
 **The three surfaces are now closed; the next derivation cannot be run without
 hardware.** § 0.6's two owed measurements (2.4 GHz rate, battery over the radio)
@@ -2893,3 +2900,35 @@ and § 0.10's "readable at rest" verification are all Stage-2 *actual* inputs, a
 the process (`docs/METHOD.md` § I.0) forbids deriving on unmeasured transports.
 So the ordering is: the Tier-1 session supplies the actuals, **then** stage 4
 (the UX choice) is made on what it exposes.
+
+---
+
+## A9 deferred — BT4/BT5 stay unexposed (2026-10-15)
+
+**A9 is demoted to Lane B (B14).** The investigation found the surfacing gap is
+real and small — `keyboard.json` declares only `KC_BT1/2/3` + `KC_2G4`
+(`QK_KB_0..3`), `config.h` names only `MD_BT1/2/3_NAME`, and the core's
+`HSM_DEVS_BT4` is not even spelled out (`transport_logic.c:8-13` skips it, though
+`hsm_devs_is_bt`'s `BT1..BT5` range test covers it). Everything below that layer
+already handles five: `module.c:470-514` pairs `DEVS_BT1..DEVS_BT5` with
+`MD_BTn_NAME` devinfo, and `wls_indicator.c` already renders `DEVS_BT4`/`DEVS_BT5`.
+
+**Why it is not requirement work.** X-20 asks that **the active host be a readable
+state**; it does not ask for five hosts. § 1.1's four circumstances name exactly
+**three wireless hosts** — the laptop (library), the phone (presenting), and the
+friend's laptop (guest) — and they map one-to-one onto BT1/2/3. A fourth and fifth
+slot serve **no named circumstance**, and the same section records that 2.4 GHz is
+asked for by none of them either. Surfacing two more hosts would be capability for
+its own sake: the § 3 "written complete, then trimmed" rule (§ 0.3, § 8), which is
+exactly the lane distinction this index exists to enforce.
+
+**What would promote it back.** A fifth real host in the four circumstances, or a
+decision that a slot count is a user-facing convenience in its own right. Neither
+exists today.
+
+**The cost of implementing it, for the record.** Adding `KC_BT4`/`KC_BT5` to
+`keyboard.json`'s `keycodes` array **renumbers every generated keycode after the
+insertion point** (`RL_MOD`, `HS_BATQ`, `KC_FILP`, `KC_BATQ`, `MOR_1..5`), so
+`transport_logic.c`'s `HSM_KC_BT1..2G4` literals and both keymaps' keycode blocks
+must move together, and `keyboard.json`'s JSON reflow trap applies. It is not a
+mechanical change.
