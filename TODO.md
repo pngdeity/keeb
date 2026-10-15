@@ -2610,3 +2610,74 @@ why it is not superseded".
    directory is deleted in the spike, so no vendored binary remains. No design
    work is needed; the module protocol was always open source. See the `## Re-base`
    record for the full autopsy.
+
+---
+
+## Documentation corpus review (2026-10-14)
+
+A full read of every authored prose file (23 documents, ≈13,000 lines) against
+source, in dependency order. Method: re-derive each checkable claim from
+code/config/scripts/git (never re-read prose); then corpus coherence; then
+polish. Committed as **`42687f3`** (24 files, +474/−359) — the fixes are in the
+tree, and the review's own drift finds (a live CI break reading a deleted
+`md_raw.h`; the battery LED matrix cells off by one; `USAGE.md`'s inverted
+charge-LED colours; `DEVICE.md` calling `B9` a handedness pin when it is cable
+detect) are described in that commit. What follows is what the review left open.
+
+**Two blocking findings, unfixed:**
+
+- **Cross-repo drift in the userspace `keymap.md`.** *Owed: a userspace fix; no
+  user-scope commit is authorised from here.*
+  `../keeb-userspace/.../keymaps/nathan/keymap.md` is wrong on the same cells
+  this repo's corpus was wrong on. **Its most recent commit (`966549f`) made this
+  worse, not better**: it changed `QK_BOOT` from `[10,4]` *to* `[10,6]` and called
+  `[10,6]` "the measured keymap" — but the measurement says `[10,4]`. Re-derived
+  with certainty by parsing `keymap.c` (comment-strip, balanced-paren `LAYOUT(...)`
+  walk, split on depth-1 commas, index the 69-entry `keyboard.json` layout):
+  **`QK_BOOT` is argument #54 → matrix `[10,4]`** on both Fn layers (`_FL`/`_MFL`);
+  ordinal **55** is `[10,6]`, the 1.75u `RM_VALD` key immediately to its right. So
+  `keymap.md:122` (`[10,6]`) is wrong, and its `:117` `EE_CLR` `[11,7]` is wrong
+  too — actual **`[11,8]`** (argument #68). `docs/RUNBOOK-flash-and-measure.md`
+  cites that table as a source, so the citation currently points at a wrong table.
+  **Authoritative cells: `QK_BOOT [10,4]`, `EE_CLR [11,8]`, `KC_BATQ [11,1]`.**
+- **`docs/0xA4-golden-vector.md` byte 8 label.** *Owed: a decision, not an edit.*
+  The doc labels `0x03` "BT4" and the host fixture
+  (`host/battery_polybar.py`) comments the same byte "`btsub = 3 (BT4)`", and
+  `--self-check` passes — so doc and fixture **agree**. A review worker argued
+  the profile/devs numbering makes the label wrong in principle. It was **not
+  changed**, because editing the doc alone would desynchronise it from the
+  passing fixture; the vector is a contract both sides assert. If the label is
+  wrong it must change in the doc *and* the host comment together.
+
+**Unverified claims (stated, not approved by default):**
+
+- The **5 ms / 1000 Hz 2.4 GHz latency** — vendor spec only, never measured here.
+  2.4 GHz *does* carry input, so it is measurable; merely unmeasured.
+- The **battery readback completing over 2.4 GHz** — the inquiry fires on any
+  non-USB host, but no value has ever been observed to return.
+- **BT's 125 Hz / 15 ms rate** — **unfalsifiable by us** while the HID GATT
+  server rejects the CCC writes (ATT `0x0E`) and no input flows (see H-2).
+- **NKRO over Bluetooth** — the vendor manual claims "all modes"; upstream says
+  this chipset class cannot, and we cannot test it while BT carries no input.
+- **`USB_POWER_EN` (`B1`) polarity** — nowhere recorded as a *measured* fact; the
+  `git log -S` hits are refactors only. `HARDWARE.md` records `A7`/`A15`/`B9` but
+  not `B1`'s polarity.
+
+**Automation candidates (how the manual burden shrinks next time):**
+
+- **Line-number citations** (`file.c:123`) were the single largest drift class. A
+  check could extract every `path:line` from `docs/` and assert the symbol named
+  in the prose still appears near that line.
+- **Dead-symbol sweep.** Grepping each doc's backticked identifiers against the
+  firmware tree would have caught `hsm_transport_decide`, `modeio_mode`,
+  `apply_switch_transport`, `get_transport`, `md_raw.h`, `boot_blink_logic`
+  mechanically.
+- **Matrix-cell check.** The balanced-paren parse above could be a fixture test:
+  assert every `[row,col]` a document states for a named keycode matches the
+  keymap.
+- **Doc-listed-path check.** Assert every `docs/*.md` and `bin/*` named in a doc
+  exists (this is what found the 9 missing `README.md` Layout rows and the 6
+  missing `AGENTS.md` routes).
+- **The lesson from the CI guard** that read `md_raw.h`: a guard coupled to a
+  file it does not own fails silently-wrong. `bin/guard-invariants` asserts
+  structure, not line numbers — keep it that way.
