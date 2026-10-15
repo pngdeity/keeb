@@ -17,17 +17,26 @@ sit among archival neighbours.
 ## exhaustive walk closed**; **updated again after the colour fix and the
 ## requirement-2 transport reform**; **updated again after the `aec73138…` flash
 ## CONFIRMED BOTH FIXES ON HARDWARE**; **updated 2026-10-14: the UX requirements
-## landed, and a full documentation-corpus review is in progress**)
+## landed, and a full documentation-corpus review is in progress**; **updated
+## 2026-10-15: the corpus review and the authority inversion have landed, the
+## two-lane index is in `TODO.md`, and all three trees are pushed and clean**)
 
-**The current arc is COMMITTED and signed** — root `0b6945f` (the UX
-requirements), submodule `split65-overlay` `2481fc1`, userspace `966549f`. The
-board's identity is the submodule hash. **Nothing is pushed** — root is ahead 12,
-submodule ahead 6. A **documentation-corpus review is in flight** (`docs/`), so
-the root tree is currently **dirty** with its edits; expect that, do not read the
-dirty tree as unfinished work. (Earlier landing recorded here was root `432fe4c`
-+ `f771dee5a7`, an ancestor of the current tip.)
+**Everything is COMMITTED, SIGNED and PUSHED; all three trees are clean.** Root
+`pngdeity/keeb` `main` **`7894f39`**, submodule `split65-overlay` **`2481fc1234`**,
+userspace `main` **`924c31b`** — each in sync with its origin (0 ahead / 0
+behind). The board's identity is the submodule hash. The **documentation-corpus
+review** and the **UX-requirements authority inversion** are both landed (root
+`42687f3`, `72a8a0b`, `7894f39`); nothing is in flight.
+
+**The authority is now user-facing.** `docs/UX-REQUIREMENTS.md` governs; the
+three engineering usage modes are *derived* from it (§ 1.5), and the open work is
+classified in **`## Open work, by requirement`** above — **Lane A** (serves an
+X-n, ordered by which requirement is most-failing or most-cheaply falsifiable)
+and **Lane B** (engineering capability, no X-n, ordered by leverage). Read the
+index before the `## Priority order` tiers.
+
 **Flashed board = `aec731388c…` (64,600 B)** — walk-close **+ the byte-order
-(colour) fix + the requirement-2 transport reform** — flashed 2026-10-14 and
+(colour) fix + the engineering-mode-2 transport reform** — flashed 2026-10-14 and
 **both new fixes are now CONFIRMED ON HARDWARE.**
 
 **THE `aec73138…` FLASH CONFIRMED BOTH WAITING FIXES (2026-10-14).**
@@ -39,13 +48,14 @@ dirty tree as unfinished work. (Earlier landing recorded here was root `432fe4c`
    `#define WS2812_BYTE_ORDER WS2812_BYTE_ORDER_RGB` in the board `config.h`.
    **Every LED colour on the board was wrong, not just the boot code.** One look
    was the falsifier; it passed. See `docs/HARDWARE.md`.
-2. **Requirement 2 holds on hardware.** With the switch on 2.4 GHz and the cable
+2. **Engineering mode 2 holds on hardware** (the observation that **X-20** holds
+   with a cable attached). With the switch on 2.4 GHz and the cable
    attached, the board **stays on the radio** — the `0xA4` request goes
    unanswered while the USB peripheral stays enumerated (charging). The
    pre-reform build measurably did the opposite (`switch=3 (2.4G)` with
    `host(raw)=2 (USB)`). The fix is `hsm_input_rule`: the cable is a *power* fact
    and reaches no transport decision; the switch is authoritative, and a confirmed
-   host settles only an *unreadable* switch read to USB. Requirement 2's wording
+   host settles only an *unreadable* switch read to USB. The mode's wording
    corrected in `docs/FINDINGS.md` (it named "a phone or tablet", a real host on
    the same single port). § 7's cable falsifier did **not** fire.
    *Limit of the evidence:* `host(raw)=4` cannot be read directly in that state
@@ -255,8 +265,9 @@ and `docs/RUNBOOK-flash-and-measure.md` § 0.0.4.
 pin diag + boot-count + reset cause + show-window fix + audit fixes F1–F10 +
 the exhaustive walk's fixes + the Stage-4 journal) is now **committed and signed**:
 root `18f0294`, submodule `split65-overlay` `8f381870e4`, userspace `966549f`
-(this tip is the firmware's identity). Both trees are clean and ahead of origin by
-two. `stash@{0}` (the old owner arc) is retained but no longer the only insurance.
+(this tip is the firmware's identity). *(As of that date the trees were clean and
+ahead of origin by two; the current top is in `## Status`.)* `stash@{0}` (the old
+owner arc) is retained but no longer the only insurance.
 The board still runs the Stage-4 build (`2ec21c44…`); the committed on-disk
 artefact is `a45a9762…` (64,736 B), reviewed in `docs/RUNBOOK-flash-and-measure.md`
 § 0.0.5 and **not yet flashed**.
@@ -612,17 +623,21 @@ board, the vocabulary, the arbitration); the boot map is `docs/BOOT-SEQUENCE.md`
    `host/battery_polybar.py`, the `qmk_firmware` gitlink, new
    `docs/ADR-transport-authority.md`, new `docs/BOOT-SEQUENCE.md`), and the
    userspace keymap `wait_us(100)` edit.
-   **Signed; ask the user if `git commit -S` needs a primed GPG agent.**
-3. **Drop `stash@{0}`** ("transport-owner arc (owner2) for HEAD A/B test") once
-   the fix is confirmed — it duplicates the working tree and dropping is
-   unrecoverable, so it was kept deliberately. Confirm with the user first.
+   ~~**Signed; ask the user if `git commit -S` needs a primed GPG agent.**~~
+   **DONE (2026-10-14)** — the whole arc is signed and landed; `## Status`
+   records the current top.
+3. ~~**Drop `stash@{0}`** ("transport-owner arc (owner2) for HEAD A/B test")~~
+   Still retained deliberately (dropping is unrecoverable). Confirm with the
+   user before dropping it.
 4. The `-71 EPROTO` loop: its own open entry under Outstanding verification.
 5. Deferred: `wls_keymap.c:148`'s `connection_set_host` (persists to EEPROM)
    still bypasses the transport owner — a known remaining writer, noted in the
    owner's scope but not yet routed.
-6. **Stage 2** (not started): draw the boundary between our code and the vendor
-   stack, audit the crossings for the class's two shapes, apply the three-part
-   remedy.
+6. ~~**Stage 2** (the boundary between our code and the vendor stack)~~ **CLOSED
+   2026-10-14** — audited and transformed in full as `docs/AUDIT-fcis.md` (ten
+   fixes F1–F10, every module carrying a written verdict against V1–V10), and
+   followed by Stage 3 (software analysis ran dry) and Stage 5 (the exhaustive
+   walk). The governing sequence is the plan banner above.
 
 **The `wait_us(100)` mastery fix in the userspace keymap targets DEAD CODE**
 (`split_pre_init()` calls `is_keyboard_master_impl()`, not `is_keyboard_master()`).
@@ -630,16 +645,19 @@ It is harmless and may stay, but do not treat it as a fix for anything.
 
 ## Status
 
-- **Both trees are signed; both are ahead of origin (2026-10-14).** Root
-  `pngdeity/keeb` `main` `0b6945f`, submodule `pngdeity/cleave-keeb`
-  `split65-overlay` `2481fc1`, userspace `pngdeity/keeb-userspace` `main`
-  `966549f` — all signed (`G`). Root is ahead 12, submodule ahead 6; nothing is
-  pushed. The root tree is currently **dirty** with an in-flight
-  documentation-corpus review (`docs/`), so do not read the dirty tree as
-  unfinished code work. The audit and the exhaustive walk are both closed
-  (`docs/AUDIT-fcis.md`); the flash-cycle arc and the UX requirements are
-  committed. **The remaining project work is one hardware session** — the Tier-1
-  batch in `docs/RUNBOOK-flash-and-measure.md`, pre-flight written as § 0.0.5.
+- **All three trees are signed, clean, and in sync with origin (2026-10-15).**
+  Root `pngdeity/keeb` `main` `7894f39`, submodule `pngdeity/cleave-keeb`
+  `split65-overlay` `2481fc1234`, userspace `pngdeity/keeb-userspace` `main`
+  `924c31b` — each signed, each 0 ahead / 0 behind its origin. The
+  **documentation-corpus review** (root `42687f3`) and the **UX-requirements
+  authority inversion** (`72a8a0b`) are landed, and `7894f39` adds the two-lane
+  index (`## Open work, by requirement`). The audit and the exhaustive walk are
+  both closed (`docs/AUDIT-fcis.md`); the flash-cycle arc, the UX requirements,
+  and Stage 4's journal build are committed. **The next requirement-serving work
+  is the Tier-1 hardware session** — the batch in
+  `docs/RUNBOOK-flash-and-measure.md`, pre-flight written as § 0.0.5; it is
+  blocked on a human at the keyboard, and the no-hardware Lane A items (A7
+  X-30, A8 X-7, A9 X-20/X-21) proceed in parallel (see the index).
   **Not merged into `main` upstream.**
 - **The tree holds our battery firmware, committed inside the `qmk_firmware`
   submodule.** `qmk_firmware/` is a **pinned submodule** of `pngdeity/cleave-keeb`
@@ -953,7 +971,7 @@ do first because everything after lands on them):**
    measured as `switch=3 (2.4G)` with `host(raw)=2 (USB)`. It is replaced by
    `hsm_input_rule` (`wls/transport_logic.{c,h}`): the cable is a *power* fact and
    reaches no transport decision; the switch is authoritative, a confirmed host
-   settles only an *unreadable* switch read to USB. Requirement 2's own wording
+   settles only an *unreadable* switch read to USB. The mode's own wording
    was corrected (it named "a phone or tablet", which is a real host on the same
    single port and cannot be distinguished from a PC) — see `docs/FINDINGS.md`.
    **Still to verify on hardware:** a cable with the switch on 2.4 GHz must leave

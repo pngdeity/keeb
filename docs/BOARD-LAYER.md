@@ -1,14 +1,26 @@
 # Board layer — target architecture
 
-Status: **design (2026-10)**. The rewrite is in progress; this is the target the
-slices move toward. It is the counterpart to `docs/AUDIT.md` (which records the
-per-defect work) and it supersedes nothing — the audit's four-part shell test
-still binds every function.
+Status: **design (2026-10)**; the rewrite has since **completed** (see the note
+below). This is the document's original target statement, kept because the
+slices and the reasoning remain the reference. It is the counterpart to
+`docs/AUDIT.md` (which records the per-defect work) and it supersedes nothing —
+the audit's four-part shell test still binds every function.
+
+> **Where it stands (2026-10-15).** The board-layer redesign itself is
+> **complete**: `epomaker_split65.c` is 289 lines of hook-only delegates, and the
+> pure cores are extracted (`wls/*_logic.*`, `wls/diag_logic.*`) with suite
+> coverage under `qmk_firmware/tests/` (`transport_logic`, `boot_code_logic`,
+> `lowpower_logic`, `indicator_logic`, `sleep_order_logic`, `rgb_key_logic`,
+> `split_logic`, `reset_logic`, `keymap_logic`, `wls_diag`, `md_frame`,
+> `wls_jump_journal`, `wireless_nkro_parity`). The remaining shell/core question
+> is tracked as a *Lane B* item ("shell/core balance review", `## Other` in
+> `TODO.md`) rather than as an open slice here. The self-detach root cause and its
+> four remedies (§ below) are in source but **not yet hardware-confirmed**.
 
 ## Why this document exists
 
-`epomaker_split65.c` is 1,434 lines, ~44 top-level functions, and no internal
-boundary. It mixes six unrelated concerns (EEPROM, split sync, USB power,
+`epomaker_split65.c` **was** 1,434 lines, ~44 top-level functions, and no internal
+boundary. It mixed six unrelated concerns (EEPROM, split sync, USB power,
 indication, keymap, lifecycle). Every defect this project has found — 7, 8,
 both C.6 bugs, 9 — lived in that file or its siblings in `wls/`, and the shell
 is the one layer we can only *compile*, never *test*.
