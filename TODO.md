@@ -852,7 +852,7 @@ must not be read as requirement work. `H-n` is a horizon requirement.
 | A14 | Whether a host is chosen on the wireless switch edge without half asymmetry (defect 5) | **X-3**, **X-4** | flash | defect 5 |
 | A15 | Blink-forever (defect 6) | **X-1**, **X-2** | flash | defect 6 |
 | A16 | NKRO overflow (defect 7) | **X-1** | flash | defect 7 |
-| A17 | The rest of the UX review — layers, held-modifier comfort, switch discoverability, legends | the UX set | A1/A2 give what is even possible | `## User experience / usability review` |
+| A17 | The rest of the UX review — layers, held-modifier comfort, switch discoverability, legends | the UX set | **RESOLVED 2026-10-15** — the mode-visibility half is real X-4 work (see the note); comfort/legends are not requirement work | `## User experience / usability review` |
 | A18 | Confirm right-half power path / master assignment / stock factory config / switch glyphs / layout count | **X-14** (one half) | physical inspection | `### Unmeasured device facts` |
 
 **Lane B — engineering capability (no X-n parent, and correctly so)**
@@ -874,6 +874,7 @@ must not be read as requirement work. `H-n` is a horizon requirement.
 | B13 | The boot-code vocabulary's white codes (deliberately unfrozen) | Revisited when the boot path changes; no requirement attaches to a code's identity | `## Other` |
 | B14 | Expose BT4/BT5 (keycodes + `Split65-4/5` names) — **A9, deferred 2026-10-15** | **X-20 asks which of the *used* hosts is active.** The four circumstances name exactly three wireless hosts (laptop, phone, friend's laptop), which map one-to-one onto BT1/2/3; a 4th/5th slot serves no named circumstance, and 2.4 GHz is asked for by none of them. Surfacing two more hosts would be capability for its own sake — the § 3 "complete then trim" rule (§ 0.3/§ 8), not this lane | `## Open-item re-audit` |
 | B15 | The battery readout vs the rest of the matrix — the animation-list trim, whether the soft indicator may override the solid fill, and the **brightness-zero carve-out** (the charge cue is currently gated on `rgb_matrix_get_val() != 0`, so a board at 0 also loses its charge readout) — **A10's real residue, 2026-10-15** | The X-7/X-5 seam: X-5 wants charge readable without a host, X-7 wants "dimmed to zero" distinguishable from dead. Both need a *flashed* check (does a val-0 board still answer "charging?"), not a layout change; the LED indices are PCB-fixed | `## User experience / usability review` |
+| B16 | Held-modifier comfort: `_FL`/`_MBL`/`_MFL` are reached by holding right Space (`LT(_FL, KC_SPC)`, the `nathan` keymap) where the vendor `default` puts `MO(_FL)` on a **dedicated key**; whether the Mac/PC layer split (`_MBL`/`_MFL` mirror `_FL`) earns its complexity — **A17's residue, 2026-10-15** | **Rests on no X-n.** No requirement says a layer must be reached a particular way; this is ergonomics and taste, the one A17 sub-item that is genuinely not requirement work. It is revisited only if typing shows a cost (a held space that steals key repetition, a chord that is uncomfortable) | `## User experience / usability review` |
 
 **One rule that keeps this honest:** an "open" item is not automatically
 requirement work. Most of what *felt* like the backlog is Lane B — the five
@@ -2391,9 +2392,34 @@ to trim the compiled-in animation list. The remainder stay here.
   row 1) and the physical mode switch both exist. Question the discoverability of
   the keycodes, whether the currently-selected channel is visible, and whether
   the switch-and-keys interaction is coherent.
+  **RESOLVED 2026-10-15 — the visibility half is real X-4 work, and it is the
+  SAME gap the host derivation named.** Re-measured: the active channel is
+  indicated **only at the transition** — `wls_indicate_devs()` (`wls_indicator.c:273`)
+  fires once from the switch edge (`wls.c:210`), the keycode path
+  (`wls_keymap.c:157`), and the re-pair long-press (`wls_keymap.c:121,126`), then
+  the four channel LEDs return to the fill. **At rest no LED says which channel is
+  live**, which is X-4's exact words: the mode must be indicated *"while the switch
+  is in that position"*, not merely when it changes. This is the § 0.10 shape
+  again (a *transition* indicator where a *state* indicator is required) and needs
+  no new mechanism — the device index is in hand (`wireless_get_current_devs()`)
+  and the four LEDs already exist. **Not folded into a Lane B row: this is
+  requirement work**, and it is A9's sibling (A9 was the *host* legibility, this is
+  the *channel* legibility, both under X-4/X-20). It lands with the mode-visible
+  work rather than here — see the closing note.
+  **The other two halves are not requirement work:** keycode *discoverability* is a
+  documentation/legend concern (`docs/USAGE.md` already tabulates them), and the
+  switch-and-keys coherence is **already correct by construction** — `hs_keycode_allowed()`
+  (`wls/wls.c:257`) refuses a wireless keycode unless the switch is in a position
+  that permits it (`hsm_keycode_allowed`, `transport_logic.c:174-193`), so the
+  keys cannot drive a channel the switch forbids.
 - **Keycap legends vs matrix.** Legends do not reliably match matrix positions
   (see `docs/HARDWARE.md`), so any mapping work must identify keys positionally
   ("right half, bottom row, fourth from the right"), never by legend.
+  **RESOLVED 2026-10-15 — a standing process rule, not a work item.** It is an
+  instruction for how to *write* mapping changes, not something to decide or
+  implement; it belongs in the convention, which is where it already is
+  (`AGENTS.md`'s "matrix cells" note, `docs/HARDWARE.md`). Kept here as the reason
+  every mapping citation in this project is positional.
 - **`QK_BOOT` / `EE_CLR` placement.** `QK_BOOT` sits on the **Fn** layer at the
   Fn-layer top-right corner key (matrix `[10,4]`), **not** on the base layer, and
   `EE_CLR` on the `_RST` layer at the right-half bottom-right corner (matrix
@@ -2404,6 +2430,16 @@ to trim the compiled-in animation list. The remainder stay here.
   (`LT(_FL, KC_SPC)`); `_MBL`/`_MFL` are the Mac variants. Question reachability,
   whether the held-modifier arrangement is comfortable, and whether the Mac/PC
   split is worth the complexity.
+  **DEFERRED 2026-10-15 to B16 — rests on no requirement.** Measured: the vendor
+  `default` keymap reaches `_FL` with a **dedicated key** (`MO(_FL)`,
+  `keymaps/default/keymap.c:24`), while the `nathan` keymap moves it onto **right
+  Space** as `LT(_FL, KC_SPC)` (`../keeb-userspace/.../nathan/keymap.c:45`) and
+  mirrors it for Mac (`LT(_MFL, KC_SPC)`, `:59`). No X-n asks for either
+  arrangement: X-3/X-4 are about the *mode switch's* visibility, not layer
+  reach. So this is ergonomics and taste — the one A17 sub-item that is not
+  requirement work — and it is revisited only if typing shows a cost (a held
+  Space that steals key repetition, an uncomfortable chord). The Mac/PC split is
+  the same: no requirement governs it.
 - **Battery-related keycodes.** `KC_BATQ` is disabled on USB
   (`confinfo.devs == DEVS_USB`) and only blinks when level <= 15, so it is nearly
   useless as a query key. Question whether it should report a real level instead
@@ -3008,5 +3044,44 @@ worse than one that stays quiet**, so A11 lands behind A2 — make the level hon
 first, then let the key show it.
 
 **What this leaves open in Lane A.** A10 and A11 were the last two no-hardware Lane
-A items that were only waiting on a decision. What remains is A17 (the rest of the UX
-review), the flash-gated batch (A1–A5, A12–A16), and their dependants.
+A items that were only waiting on a decision. A17 was resolved the same day (see below).
+What remains is the **flash-gated batch** (A1–A5, A12–A16) and their dependants.
+
+---
+
+## A17 resolved — the mode is visible only when it changes (2026-10-15)
+
+A17 asked to review the last four bullets in `## User experience / usability
+review`: layers, held-modifier comfort, switch discoverability, legends. Reviewing
+them split them by **which one is requirement work**, which is the only question
+that decides anything here:
+
+- **Switch/connection visibility — real X-4 work, and the sharpest of the four.**
+  The active channel is indicated **only at its transition**: `wls_indicate_devs()`
+  fires from the switch edge, the keycode path and the re-pair long-press, then the
+  LEDs return to the fill — so **at rest nothing on the board says which channel is
+  live**. X-4's requirement is that the mode be indicated *"while the switch is in
+  that position"*, which is not what a transition flash does. This is the **same
+  finding as § 0.10** (a *transition* indicator where a *state* indicator is
+  required) and needs no new mechanism: `wireless_get_current_devs()` is in hand and
+  the four channel LEDs exist. It is **A9's sibling** — A9 was the *host* legibility
+  (X-20), this is the *channel* legibility (X-4) — and both belong to one piece of
+  mode-visibility work rather than to a Lane B row. It is **not** deferred; it is
+  recorded as requirement work awaiting an implementation pass.
+- **Keycode discoverability — not requirement work.** `docs/USAGE.md` already
+  tabulates the keys; nothing fails while it stays documentation.
+- **Switch-and-keys coherence — already correct by construction.** `hs_keycode_allowed()`
+  refuses a wireless keycode unless the switch permits it, so the keys cannot drive
+  a channel the switch forbids. Nothing to fix.
+- **Layers, held-modifier comfort, the Mac/PC split — rests on no requirement**
+  (→ **B16**). The vendor `default` reaches `_FL` by a dedicated key; `nathan`
+  moves it onto right Space (`LT(_FL, KC_SPC)`). No X-n governs how a layer is
+  reached; this is ergonomics, revisited only if typing shows a cost.
+- **Legends vs matrix — a standing process rule, not a work item.** It is how
+  mapping citations are written, already the convention.
+
+**The one thing this closes that was genuinely open:** the connection-mode bullet
+was carried as a usability opinion; it is in fact a **derived requirement gap under
+X-4**, and it is the second instance of the transition-vs-state class (the first
+being § 0.10's host). That reclassification is A17's real output — the remaining
+bullets were either already resolved, already correct, or not requirement work.
