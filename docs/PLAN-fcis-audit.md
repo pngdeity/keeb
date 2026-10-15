@@ -188,6 +188,11 @@ Queued questions, in order:
    split-transaction payload, an RPC, or any synthesised keycode can produce it.
    A `dfa0` window means `bootloader_jump()` ran, i.e. the DFU magic word was
    written; the only board-reachable writer is `QK_BOOT` at `wls/wls_keymap.c`.
+   Since this was written, the board gained a **strong `bootloader_jump()`
+   override** (`wls/wls_boot_jump.c:49`) that stamps a cross-reset journal
+   *before* the weak implementation resets — so "our `QK_BOOT` ran" is now
+   distinguishable from "something else reset us", which is the instrument this
+   question needed (`wls/wls_jump_journal.h`).
    If a path exists, it is a firmware bug to fix with no flash. If no path
    exists, the answer is memory corruption or electrical — and *then* a flash
    with the magic-word capture earns its keep.
@@ -204,6 +209,9 @@ Queued questions, in order:
 
 - Flashing is human-only: **never** run `./split65.py flash`, `doas`,
   `wb32-dfu-updater_cli`, `sudo`, `su`, `pkexec`.
-- Nothing is committed yet; commits require signing and an outcome to state.
+- Commits require signing, and each states an outcome. **Note (2026-10-14): this
+  plan's "nothing is committed yet" phase is over** — the transport arc, the
+  instrument, and the UX requirements are committed; see `TODO.md` "Status" for
+  the current tips.
 - Clean code is the deliverable, not merely the means: "We want a CLEAN codebase
   when we're done."

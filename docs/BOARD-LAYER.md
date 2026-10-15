@@ -38,11 +38,11 @@ stated interface, and (where the concern owns state) a pure core behind it.
 | Module | Owns | Pure core behind it |
 |---|---|---|
 | `wls_eeprom` | `confinfo` storage: read/default/update, the version gate, `usart_init` | none (storage; the *encoding* is a struct) |
-| `wls_transport` | the transport decision: the one owner of the committed host/devs pair, the two-stage rule (hints, then a confirmed host), and the USB line drive | `transport_logic` (`hsm_transport_decide`, `hsm_switch_apply_with_cable`, `hsm_transport_changed`, `hsm_host_present_on_notify`, `hsm_transport_may_act`, `hsm_transport_may_drive_line`) |
+| `wls_transport` | the transport decision: the one owner of the committed host/devs pair, the input rule (the switch is authoritative; the cable is a power fact), and the USB line drive | `transport_logic` (`hsm_input_rule`, `hsm_switch_apply`, `hsm_transport_changed`, `hsm_host_present_on_notify`, `hsm_transport_may_act`, `hsm_transport_may_drive_line`) |
 | `wls_module` | the wireless module's lifecycle: owns "the module is up" and refuses a device-index change before it — the board's view of the vendor `devs` index | `transport_logic` (`hsm_module_may_act`) |
 | `wls_split` | the `USER_SYNC_MMS` RPC: master→slave sync, the slave handler | the sync *payload* construction (pure, testable) |
 | `wls_usb` | the USB data line: `wls_usb_connect`, power connect/disconnect, the settled cable read | none (a two-state actuator) |
-| `wls_indicator` | every LED: rail apply, channel flash, battery blink, caps/winlock, `hs_reset_settings`, and the boot code (the matrix's arbitration owner while it plays) | `boot_code_logic` (`wls_boot_code_counts`, `wls_boot_code_at`, `wls_boot_code_frame_ms`), `indicator_logic` |
+| `wls_indicator` | every LED: rail apply, channel flash, battery blink, caps/winlock, `hs_reset_settings_user`, and the boot code (the matrix's arbitration owner while it plays) | `boot_code_logic` (`wls_boot_code_counts`, `wls_boot_code_at`, `wls_boot_code_frame_ms`), `indicator_logic` |
 | `wls_keymap` | wireless keycodes, long-press, filp | `transport_logic` (`hsm_*`), `keymap_logic` (`filp_*`) — **already done** |
 | `wls_lifecycle` | the QMK hooks themselves: `keyboard_post_init_kb`, `suspend_*`, `housekeeping_task_user`, `wireless_post_task`, `lpwr_*_hook` | the boot/housekeeping *sequence* (pure: given state → what to do) |
 
@@ -81,7 +81,7 @@ Ordered by dependency and by risk (leaf concerns first):
    is still in one file and the concerns are visible; it is also the tool that
    verifies every later slice on hardware. (Pure encoder + test + exposure.)
    **DONE.** `wls/diag_logic.{c,h}` is the pure codec (`wls_diag_t`,
-   `WLS_DIAG_ENC_SIZE` 6, `wls_diag_encode`/`wls_diag_decode`), tested in
+   `WLS_DIAG_ENC_SIZE` 10, `wls_diag_encode`/`wls_diag_decode`), tested in
    `tests/wls_diag` (4/4). The shell half is `wls_diag_gather()` (`wls.c`),
    which reads switch/devs/host/boot-count/usb-line/link-state once each; the
    snapshot rides the `0xA4` reply at `KB_BATTERY_IDX_DIAG` (11), and is decoded
@@ -119,7 +119,7 @@ Ordered by dependency and by risk (leaf concerns first):
    `switch` over the pure result. Board file 1,376 -> 1,294 lines; build
    63,236 B. `hs_reset_settings` is left for slice 6 (it resets EEPROM/keymap
    and re-runs `keyboard_post_init_kb`, so it is not purely an indicator).
-6. `wls_lifecycle` — the hooks; each becomes a delegate. **6a DONE (self-contained hooks).** `wls/wls_lifecycle.{c,h}` now owns the boot pass (`wls_lifecycle_boot`, incl. the switch seed that drives the USB line from the applied host), the suspend family, the three low-power decision points (`lpwr_is_allow_timeout`/`_presleep`/`lpwr_wakeup`), `wireless_post_task`, and housekeeping (charge-pin reads, the rail apply, the module poll); it also now *defines* `charging_state`/`bat_full_flag`. `wls/wls_split.{c,h}` owns the split wire half (the payload structs and the one `wls_split_send()`). Each QMK hook in the board file is a thin delegate. Board file 1,294 -> 1,094 lines; build 63,300 B; tests 63/63. **6b DONE (reset plan).** `wls/reset_logic.{c,h}` owns the reset *policy* as a pure ordered plan (`wls_reset_cause_t` LOCAL/REMOTE, `wls_reset_step_t` notify-peer/wipe-config/flash/rerun-boot, `wls_reset_plan_of(cause)`, tested 4/4). `hs_reset_settings(cause)` is now a plan executor: it performs the named steps in order. The one thing the cause changes is whether the peer is notified — a REMOTE reset must not be echoed back, which is the rule the test pins; that also removes the would-be `wls_split -> wls_lifecycle` call-back, since the slave handler now passes `WLS_RESET_CAUSE_REMOTE` into the board's own executor instead of the lifecycle module calling back. **6c DONE (keycode + indicator shell).** `wls/wls_keymap.{c,h}` owns the whole former `process_record_kb` switch (the WLS keycode chain with its `WLS_KEYCODE_EXEC` macro and deferred long-press, the MOR Ctrl-combo table, the filp effect half, `im_rgblight_increase` and the shared `wls_rgblight_modes[]` table, `wls_persist_devs`, and every RGB/rgblight/layer/HS keycode case), plus the shared `enum layers` and `keymap_is_mac_system()` in the header so the board and the keymap concern state the mac/Windows rule once. `wls/wls_indicator.{c,h}` owns the whole LED shell (the three indicator arrays as a module-local `wls_rgb_indicator_t`, the channel flash, the set-driven flashes, the battery blink and colour paint, `wls_indicate_devs`, the nkr colour hook, and the suppression deadline). `master_sync_mms_slave` moved to `wls_split`. `process_record_kb` is now `process_record_user()` + `wls_keymap_process_record()`; `rgb_matrix_indicators_advanced_kb` is a delegate to the indicator passes. Board file 1,094 -> **272 lines**; build **63,412 B**; tests **67/67**.
+6. `wls_lifecycle` — the hooks; each becomes a delegate. **6a DONE (self-contained hooks).** `wls/wls_lifecycle.{c,h}` now owns the boot pass (`wls_lifecycle_boot`, incl. the switch seed that drives the USB line from the applied host), the suspend family, the three low-power decision points (`lpwr_is_allow_timeout`/`_presleep`/`lpwr_wakeup`), `wireless_post_task`, and housekeeping (charge-pin reads, the rail apply, the module poll); it also now *defines* `charging_state`/`bat_full_flag`. `wls/wls_split.{c,h}` owns the split wire half (the payload structs and the one `wls_split_send()`). Each QMK hook in the board file is a thin delegate. Board file 1,294 -> 1,094 lines; build 63,300 B; tests 63/63. **6b DONE (reset plan).** `wls/reset_logic.{c,h}` owns the reset *policy* as a pure ordered plan (`wls_reset_cause_t` LOCAL/REMOTE, `wls_reset_step_t` notify-peer/wipe-config/flash/rerun-boot, `wls_reset_plan_of(cause)`, tested 4/4). `hs_reset_settings_user(cause)` is now a plan executor: it performs the named steps in order. The one thing the cause changes is whether the peer is notified — a REMOTE reset must not be echoed back, which is the rule the test pins; that also removes the would-be `wls_split -> wls_lifecycle` call-back, since the slave handler now passes `WLS_RESET_CAUSE_REMOTE` into the board's own executor instead of the lifecycle module calling back. **6c DONE (keycode + indicator shell).** `wls/wls_keymap.{c,h}` owns the whole former `process_record_kb` switch (the WLS keycode chain with its `WLS_KEYCODE_EXEC` macro and deferred long-press, the MOR Ctrl-combo table, the filp effect half, `im_rgblight_increase` and the shared `wls_rgblight_modes[]` table, `wls_persist_devs`, and every RGB/rgblight/layer/HS keycode case), plus the shared `enum layers` and `keymap_is_mac_system()` in the header so the board and the keymap concern state the mac/Windows rule once. `wls/wls_indicator.{c,h}` owns the whole LED shell (the three indicator arrays as a module-local `wls_rgb_indicator_t`, the channel flash, the set-driven flashes, the battery blink and colour paint, `wls_indicate_devs`, the nkr colour hook, and the suppression deadline). `master_sync_mms_slave` moved to `wls_split`. `process_record_kb` is now `process_record_user()` + `wls_keymap_process_record()`; `rgb_matrix_indicators_advanced_kb` is a delegate to the indicator passes. Board file 1,094 -> **272 lines**; build **63,412 B**; tests **67/67**.
 7. `wls_split`'s slave half — the last non-hook implementation in the board.
    **DONE.** `user_sync_mms_slave_handler` moved into `wls/wls_split.c` (it is
    that concern's slave end; the master half — the payload structs and
@@ -172,9 +172,8 @@ applied".
   (`HSM_SWITCH_SETTLED` / `HSM_SWITCH_UNREADABLE`), matching `wls_blink_out_t`
   and `filp_action_t`. An unreadable position carries a **poisoned 0xFF**
   payload, not a zeroed one — `DEVS_USB` is 0, so a zeroed payload is
-  indistinguishable from a valid USB. `apply_switch_transport()` applies
-  nothing when the read is unreadable. Tested in `tests/transport_logic`
-  (20 tests now).
+  indistinguishable from a valid USB. The input rule (`hsm_input_rule()`)
+  applies nothing when the read is unreadable. Tested in `tests/transport_logic`.
 - **Measure B — read after settle.** `wls_lifecycle_boot()` calls
   `waitInputPinDelay()` between enabling the switch pull-ups and the first read
   (the sleep path already used the idiom; `palSetLineMode` is asynchronous).
@@ -190,7 +189,7 @@ applied".
   `0xA4` raw-HID reply, which needs the very line the fault tears down. Two
   additions: (half 1) `wls/boot_report_logic.{c,h}` retains the boot decision
   (`switch_pos`, applied `host`, `settled`) in `wls.c` and exposes it at
-  `KB_BATTERY_IDX_BOOT_REPORT` (17), so the *next* successful reply is a
+  `KB_BATTERY_IDX_BOOT_REPORT` → now `KB_BATTERY_IDX_BOOT_CODE` (21), so the *next* successful reply is a
   post-mortem; (half 2) `wls/boot_blink_logic.{c,h}` blinks the same record over
   the LEDs with no host at all — the schedule comes from the pure
   `wls_boot_report_blink_step()` (step 0 switch position, step 1 applied host,
@@ -202,7 +201,7 @@ applied".
   > **SUPERSEDED (2026-10-14).** The blink half was replaced by the Dell-style
   > `(amber, white)` boot code (`wls/boot_code_logic`), and the retained-record
   > half moved into `wls/wls.h`; `boot_report_logic` and `boot_blink_logic` are
-  > deleted. The index is now `KB_BATTERY_IDX_BOOT_CODE` (17). See
+  > deleted. The index is now `KB_BATTERY_IDX_BOOT_CODE` (21). See
   > `docs/FINDINGS.md` "the boot instrument is a Dell-style `(amber, white)` code".
 
 The through-line: an input read that is sampled once, un-settled, and whose

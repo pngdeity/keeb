@@ -36,7 +36,7 @@ One LED, on the **right half** bottom row. Its index is into
 
 | Constant | Index | Matrix | Position | Role |
 |---|---|---|---|---|
-| `HS_MATRIX_BLINK_INDEX_BAT` | 63 | `[11,3]` | 6th from the right | Charging/full colour, and periodic blink at level `<= 15` |
+| `HS_MATRIX_BLINK_INDEX_BAT` | 63 | `[11,4]` | 2nd key right of the right spacebar | Charging/full colour, and periodic blink at level `<= 15` |
 
 - Drawn by `bat_indicators()` on the **master half only**, even though the LED is
   physically on the right half.
@@ -50,7 +50,7 @@ One LED, on the **right half** bottom row. Its index is into
 - This is **not a percentage bar**: no key and no LED renders a numeric level.
 - Our tree adds an always-on "soft" level indicator inside the same
   `bat_indicators()`: two adjacent right-half bottom-row LEDs at indices 64 and
-  65 (`[11,4]`/`[11,5]`, `HS_MATRIX_BAT_SOFT_INDEX`/`HS_MATRIX_BAT_SOFT_INDEX2`)
+  65 (`[11,5]`/`[11,6]`, `HS_MATRIX_BAT_SOFT_INDEX`/`HS_MATRIX_BAT_SOFT_INDEX2`)
   drawn at full channel intensity. Colours: green ≥50 %, amber ≥30 %, red below
   30 % (the vendor's separate `<= 15` blink is a different indicator), green while
   charging-to-full, blue while charging. It is part of the battery work committed
@@ -1269,7 +1269,7 @@ all**, so the call returns early and nothing is sent. A silent `0xA4` with the
 device enumerated therefore means **the committed transport was wireless while
 the switch said USB** — the two observations are one fact.
 
-**The read that is wrong.** `hs_mode_switch_pos()` (`wls/wls.c:233`) decides from
+**The read that is wrong.** `hs_mode_switch_pos()` (`wls/wls.c:226`) decides from
 `HS_GET_MODE_PIN(HS_*_PIN_STATE)`, which reads **C14 and C15** and matches them
 against the 2-bit pattern per position (`wls/wls.h:17-24`):
 `HS_USB_PIN_STATE "1, 1"`, `HS_BT_PIN_STATE "0, 1"`, `HS_2G4_PIN_STATE "1, 0"`,
@@ -1280,12 +1280,14 @@ UNKNOWN or the wrong pair — here, 2.4 GHz — and the board commits wireless w
 the cable attached and the switch on USB.
 
 **The consequence chain is the project's named defect class.** With a wireless
-hint committed, `drive_line_for(WLS_TRANSPORT_INPUT_HINT)` (`wls_transport.c:65`)
-calls `hsm_transport_may_drive_line(want_usb)`, which for an **unconfirmed** input
-returns `decision_is_usb` — so with `want_usb == false` the line is neither
-driven down (correct) nor driven up. Stage 1 of `hsm_transport_decide`
-(`usb_active -> USB`) can only fire once `host_confirmed` is true, and
-`host_confirmed` is set only by `wls_transport_host_event()` from
+hint committed, `drive_line_for(WLS_TRANSPORT_INPUT_HINT)` (`wls_transport.c:68`)
+calls `hsm_transport_may_drive_line(want_usb)` (`transport_logic.c:145`), which for
+an **unconfirmed** input returns `decision_is_usb` — so with `want_usb == false`
+the line is neither driven down (correct) nor driven up. The decision itself is a
+single call — `hints()` inside `wls_transport_decide()` (`wls_transport.c:76-92`),
+where "the input rule IS the decision -- there is no second stage to compose" —
+and it can only resolve to USB once `host_confirmed` is true; `host_confirmed` is
+set only by `wls_transport_host_event()` from
 `notify_usb_device_state_change_kb()` — which needs the enumeration the unhurried
 line never reached. **The trigger depends on the state it should confirm.**
 

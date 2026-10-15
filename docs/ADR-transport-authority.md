@@ -15,11 +15,17 @@ own domain.
 
 Two things broke that model.
 
-1. **The switch can lie.** A hardware run produced a boot whose blink reported
-   the *host* as 2.4 GHz (`MAGENTA`, step 1 — a colour that appears in exactly
-   one place in the schedule) while the switch was physically on USB, and the
-   board enumerated, lit up, and typed nothing. The pin read and the physical
-   position disagreed; the firmware believed the pin.
+1. **The switch can lie.** A hardware run produced a boot whose diagnostic
+   reported the *applied host* as 2.4 GHz while the switch was physically on
+   USB, and the board enumerated, lit up, and typed nothing. The pin read and
+   the physical position disagreed; the firmware believed the pin.
+
+   (The instrument that showed this has since been **replaced**: the old
+   multi-step boot sequence — colour-keyed fields, step 1 = applied host — was
+   unreadable in practice and is now the two-group `(amber, white)` count in
+   `wls/boot_code_logic.h` and `docs/INDICATORS.md` § 1. The *observation* stands;
+   only the way it was read has changed. The fault itself is
+   `docs/HARDWARE.md` "The cabled-but-wireless fault" / "C14/C15 pin lie".)
 2. **Power is not a host.** A dumb USB PSU raises the cable-detect pin (`B9`)
    and supplies VBUS exactly as a host does. So "a cable is attached" cannot
    distinguish "a host is talking to me" from "something is charging me".
@@ -48,9 +54,14 @@ That rule is correct and is kept. **Its implementation introduced a cycle.**
 `restart_usb_driver()`, which drops the driver out of `USB_ACTIVE`. The decision
 therefore perturbed its own input. On a board whose switch read disagrees with
 the resolved transport — the exact case the rule exists for — this closed into a
-livelock: the board enumerated, self-detached, and re-enumerated about once a
-second, forever. Measured: 11 enumerations / 10 disconnects in five minutes,
+livelock: the board enumerated, self-detached, and re-enumerated, forever, with
 every device binding all three HID interfaces and then dropping the line.
+
+(The enumeration counts recorded at different times — 5/5 in five minutes, then
+11/10, and later 27 in an hour and 8/8 in a 25-minute window — are successive
+observations of this one fault, not independent ones, and the exact rate was
+never the point: the cycle is. See `docs/FINDINGS.md` "the low-power presleep
+hook cut a live USB line" for the measured interval distribution.)
 
 Two instances were patched before the cycle itself was named:
 
@@ -160,9 +171,20 @@ wired-only, which deletes the project's headline capability.
 
 ## Status of the earlier work
 
+> **Superseded in implementation (noted 2026-10-14).** The two functions this
+> section names no longer exist. `hsm_transport_decide` and
+> `hsm_switch_apply_with_cable` were replaced by **`hsm_input_rule()`**
+> (`transport_logic.h:157`) over **`hsm_switch_apply()`** (`:127`), which is the
+> same two-stage rule with the cable **removed from the input alphabet
+> entirely** — the cable is a *power* fact and reaches no transport decision
+> (`docs/USAGE.md` § 6). The *decision* recorded here is unchanged; only its
+> expression moved. Section retained for the record, and because its reasoning
+> is still what `hsm_input_rule` implements.
+
 The two-stage rule (`hsm_transport_decide`) and the hints
-(`hsm_switch_apply_with_cable`, `wls_usb_cable_present`) are **kept** — they are
-the correct decision. What changes is *who runs them and when*: one owner, on
-decision change, with host lifecycle as events. The two hotfixes
+(`hsm_switch_apply_with_cable`, `wls_usb_cable_present`) are **kept in intent** —
+they are the correct decision. What changes is *who runs them and when*: one
+owner, on decision change, with host lifecycle as events. The two hotfixes
 (`hsm_switch_moved`, the promotion-only edge) are correct in themselves and are
-subsumed by the owner rather than reverted.
+subsumed by the owner rather than reverted. (`wls_usb_cable_present` does still
+exist — `wls_usb.c` — but it now feeds the diagnostic block, not the decision.)

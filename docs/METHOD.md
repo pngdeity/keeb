@@ -22,7 +22,7 @@ file is the *process* those records produced.
 Every rule below is a consequence of that sentence. When a session feels like it
 is "reaching for a theory and gathering confirming evidence," it has violated it.
 When a session feels like it is about to flash in order to *find out* something
-source could have told it, it has violated §0.
+source could have told it, it has violated Part I §0.
 
 ---
 

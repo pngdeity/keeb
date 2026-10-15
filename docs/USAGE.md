@@ -60,7 +60,8 @@ a layer means editing the keymap and reflashing — see `README.md`.
 
 The keyboard has a per-key RGB matrix over a solid-white default (hue 0, sat 0,
 value 128). Backlight is changed with the Fn-layer RGB keys below — **not** the
-knob (the knob is volume on every layer; see §7).
+knob by default (the knob is volume on the base layer and brightness on Fn; see
+§7).
 
 ### From the Fn layer
 
@@ -99,12 +100,14 @@ back). Your in-session changes override it until the next power-on.
 
 ## 3. Battery
 
-- **Battery check — hold Fn and press `BatQ`** (on the Fn layer, the left spacebar
-  position, matrix `[5,5]`). It lights the number keys `1`…`0` to show the
-  percentage. It is **master-only** (the left half answers).
+- **Battery check — hold Fn and press `BatQ`** (on the Fn layer, right half matrix
+  `[11,1]`, the right-spacebar column). It lights the number keys `1`…`0` to show
+  the percentage. It is **master-only** (the left half answers).
 - **Charge indicator LED** — one LED on the right half's bottom row
-  (matrix `[11,3]`): it blinks red when the battery is **low** and shows charge
-  colour while charging (green while charging, red when charging *and* full).
+  (matrix `[11,4]`): its colour is a pure function of `(charging, full, level)`
+  (`wls_bat_colour_of()`): **green when charging *and* full**, **blue while
+  charging**, and when not charging green at ≥50%, orange at ≥30%, red below.
+  It also blinks red at a low level.
 - **Which half has the battery?** Only the **left** half. The right half is
   powered over the link cable.
 - **Charging:** a single USB-C cable into **either** half charges the keyboard;
@@ -185,13 +188,17 @@ separated so a single fumble cannot hit both.
 
 - The recovery layer is armed only by a **hold** of Fn + the top-right corner key
   (the base-layer `Mute` key, matrix `[7,8]`). `EE_CLR` sits on the right half's
-  bottom-right corner (matrix `[11,7]`) — the far corner, reachable only with a
+  bottom-right corner (matrix `[11,8]`) — the far corner, reachable only with a
   held Fn chord from the left hand plus a press on the opposite half.
 - **`QK_BOOT`** (enter the bootloader) is on the **Fn** layer at the Fn-layer
   top-right corner key, matrix `[10,4]`. It is **not** on the base layer, so a
   stray `Esc` tap cannot drop a half into the bootloader.
-- **Bootmagic / `Esc`-hold at plug-in does not work on this build.** It is
-  disabled by the board's own configuration; use the hardware DFU short below.
+- **Bootmagic is enabled, and `Esc`-hold at plug-in enters the bootloader.** The
+  `nathan` keymap sets `BOOTMAGIC_ENABLE = yes` with `bootmagic.matrix` `[1,0]`
+  (the left half's `Esc` position), so holding `Esc` while plugging in the left
+  half enters its `wb32-dfu` bootloader. It is a *flashing* route, not a settings
+  reset — `EE_CLR` is the reset (above). The right half has no keyboard route to
+  its own bootloader; use `QK_BOOT` or the hardware short (below).
 
 **If a half drops into the bootloader**, flash it or power-cycle it — it comes
 back. Note the two halves are flashed **separately**, and **neither half needs
@@ -211,10 +218,12 @@ back **up** afterwards). See
   BIOS).
 - **`Flip`** on the Fn layer (left half) swaps the Fn-row and the number row
   (OEM behaviour); the left Ctrl LED lights red while it is on.
-- **Encoder** — the knob sends **volume up/down on every layer**. The
-  `encoder_map[]` in the keymap (which would make the Fn layer control backlight
-  brightness) is compiled out because `ENCODER_MAP_ENABLE` is not set, so QMK's
-  default encoder handler runs and the knob is volume everywhere.
+- **Encoder** — the knob sends **volume up/down on the base and Mac base
+  layers**, and **backlight brightness** on the Fn layers. The `encoder_map[]` in
+  the keymap is compiled in (`ENCODER_MAP_ENABLE = yes` in the `nathan` keymap's
+  `rules.mk`): base/Mac = `KC_VOLD`/`KC_VOLU`, Fn/MacFn = `RM_VALD`/`RM_VALU`
+  (`RM_VALD` on CCW, `RM_VALU` on CW — matching the "B-" = down, "B+" = up
+  convention on the Fn-layer RGB keys).
 
 ---
 

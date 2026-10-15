@@ -35,14 +35,14 @@ a backwards-compatible extension; hosts must ignore bytes they do not know.
 > buses today — ours is the *host-facing* raw-HID command, the module's is the
 > internal UART frame — so they do not collide while raw HID is distinct from the
 > module link. They **would** meet if a raw-HID report were ever tunneled over
-> the module UART: `md_raw.c` `replaced_hid_send()` does exactly that whenever
-> `get_transport() != TRANSPORT_USB`, wrapping our 32-byte report in a
-> `0xAF 0x61` frame. That frame carries the report as opaque payload (its own
-> `0xAF`/`0x61` header, not a bare `0xA4`), so no collision is present in the
-> current code — but any future change that put a bare host command into the
-> module byte stream would have to avoid the `0xA4` system-key code. Recorded so
-> the 2.4 GHz/BT raw-HID test (which takes exactly that tunnel path) is not
-> misread as a protocol fault if `0xA4` appears on the UART.
+> the module UART: the send path does exactly that on a non-USB transport, wrapping
+> our 32-byte report in a `0xAF 0x61` frame (`module.c` `md_send_raw()`). That
+> frame carries the report as opaque payload (its own `0xAF`/`0x61` header, not a
+> bare `0xA4`), so no collision is present in the current code — but any future
+> change that put a bare host command into the module byte stream would have to
+> avoid the `0xA4` system-key code. Recorded so the 2.4 GHz/BT raw-HID test (which
+> takes exactly that tunnel path) is not misread as a protocol fault if `0xA4`
+> appears on the UART.
 
 ## Transport / interface
 
@@ -65,10 +65,14 @@ a backwards-compatible extension; hosts must ignore bytes they do not know.
   **verified** on hardware, 2026-10-09), falling back to the only collection
   present; `--transport usb` selects interface 1. `split65.py check` reports which
   collections are present.
-- Bluetooth: in scope. Not yet probed on hardware — unknown whether the BT HID
-  link exposes the raw HID collection (`0xFF60`/`0x61`) and whether
-  `*md_getp_bat()` is populated over BT. The host falls back to the BLE Battery
-  Service `0x180F` / Battery Level `0x2A19` (via `bluetoothctl`).
+- Bluetooth: in scope. **Probed, and broken in a known way:** the module advertises
+  and will pair/bond, but its HID GATT server rejects the CCC notification-enabling
+  writes with ATT `0x0E`, so no input flows (see `HARDWARE.md` "Why a host does not
+  connect" and `UX-REQUIREMENTS.md` § 0.7). Whether the BT link would also expose
+  the raw HID collection (`0xFF60`/`0x61`) and populate `*md_getp_bat()` is
+  therefore still unmeasured — it cannot be reached while the CCC write fails. The
+  host falls back to the BLE Battery Service `0x180F` / Battery Level `0x2A19`
+  (via `bluetoothctl`).
 
 ### Dongle raw HID interface
 
@@ -123,7 +127,9 @@ convention, giving a 33-byte write.
 | 8 | active BT sub-profile (the BT driver's profile, `DEVS_BT1`..`DEVS_BT5` = `1`..`5`) |
 | 9 | module firmware version (`0x5D` reply; `0` if the image never answers — see below) |
 | 10 | module link state (`MD_STATE_*`: `0` NONE, `1` PAIRING, `2` CONNECTED, `3` DISCONNECTED, `4` REJECT) |
-| 11..31 | `0x00` |
+| 11..20 | diagnostic block (`wls_diag_t`, 10 bytes; `WLS_DIAG_ENC_SIZE`) — pin levels, switch/host decision, reset cause |
+| 21..22 | boot diagnostic code, as the two LED counts (`{amber, white}`) |
+| 23..31 | jump journal (`wls/wls_jump_journal`, 9 bytes) — discriminates a dispatched `QK_BOOT` from a corrupt or electrical reset |
 
 The fields at 7–10 are a **diagnostic extension** (added with the transport
 collapse and the module-fingerprint work). They exist because the Bluetooth
@@ -156,10 +162,6 @@ collide with other raw HID clients). The host must tolerate a read timeout. Some
 firmware lineages instead answer with an unhandled `FF` sentinel, but this has not
 been observed on this hardware and is not part of the contract here.
 
-If the command is not recognised, the keyboard sends **no reply** (the raw HID
-contract is one report in, at most one report out; an unsolicited response would
-collide with other raw HID clients). The host must tolerate a read timeout.
-
 Bytes 2-3 follow the Keychron `0xA4` layout (cell voltage, little-endian mV) but
 this board's wireless module reports only a percentage, so they are always `0`.
 Hosts must treat byte 1 as the authoritative value and ignore bytes 2-3.
@@ -187,7 +189,10 @@ reply with transport byte `0x04`.
 The keyboard-side tunnel exists: `md_raw.c` maps `md_receive_raw_cb()` →
 `raw_hid_receive()`, and `module.c` forwards received raw packets
 (`MD_RAW_SIZE = 32`) to that callback, so a host request reaches `0xA4` handling
-over every transport.
+over every transport. The send direction needs no board glue — `raw_hid_send()`
+(upstream) calls `host_raw_hid_send()`, which selects the driver from the
+connection host, reaching the USB endpoint and the module sink the same way every
+other report is.
 
 To check the battery: put the keyboard in USB or 2.4 GHz mode and run
 `python3 host/battery_polybar.py --pull` (or `--listen` for push reports). The

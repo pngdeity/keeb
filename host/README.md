@@ -10,12 +10,15 @@
 > Treat any output as a transport/plumbing check, not a charge reading, until
 > that defect is fixed.
 
-The dongle **shares the keyboard's VID:PID** (`342d:e4c6`). If a dongle is present
-it exposes the same raw HID interface (`0xFF60`/`0x61`) and **bridges host →
-keyboard**, so `--pull` should work over 2.4 GHz as well as USB. **Unverified:** no
-dongle has been confirmed on the bus in this project (see `TODO.md` defect 3). The
-keyboard also pushes the value unprompted, so `--listen` remains a valid (and
-more robust) mode.
+The dongle **shares the keyboard's VID:PID** (`342d:e4c6`). When present it
+exposes the same raw HID interface (`0xFF60`/`0x61`) and **bridges host →
+keyboard**, so `--pull` works over 2.4 GHz as well as USB. **Verified on hardware
+2026-10-09:** with the keyboard actively on the 2.4 GHz link the dongle enumerates
+(`342d:e4c6`, `bcdDevice 20.04`, product `2.4G Dongle`, mfr `MILE`) and a `0xA4`
+pull round-trips (`transport 0x04` = 2.4 GHz) — see `HARDWARE.md` "The 2.4 GHz
+dongle". It stays USB-silent until powered *and* the keyboard is on 2.4 GHz, which
+is why earlier sweeps saw nothing. The keyboard also pushes the value unprompted,
+so `--listen` remains a valid (and more robust) mode.
 
 The `0xA4` command is answered by **our firmware** (the responder
 `wls/wls_battery.c` in the `qmk_firmware` submodule; both halves now run the

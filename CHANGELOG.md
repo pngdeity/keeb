@@ -48,13 +48,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **EEPROM schema is versioned.** `confinfo_t` gained a `version` field; a
   stored block from an older layout is re-defaulted once instead of being
   patched per-field heuristically.
-- **A CI guard for the raw-HID line coupling**: the vendor stack remaps
-  `raw_hid_send` by hardcoded line number, so CI now asserts those two lines
-  still hold the expected code and fails loudly if a submodule bump moves them.
-- Host tool prefers the collection with `interface_number == 2` (assumed to be the
-  2.4 GHz dongle; unverified — the dongle shares the keyboard's VID:PID) and
-  exposes `--transport usb`, so a 2.4 GHz read is attempted rather than silently
-  using the keyboard's USB interface.
+- **The raw-HID tunnel runs on upstream's driver selection.** The vendor stack
+  once remapped `raw_hid_send` by hardcoded line number with a CI guard behind it;
+  both the remap and the guard are now **deleted**, and the send path rides
+  upstream's `host_raw_hid_send()`, which picks the driver from the connection
+  host. A submodule bump can no longer move a line and silently break the tunnel.
+- Host tool prefers the collection with `interface_number == 2` — **verified
+  2026-10-09 as the 2.4 GHz dongle** (`342d:e4c6`, interface 2, `0xA4` round-trips
+  with transport `0x04`) — and exposes `--transport usb`, so a 2.4 GHz read is
+  attempted rather than silently using the keyboard's USB interface.
 - Battery push now sends on change (level/charge/transport) with a slow
   keepalive, instead of an unconditional 2-second heartbeat.
 

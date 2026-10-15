@@ -5,21 +5,12 @@ and the vocabulary used to refer to all of it. Read this before any capture or
 firmware work so that "the top row", "the master", or "the USB port" cannot be
 misread.
 
-Ownership of facts across this project:
+**Where a fact belongs is stated once, in `AGENTS.md` "Where to write what"**
+(the routing rule for a new fact) and in `README.md` "Layout" (where each path
+lives). This file does not repeat that index.
 
-| Document | Answers |
-|---|---|
-| `DEVICE.md` (this file) | What and where the device is; how to name its parts. |
-| `HARDWARE.md` | Measured electrical and pin facts (USB IDs, GPIOs, DFU, power). |
-| `PROTOCOL.md` | The `0xA4` wire format. |
-| `FINDINGS.md` | Why the design is shaped the way it is. |
-| `UX-REQUIREMENTS.md` | What the user must be able to infer from the device — the user-facing requirements. |
-| `USAGE.md` | How the keyboard is actually used at the desk (the end-user guide). |
-| `INDICATORS.md` | What each LED means and how to read the board (the instrument contract). |
-| `TODO.md` | Live status, outstanding work, defects. |
-
-Where a fact could belong to two documents, it lives in one and is linked, not
-copied.
+The one rule that applies here: **where a fact could belong to two documents, it
+lives in one and is linked, not copied.**
 
 ## Identity
 
@@ -51,19 +42,46 @@ Unambiguous vocabulary for referring to the hardware. Use these terms exactly.
 - **`master half`** / **`slave half`** — **firmware role**, assigned at runtime.
   The master owns the USB HID device, runs the battery raw HID responder, and
   forwards the slave's matrix; the slave forwards its matrix to the master.
-  Role is determined by the handedness pin (`split.handedness.pin` = B9). On this
-  board the **keymap** overrides `is_keyboard_master()` to read that pin (see
-  `default/keymap.c`, `nathan/keymap.c`), so the role is set by hardware/jumper;
-  QMK core instead derives the role from the USB cable (`usb_bus_detected()`), so
-  the override changes the semantics.
+  **Role is chosen by which half has the host cable.** Both keymaps override
+  `is_keyboard_master()` to read `SPLIT_HAND_PIN` (`default/keymap.c:59-69`,
+  `nathan/keymap.c:104`), and the pin declared for that role in
+  `keyboard.json` is `split.handedness.pin = B9` — but **B9 is wired as USB cable
+  detection, not as a handedness jumper.** The board's own comment says *"B9 is USB
+  cable detection — the half with the host cable is the master"*; `wls_usb.c`
+  reads it through `wls_usb_cable_present()`; and `HARDWARE.md` records it as "USB
+  cable detection: `B9` (high when plugged)". So the *key name* is inherited from
+  QMK's handedness vocabulary while the *wiring* is cable-detect. The override is
+  needed because QMK core's `is_keyboard_master_impl()` derives the role from
+  `usb_bus_detected()` instead, and on this board that is not the same read.
 
 **Rule: use the side for location, the role for behaviour.** Never write "master"
 to mean "left" or vice versa.
 
 > Current observation (not a definition): the **left half is currently the
-> master** and the **right half the slave**, as reported by `is_keyboard_master()`
-> on the wired half. If the halves were reassembled with swapped handedness this
-> would invert while left/right stayed put.
+> master** and the **right half the slave**, because the host cable is in the left
+> half. Move the cable to the right half and the roles swap while left/right stay
+> put.
+
+### `host`: two senses, and the ambiguity is deliberate to name
+
+The word **host** is used in two distinct senses in this corpus, and they are not
+interchangeable. Say which is meant:
+
+- **The machine** — the computer the keyboard types into (or, on the radio, the
+  paired device: phone, laptop). This is the everyday sense: "the host cable",
+  "the host's own keyboard", "plug the dongle into the host". A *keyboard* is not
+  a host in this sense; `UX-REQUIREMENTS.md` counts "how many hosts" this way
+  (desktop, laptop, phone, a guest's laptop — § 1.1).
+- **The transport value** — the firmware's enum for *which pipe is committed*:
+  `HSM_HOST_USB` / `HSM_HOST_BLUETOOTH` / `HSM_HOST_2P4GHZ` (`wls/transport_logic.h`),
+  mirrored by upstream's `connection_host_t`. This is the sense in "the persisted
+  host" (`PROTOCOL.md`), `connection_get_host_raw()`, and `desired_host`.
+
+The overlap is real and confusing, because the transport value *names* a machine
+class but is not a machine: `HSM_HOST_BLUETOOTH` means "committed to the BT radio",
+not "a specific Bluetooth computer" (five BT bonds can exist behind it). **Where
+the word could be read either way, prefer "the machine" / "the paired device" for
+the first sense and "the transport" / "the committed host" for the second.**
 
 ### The three USB-C ports
 
@@ -100,9 +118,11 @@ printed beneath each:
 | `Bluetooth position` | Bluetooth rune | Bluetooth. |
 
 Refer to it as "the mode switch, set to the 2.4 GHz position". It is photographed
-in the middle (`2.4 GHz`) position. Firmware reads it via
-`hs_modeio_detection()` → `modeio_mode { hs_none, hs_usb, hs_bt, hs_2g4,
-hs_wireless }` (`keyboards/epomaker/epomaker_split65/wls/wls.h`).
+in the middle (`2.4 GHz`) position. Firmware reads it via `hs_mode_switch_pos()`
+into `hsm_switch_pos_t { HSM_SWITCH_UNKNOWN, HSM_SWITCH_USB, HSM_SWITCH_BT,
+HSM_SWITCH_2G4 }` (declared in `wls/transport_logic.h`; the poll is
+`hs_modeio_detection()` in `wls/wls.c`). The *decision* about which transport that
+position implies is the transport owner's (`hsm_input_rule()`), not this read's.
 
 ### Switches and keys
 
@@ -206,8 +226,8 @@ distinct but functionally interchangeable.
 
 ## Modes of operation
 
-Selected by the `mode switch`; the active mode is reported by firmware as
-`modeio_mode`:
+Selected by the `mode switch`; the active mode is read by firmware as
+`hsm_switch_pos_t` (see "Nomenclature"):
 
 | Mode | Switch position | Host sees the keyboard as | Flashing |
 |---|---|---|---|
@@ -300,7 +320,7 @@ Notes:
 |---|---|
 | 69 keys, 5 rows, physical row widths | Keymap: base, `_FL`, `_RST` (`nathan`); `_MBL`, `_MFL` (Mac variants) |
 | Matrix pins and per-half column maps | Custom keycodes (`KC_BT1`..`KC_BATQ`; `MOR_1..MOR_4` have handlers, `MOR_5` is declared but unused) mapping |
-| Handedness pin (`B9`) | Default layer selection (`set_single_persistent_default_layer`) |
+| Cable-detect pin (`B9`, declared as `split.handedness.pin`) | Default layer selection (`set_single_persistent_default_layer`) |
 | `HS_BAT_CABLE_PIN` (`A7`), `BAT_FULL_PIN` (`A15`) | RGB default animation / brightness |
 | Encoder pins (`B7`,`B6`), WS2812 pin (`B15`) | `confinfo.filp` (Fn-row / number-row media-key swap) |
 | USB VID:PID `342d:e4c6` / bootloader `342d:dfa0` | EEPROM contents (wear-levelled, SPI flash) |

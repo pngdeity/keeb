@@ -10,11 +10,14 @@ they diverge).
 
 The fix is one checked-in vector asserted by both sides. There is no shared
 header to generate from, and a generated header would add a build step for a
-23-byte layout; a fixture both sides assert is smaller and just as binding.
+32-byte layout; a fixture both sides assert is smaller and just as binding.
 
 ## The vector
 
-23 bytes, printed in `host/battery_polybar.py` as `GOLDEN_VECTOR`:
+The report is 32 bytes (`RAW_EPSIZE`), printed in `host/battery_polybar.py` as
+`GOLDEN_VECTOR`. The first 23 bytes (indices 0–22) are the battery/diagnostic
+fields below; indices 23–31 are the jump journal, tabulated separately because
+it is the block that *ends* the report.
 
 | Idx | Value | Field |
 | --- | --- | --- |

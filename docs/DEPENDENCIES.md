@@ -122,7 +122,7 @@ legend** and the **Fn-layer legend** are listed separately; they differ.
 | Bootmagic DFU | Hold Escape + plug USB (left half only) | Broken on non-OEM firmware |
 | Right-half DFU | Remove the `R_Shift` keycap, toggle the exposed switch **down**, then spacebar-pin short + plug USB (toggle back **up** after) | Bootloader (see Flashing) |
 | Software DFU | `QK_BOOT` — `Fn` (`held` spacebar) + the top-right corner key, matrix `[10,4]` | Bootloader |
-| Factory reset | `EE_CLR` — hold-only `_RST` layer at right half, matrix `[11,7]` (the bottom-right corner key) | Clears EEPROM settings |
+| Factory reset | `EE_CLR` — hold-only `_RST` layer at right half, matrix `[11,8]` (the bottom-right corner key) | Clears EEPROM settings |
 
 > `QK_BOOT` sits on the **Fn** layer at the Fn-layer top-right corner key
 > (matrix `[10,4]`), reached by holding the right spacebar (Fn; the left space
@@ -218,8 +218,8 @@ The `qmk_firmware/` submodule carries our commits on top of the rebased base
 is discoverable and so they can be re-applied if the tree is ever reset to
 pristine upstream:
 
-- `lib/python/qmk/math.py`: replace the removed `ast.Num` with `ast.Constant`
-  (Python 3.12+).
+- `lib/python/qmk/math_ops.py`: replace the removed `ast.Num` with `ast.Constant`
+  (Python 3.12+). (The file was renamed from `math.py`.)
 - `keyboards/epomaker/epomaker_split65/post_rules.mk`: include paths
   `keyboards/leo/...` → `keyboards/epomaker/...`.
 - `keyboards/linker/wireless/wireless.c`: drop the leading blank line before the

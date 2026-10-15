@@ -57,7 +57,7 @@ externally-visible symbols are all `hsm_*` functions taking plain values.
 | V7 parse, don't validate | **HOLDS (with a note)** | `hsm_switch_pos_of_mode`/`hsm_switch_pos_of_hs_mode` are the two parsers from raw mode bytes to `hsm_switch_pos_t`; the two vocabularies are kept distinct by name. The BT range check `>= BT1 && <= BT5` appears five times, but each is a *derivation from a value already typed as a device index*, not a re-validation of raw input — acceptable, though it is a candidate for one `hsm_devs_is_bt()` helper. |
 | V8 illegal states unrepresentable | **HOLDS** | `hsm_switch_pos_t` and `hsm_link_state_t` are enumerations; `hsm_switch_apply_t` is a tagged-kind struct so an unreadable read cannot carry a `devs`/`host` pair; every `switch` has an explicit `default`. |
 | V9 error kernel | **HOLDS** | No dynamic allocation, no unbounded loops; `hsm_deadline_reached` is wrap-safe by signed difference. |
-| V10 fitness function | **HOLDS** | `tests/transport_logic` (34 tests) executes this core on the host; V1 is enforced by the compile-alone measurement above. |
+| V10 fitness function | **HOLDS** | `tests/transport_logic` (39 tests) executes this core on the host; V1 is enforced by the compile-alone measurement above. |
 
 **Findings / work items.**
 
@@ -94,9 +94,9 @@ single include. Every function takes values and returns a value or a plain struc
 | V5 | **HOLDS** | The interface is small and the timing/sequencer complexity is hidden behind `wls_boot_code_at`/`wls_boot_code_show_ms`. No duplicate declarations. |
 | V6 | **HOLDS** | `now_ms` and `origin_ms` are parameters; no clock call. Measured by the host build. |
 | V7 | **HOLDS** | The codec parses boot facts into counts once; the sequencer takes counts. No repeated validity checks (values are clamped once, at `wls_boot_code_counts`). |
-| V8 | **HOLDS (with a note)** | `wls_boot_code_phase_t` is a 2-state enum; the "nothing lit" case is the explicit named `PHASE_DARK`, not a fall-through. Stages are the enum. **Note:** `wls_boot_code_t.stage`/`code` are `uint8_t`, not the enum type — deliberate, so a value read from a report cannot be an out-of-range enum; the clamp in `wls_boot_code_counts` is the boundary. |
+| V8 | **HOLDS (with a note)** | `wls_boot_code_phase_t` is a 2-state enum; the "nothing lit" case is the explicit named `WLS_BOOT_CODE_PHASE_DARK`, not a fall-through. Stages are the enum. **Note:** `wls_boot_code_t.stage`/`code` are `uint8_t`, not the enum type — deliberate, so a value read from a report cannot be an out-of-range enum; the clamp in `wls_boot_code_counts` is the boundary. |
 | V9 | **HOLDS** | No allocation, bounded loops (`for bit < 6`), no absent-subsystem dependence. |
-| V10 | **HOLDS** | `tests/boot_code_logic` (22 tests), including `the_show_window_is_exactly_one_frame`. |
+| V10 | **HOLDS** | `tests/boot_code_logic` (31 tests), including `the_show_window_is_exactly_one_frame`. |
 
 **Findings / work items.** None requiring a fix. The one `void`+out-buffer
 function is recorded as an accepted exception with its reason.
@@ -114,7 +114,7 @@ function is recorded as an accepted exception with its reason.
 | V7 | **HOLDS** | `wls_diag_decode` is the one parse of the `0xA4` DIAG block into a typed struct; it returns a distinct type (`bool` + filled `wls_diag_t`) from its `const uint8_t *` input, and checks `NULL`. |
 | V8 | **HOLDS** | Fixed-size fields; `WLS_DIAG_ENC_SIZE` is the single source of the block length, used by both encode and the tests. |
 | V9 | **HOLDS** | No allocation, bounded, explicit `NULL` guard. |
-| V10 | **HOLDS** | `tests/wls_diag` (4 tests). |
+| V10 | **HOLDS** | `tests/wls_diag`. |
 
 **Findings / work items.** None. The encode/decode pair is the model the rest of
 the boundary code should follow.
@@ -361,7 +361,7 @@ only per-TU.
 ### `wls/wls_transport.{c,h}` — the transport owner (shell)
 
 **Measurement run.** Read in full; the four predicates it applies
-(`hsm_transport_may_act`, `hsm_transport_decide`, `hsm_transport_changed`,
+(`hsm_transport_may_act`, `hsm_input_rule`, `hsm_transport_changed`,
 `hsm_transport_may_drive_line`) are all defined and tested in
 `transport_logic`; `nm`/include check above.
 
@@ -369,7 +369,7 @@ only per-TU.
 | --- | --- | --- |
 | V1 | **HOLDS** | Depends on cores and on the actuators it owns; no core depends on it. |
 | V2 | n/a | Shell. Its inputs are the world (`hs_mode_switch_pos()`, `wls_usb_cable_present()`, the EEPROM), gathered at the edge as V3 requires. |
-| V3 | **HOLDS — this is the exemplar** | The decision is entirely `hsm_transport_decide(hints(), host_confirmed)`; the shell adds only the *gathering* (`hints()` reads switch/cable/EEPROM) and the *applying* (`commit`, `drive_line_for`). The two effects it owns — `connection_set_host_noeeprom` + `wls_module_devs_change`, and `wls_usb_connect` — are each named in exactly one function. |
+| V3 | **HOLDS — this is the exemplar** | The decision is entirely `hsm_input_rule(hints(), host_confirmed)`; the shell adds only the *gathering* (`hints()` reads switch/cable/EEPROM) and the *applying* (`commit`, `drive_line_for`). The two effects it owns — `connection_set_host_noeeprom` + `wls_module_devs_change`, and `wls_usb_connect` — are each named in exactly one function. |
 | V4 shell holds no policy | **HOLDS** | The only branch the shell makes is `if (input == HINT && !hsm_transport_may_drive_line(...)) return;` — and even that *condition* is a core predicate; the shell just executes the returned bool. The direction rule (may an unconfirmed decision demote?) is **not** in the shell. Cyclomatic complexity: `commit` 2, `drive_line_for` 2, `wls_transport_decide` 3, `wls_transport_host_event` 1. |
 | V5 | **HOLDS** | Three pieces of private state (`committed`, `host_confirmed`, `ready`) and a five-function surface; the livelock the module exists to prevent is invisible from outside. The header documents the *ordering* precondition (`wls_transport_ready`) as part of the interface, which is the Ousterhout point. |
 | V6 | n/a | Shell. Its non-determinism *is* the world; the core's seam is the `hints()` value it passes in. |
@@ -563,7 +563,7 @@ only the adapter `wls_boot_code_now()`.
 uint32_t boot_count)` in `wls/boot_code_logic`, and the shell keeps only the
 adapter that reads the three live values: `wls_boot_code_now()` in `wls/wls.c`.
 `wls_boot_inputs_t { master, settled, host }` and `WLS_BOOT_HOST_{USB,BLUETOOTH,
-2P4GHZ}` (3/4/5, matching `HSM_HOST_*`) live in the core — copied rather than
+2P4GHZ}` (**2/3/4**, matching `HSM_HOST_*`) live in the core — copied rather than
 included for the same reason as `HSM_DEVS_*`: an include-free core is
 host-testable. Eight new tests in `tests/boot_code_logic` pin every branch and the
 precedence ordering (latched cause outranks a boot count; a boot count outranks
@@ -766,16 +766,6 @@ hold — a two-condition coincidence, not a single stray read. **That makes path
 poor candidate for a spontaneous jump and an implausible one for a recurring
 one.**
 
-**This corrects our own documentation.** `keymap.md` (userspace) claims `QK_BOOT`
-"is on the **base** layer at the left half's `Esc` position" and, in a second
-table, "on the right half, third row down at the `/` position (`[10,4]`)". Both
-are wrong on the measured keymap: the layer is Fn, not base, and the cell is
-`[10,6]`, not `[10,4]` nor the left `Esc`. **The prose was never re-derived from
-the keymap; treat it as unverified.** The `keymap.c` itself is the truth, and the
-`keymap.md` discrepancy is recorded as a finding in its own right (a document that
-describes a keymap it does not match is the same class of defect as F7 — two
-statements of one fact with nothing that fails when they diverge).
-
 **Path 3 — a synthesised keycode (an RPC, a macro, `tap_code`) — EXAMINED, and
 ELIMINATED (measured).** Two routes were checked:
 
@@ -801,7 +791,7 @@ ELIMINATED (measured).** Two routes were checked:
 
 **Conclusion for Stage 3 question 1: all three paths are weak or eliminated.** The
 split link cannot inject a keycode (path 2, CRC-guarded row transport); a false
-matrix bit needs the exact slave cell `[10,6]` *coincident with an Fn hold*
+matrix bit needs the exact slave cell `[10,4]` *coincident with an Fn hold*
 (path 1); and no synthesising route exists (path 3). **A `dfa0` window is
 therefore unlikely to be a spurious `QK_BOOT` at all** — which shifts the weight
 onto the two remaining explanations: **memory corruption of the DFU magic word**
@@ -812,13 +802,13 @@ before.
 **Correction to our own documentation (a finding in its own right).** Two of the
 three paths were not the only surprise. The userspace `keymap.md` states `QK_BOOT`
 "is on the **base** layer at the left half's `Esc` position", and, in a second
-table, "on the right half, third row down at the `/` position (`[10,4]`)". **Both
-are wrong against the measured keymap**: the layer is Fn (not base) and the cell
-is `[10,6]` (not `[10,4]`, and not the left `Esc`). The prose was never re-derived
-from `keymap.c` after the keymap changed. **This is the same class of defect as
-F7 — two statements of one fact, with nothing that fails when they diverge** — and
-it should be corrected in the userspace repo (`keymap.md:121` and `:180`) rather
-than left as a second, wrong description of a safety-relevant key.
+table, "on the right half, third row down at the `/` position (`[10,4]`)". The
+**layer** claim is wrong against the measured keymap: `QK_BOOT` sits on the **Fn**
+layer, not base. The **cell** claim (`[10,4]`) is right. The prose was never
+re-derived from `keymap.c` after the layer changed. **This is the same class of
+defect as F7 — two statements of one fact, with nothing that fails when they
+diverge** — and it should be corrected in the userspace repo (`keymap.md:121` and
+`:180`) rather than left as a second, wrong description of a safety-relevant key.
 
 **Consequence for Stage 4.** Paths 1–3 are now weak or eliminated; if path 3 is
 also exhausted with no synthesising route, then a `dfa0` window is unlikely to be
@@ -1049,7 +1039,7 @@ recorded decision with a reason.** The exit criteria stated in
   undefined non-libc symbol. That is the fitness function for the cores, and it
   is what makes them host-testable.
 - **The shells** — `wls_transport` (the exemplar: the decision is entirely
-  `hsm_transport_decide`, the shell only gathers and applies), `wls_module` (the
+  `hsm_input_rule`, the shell only gathers and applies), `wls_module` (the
   crash-only gate), `wls_usb` (pure actuator), `wls_eeprom` (pure store),
   `wls_indicator` (the instrument). Each holds V3/V4 with any exceptions recorded
   in place.
@@ -1104,7 +1094,7 @@ the honest form of "there is nothing more to find here."
    retention); the dynamic keymap is inert (`keycode_at_keymap_location` is the
    weak static-table implementation, no `dynamic_keymap.o`/`via.o`); no
    `tap_code`/macro/re-entrant `process_record` carries it; and a false matrix bit
-   would need the exact slave cell `[10,6]` **coincident with an Fn hold**.
+   would need the exact slave cell `[10,4]` **coincident with an Fn hold**.
 2. **Can anything write the DFU magic word?** Not by any path we can name. The
    stacks sit at the bottom of RAM, ~`0x6400` bytes from `MAGIC_ADDR`; nothing in
    the firmware allocates (painter/LVGL is not built, the ChibiOS heap has no
@@ -1163,7 +1153,7 @@ built ELF: `wls_journal` is a 16-byte `.ram0` object at `0x20004fbc`, with
 **What was built (`wls/`).**
 - `jump_journal_logic.{c,h}` — the **sixth pure core**: a straight byte mapping
   `wls_jump_journal_encode_parts(magic, version, generation, stage, code,
-  reset_cause, uptime_ms, out)`, 12 bytes at report indices 23..34. Compiles
+  reset_cause, uptime_ms, out)`, **9 bytes at report indices 23..31**. Compiles
   standalone clean; `nm -u` is empty.
 - `wls_jump_journal.{c,h}` — the shell: a `.ram0`-sectioned
   `wls_jump_journal_t` holding a presence magic (`WLS_JUMP_JOURNAL_MAGIC`,
@@ -1200,7 +1190,7 @@ journal makes the two explanations separable on the next boot:
   wrote the word" to the bootloader-entry mechanics.
 
 **Precondition to reading it:** the journal is carried in the `0xA4` reply (bytes
-23..34, decoded by `host/battery_polybar.py --info` as `JUMP: ...`). That reply
+23..31, decoded by `host/battery_polybar.py --info` as `JUMP: ...`). That reply
 needs a live USB line, which is exactly what a bad boot tears down — so the
 reading is only trustworthy on a boot that survived long enough to answer. A boot
 that jumps to DFU before answering leaves no `0xA4` reading and no journal visible
@@ -1345,7 +1335,7 @@ alone.
 
 | # | Defect | Where | Why it was a defect |
 | --- | --- | --- | --- |
-| D1 | 12-byte journal encoded at offset 23 into a 32-byte report | `wls_battery.c` + `jump_journal_logic.*` | 3-byte stack overrun on every `0xA4` reply; host side had the mirrored error, so both agreed on an impossible layout |
+| D1 | 12-byte journal encoded at offset 23 into a 32-byte report | `wls_battery.c` + `jump_journal_logic.*` | the block overran the report; host side had the mirrored error, so both agreed on an impossible layout (the journal is now **9 bytes, 23..31**) |
 | KF-1 | `HSM_HOST_*` off by one vs upstream `connection_host_t` | `transport_logic.h` | `connection_set_host_noeprom((connection_host_t)decision.host)` wrote the *wrong host* on every commit; `HSM_HOST_USB(3)` == `CONNECTION_HOST_BLUETOOTH` |
 | KF-2 | Golden vector labelled `0x04` in the wrong vocabulary | `battery_polybar.py`, `wls_diag_tests.cpp`, `0xA4-golden-vector.md` | Two vocabularies for one byte; the fixtures encoded the pre-fix numbering |
 | KF-3 | Header prose contradicted code on multi-bit reset cause and amber clamping | `boot_code_logic.h` | A doc that lies is worse than no doc; code and tests already agreed |

@@ -13,8 +13,8 @@
 
 | Tree | Revision | Notes |
 | --- | --- | --- |
-| `qmk_firmware/` submodule | `8f381870e4` (signed) | **clean**; the whole walk arc is committed here (the older "owner arc" stash `stash@{0}` still exists, not in the tree) |
-| root repo | `18f0294` (signed) | topic docs only; nothing in it runs on the MCU |
+| `qmk_firmware/` submodule | `2481fc1234` (signed) | **clean**; the whole walk arc is committed here (the older "owner arc" stash `stash@{0}` still exists, not in the tree). Earlier map revisions: `8f381870e4` |
+| root repo | `0b6945f041` (signed) | topic docs only; nothing in it runs on the MCU. Earlier: `18f0294` |
 | userspace keymap | `966549f` (signed) | build with `-km nathan`; `is_keyboard_master()` lives here |
 
 The **keyspace the map is generated for** is the `nathan` build. Feature
@@ -286,10 +286,12 @@ Two different functions, and the distinction is load-bearing:
   `split_pre_init()` calls **`is_keyboard_master_impl()`** directly (line 201),
   never the public `is_keyboard_master()` accessor (`split_util.c:195-197`).
   **Both keymaps' `is_keyboard_master()` overrides are therefore dead code for
-  boot mastery.** `keymaps/default/keymap.c:59-62` reads `B9` unsettled; the
-  userspace `nathan/keymap.c:104-114` variant adds `wait_us(100)`. Neither is
-  consulted here, and the `wait_us(100)` "mastery fix" made earlier in the
-  project targets a function the boot does not call.
+  boot mastery.** `keymaps/default/keymap.c:59-69` and the userspace
+  `nathan/keymap.c:104-114` both read `B9` **settled** (`gpio_set_pin_input` +
+  `wait_us(100)`, then `gpio_read_pin`) — the default keymap's own comment records
+  that an unsettled read "can sample the old floating level and report the wrong
+  role". Neither is consulted here, so the `wait_us(100)` "mastery fix" targets a
+  function the boot does not call.
 
 **Consequence:** mastery is decided by the **`SPLIT_USB_DETECT` poll of
 `usb_connected_state()`**, not by `B9` and not by the keymaps, **before** any of
@@ -331,7 +333,7 @@ read `B9` (settled).
 | 10 | `wireless_devs_change(...)` | **only if the switch pins are NOT both defined** — they *are*, so **this does not run** |
 | 11 | `waitInputPinDelay();` | settle the C14/C15 pull-ups before reading (comment: a fresh `palSetLineMode` is async). Macro → `wait_cpuclock(GPIO_INPUT_PIN_DELAY)` (`platforms/chibios/_wait.h:66`) |
 | 12 | `hs_mode_switch_pos();` | **first switch read** |
-| 13 | `apply_switch_transport(pos, last_btdev_from_confinfo());` | the shared applier: sets host + devs from one read |
+| 13 | `wls_transport_decide(WLS_TRANSPORT_INPUT_HINT);` | **the transport owner decides** — from the switch, the settled `B9` read and the persisted index only — and drives the USB line itself on a real change (see §11) |
 | 14 | `wls_note_boot_decision(...)` | retain the decision for the `0xA4` diagnostic |
 | 15 | *(no boot-code call here)* | **deliberately absent**: the boot code is started from the RGB frame pass, not from step 33 — a schedule armed here would advance its phase before the first paint, and a boot that died before the loop started would have "shown" nothing. See §13. |
 | 16 | `if (applied.kind == HSM_SWITCH_SETTLED) wls_usb_connect(applied.host == HSM_HOST_USB);` | **the USB data line is driven here** — only on a settled read |
@@ -339,8 +341,11 @@ read `B9` (settled).
 
 > **Two writes to `B1` and `A5/A8` happen here, before the main loop.** The
 > step-6 write to `B1` (**low**) is the "USB power enabled" claim. It is
-> **undocumented in `docs/HARDWARE.md`** and appears nowhere in git history as a
-> measured fact — it is inherited from the vendor port. If the boot ever fails
+> **undocumented in `docs/HARDWARE.md`** (which records `A7`, `A15` and `B9` but
+> not `B1`), and the pin's *polarity* is nowhere recorded as a **measured** fact —
+> `git log -S 'USB_POWER_EN'` returns only the code refactors that moved the
+> write between files (e.g. the `wls_lifecycle` extraction), never a measurement,
+> so it is inherited from the vendor port. If the boot ever fails
 > *at this point*, this is the first suspect, because it is the only board-local
 > write that could plausibly affect the board's own power/bus presence.
 
@@ -395,8 +400,8 @@ The arc replaces the single-applier boot with one **transport owner** plus a
 
 1. **`wls_lifecycle_boot()` steps 12-16** become: `wls_transport_decide(WLS_TRANSPORT_INPUT_HINT)`
    — the owner computes the hint decision, commits it, and drives the USB line
-   itself if the decision changed (see `wls/wls_transport.c`). The direct
-   `apply_switch_transport(...)` call is gone.
+   itself if the decision changed (see `wls/wls_transport.c`). The former direct
+   single-applier call (`apply_switch_transport(...)`) is gone.
 2. **`keyboard_post_init_kb` / `epomaker_split65.c`** gains
    `notify_usb_device_state_change_kb()` (the event hook) and empties
    `connection_host_changed_kb()`.
@@ -547,7 +552,8 @@ against the table, and with the artifact's own timestamps:
    latent risk.*
 2. **`USB_POWER_EN_PIN` (B1) polarity is unverified** — §8.1 step 6 drives it low
    and calls that "on". No measurement exists: `docs/HARDWARE.md` records `A7`,
-   `A15` and `B9` but not `B1`, and `git log -S 'USB_POWER_EN'` finds nothing, so
+   `A15` and `B9` but not `B1`, and `git log -S 'USB_POWER_EN'` returns only the
+   refactors that moved the write between files (never a measurement), so
    "low = on" is an *inherited* assumption from the vendor port, not a measured
    fact. It is the only board-local write before the main loop that could affect
    the board's own bus presence, so if it is inverted, "on" powers the board

@@ -156,9 +156,6 @@ stronger state than "unverified": an unverified claim is one we have not measure
 yet; an unfalsifiable one is one we currently *cannot*. Neither becomes a
 requirement; both stay on the record with their reason.
 
-A capability that stage 2 cannot confirm is **recorded as unverified**, not
-promoted into a requirement and not silently dropped.
-
 **Stage 4 is where the 80 Percent Solution applies (§ 0.3).** "Possible" is not
 "required". The output of stages 1–3 is a *set of capabilities*; the UX is the
 subset the primary audience needs, and § 8 records what was deliberately left out.
@@ -190,15 +187,17 @@ indicator light stops flashing, the connection is done"* (steady = connected);
 | Flash→steady indicator | **confirmed** | `wls_indicator.c:310-316` — 200 ms blink on reset, 500 ms otherwise |
 | Battery over the radio | **built, never observed** | `md_inquire_bat()` fires on any non-USB host (`wireless.c:252-258`); `MD_REV_CMD_BATVOL` → `md_info.bat` (`module.c:520,223`) |
 | Dongle enumerates | **confirmed** | `342d:e4c6`, `2.4G Dongle`/`MILE`, raw-HID **interface 2**, `0xA4` round-trips (`HARDWARE.md:129-140`) |
-| **5 ms / 1000 Hz** | **UNVERIFIED** — vendor spec only, never measured here | none in tree |
+| **5 ms / 1000 Hz** | **UNVERIFIED** — vendor spec only, never measured here (measurable: 2.4 GHz *does* carry input, unlike BT — see § 0.7) | none in tree |
 
 **Stage 3 — possible.** Everything the manual documents, the hardware can do, and
 almost all of it is **already built**: 2.4 GHz is the **degenerate case of the BT
 state machine** — one slot, the same hold/tap grammar, the same flash→steady
 indicator, plus a battery inquiry that already fires on it. **No new mechanism is
 required.** Two measurements are owed and are recorded as **unverified**, not
-assumed: **(a)** that the link is actually 5 ms / 1000 Hz, and **(b)** that the
-battery readback completes over 2.4 GHz.
+assumed — and unlike BT's (§ 0.7 item 4), these are **merely unmeasured, not
+unfalsifiable**, because the 2.4 GHz path does carry input: **(a)** that the link
+is actually 5 ms / 1000 Hz, and **(b)** that the battery readback completes over
+2.4 GHz.
 
 **Stage 4** is the UX choice and is **not made here** (deferred by the owner).
 
@@ -464,6 +463,12 @@ starts at the middle:
 | 2 | Types | **whether their keystrokes are going anywhere**, and if not, where the board *is* pointed |
 | 3 | Looks at the board | which machine it will type into — **without knowing our conventions or which half is master** |
 
+**Requirement X-20.** Because the board serves four hosts (§ 1.1) across one USB
+and three wireless ones, **the active host is a readable state**: which transport is
+committed, and — on BT — **which** host. The first draft trimmed this as a
+power-user distinction; the four circumstances reverse that. This is X-4 extended
+from *which transport* to *which host*.
+
 **Requirement X-21.** A transient, one-off host must be **usable and leave no
 permanent claim**: the guest connects without the owner explaining anything, and
 the profile slot the guest used is **reclaimable** afterwards. *Measured from
@@ -476,12 +481,6 @@ but **"occupies a slot that can be taken back."**
 the only circumstance where the reader is not the user, and it is the constraint
 that makes X-15 (no indicator may require knowing the master half) load-bearing
 rather than tidy.
-
-**Requirement X-20.** Because the board serves four hosts (§ 1.1) across one USB
-and three wireless ones, **the active host is a readable state**: which transport is
-committed, and — on BT — **which** host. The first draft trimmed this as a
-power-user distinction; the four circumstances reverse that. This is X-4 extended
-from *which transport* to *which host*.
 
 ### 2.7 "Present from the keyboard" (circumstance 3)
 
@@ -775,12 +774,14 @@ a module reply, so on USB the board reports `100%` it has never verified
 (`TODO.md` defect 1). **The UX requirement is that "unknown" is a renderable
 state** and is shown as unknown, not as full. Related to X-5.
 
-**H-2. Bluetooth as a first-class transport.** BT is implemented but unprobed;
-the module's own GATT server rejects the notification-enabling writes
-(ATT `0x0E`), so BT may connect without carrying input. Requirement X-1's
-"distinguish carrying input from merely powered" is written **for this case**: the
-board must be able to say "connected, but input is not flowing" rather than
-answering with a green "connected" that lies.
+**H-2. Bluetooth must be a transport that carries input.** BT is implemented and
+probed, and it is **broken in a known way**: the module's own GATT server rejects
+the notification-enabling writes (ATT `0x0E`), so BT connects without carrying
+input (§ 0.7). Requirement X-1's "distinguish carrying input from merely powered"
+is written **for this case**: the board must be able to say "connected, but input
+is not flowing" rather than answering with a green "connected" that lies. Until
+the module fault is resolved — and it may be **unfalsifiable-by-us**, having no
+dump or update path (§ 0.5) — this honest state is the requirement that stands.
 
 ---
 

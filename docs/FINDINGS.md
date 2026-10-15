@@ -172,9 +172,10 @@ paths are in `qmk_firmware/keyboards/linker/wireless/`:
 
 `keyboards/linker/wireless/md_raw.c` (guarded by `RAW_ENABLE`):
 
-- `replaced_hid_send()` uses the USB endpoint on `TRANSPORT_USB`, otherwise
-  `md_send_raw()` tunnels over the module UART.
-- `md_receive_raw_cb()` calls `raw_hid_receive(data, length)`.
+- `md_receive_raw_cb()` calls `raw_hid_receive(data, length)` — the receive path.
+- The send path has no board glue: upstream `raw_hid_send()` →
+  `host_raw_hid_send()` selects the driver from the connection host, so `md_send_raw()`
+  tunnels over the module UART whenever the host is not USB.
 - The tunnel carries `MD_RAW_SIZE = 32`-byte reports in **both** directions, so
   host pull works over 2.4 GHz as well as USB. Push is retained as a fallback
   only.
@@ -262,9 +263,14 @@ Layered so the transports share one code path. Wire format: `PROTOCOL.md`.
    usage `0x61`; supports `--pull`, `--listen` and `--bluetooth` (BLE Battery
    Service `0x180F`/`0x2A19` fallback), prints `BAT <n>%` / `CHG <n>%`, and
    hides when absent.
-6. **Bluetooth path**: still unprobed. Open question is whether the BT HID link
-   exposes the raw collection and whether `*md_getp_bat()` is populated over BT;
-   the host falls back to BLE either way. Tracked in `TODO.md`.
+6. **Bluetooth path**: probed, and **broken in a known way** — the module
+   advertises and accepts a bond, but its HID GATT server rejects the CCC
+   notification-enabling writes with ATT `0x0E`, so no input flows. Whether the
+   BT link exposes the raw HID collection and whether `*md_getp_bat()` is
+   populated over BT is therefore **still unmeasured** (it cannot be reached
+   while the CCC write fails); the host falls back to BLE Battery Service
+   `0x180F`/`0x2A19` either way. Tracked in `TODO.md`; capability derivation in
+   `docs/UX-REQUIREMENTS.md` § 0.7.
 
 ## Build facts
 
@@ -285,17 +291,19 @@ Layered so the transports share one code path. Wire format: `PROTOCOL.md`.
   (`host/epomaker-split65-via.json`) is for external VIA tooling and keymap
   import; it is
   not a claim that the firmware speaks VIA.
-- `raw_hid_send`'s macro remap in `md_raw.h` is **line-specific**: it renames
-  `raw_hid_send` to `replaced_hid_send` only where `__LINE__` matches a fixed
-  number, by defining `_temp_rhs_<n>`. It currently keys on exactly two lines:
-  `quantum/raw_hid.h:29` (the declaration; inert) and `quantum/via.c:489` (the
-  live call QMK core makes). Consequence: a QMK/submodule bump that shifts
-  either line **silently** breaks the tunnel — raw HID replies would go to the
-  wrong transport with no compile error. New code must never rely on the macro;
-  call `replaced_hid_send()` directly (as `wls_battery.c` does). CI's
-  "Guard the raw-HID tunneling line coupling" step asserts both lines still
-  hold the expected text and fails loudly otherwise; if it fires, update
-  `keyboards/linker/wireless/md_raw.h` and that guard together.
+- **The raw-HID tunnel needs no board-private send path.** The receive side is
+  `md_receive_raw_cb()` (`md_raw.c`), which forwards a module-tunneled frame to
+  `raw_hid_receive()` exactly as the USB path does. The send side has no board
+  glue at all: `raw_hid_send()` (upstream) calls `host_raw_hid_send()`, which
+  selects the driver from the connection host
+  (`host_get_active_driver()->send_raw_hid`) — the USB endpoint, or the
+  Bluetooth/2.4 GHz module sink. **The old design was different and is gone:** a
+  line-pinned macro remap in `md_raw.h` rewrote `raw_hid_send` to
+  `replaced_hid_send` at two fixed `__LINE__`s, so a submodule bump that shifted
+  either line would silently break the tunnel. `md_raw.h`, `replaced_hid_send()`
+  and the CI guard that asserted those line numbers have all been **deleted**;
+  the transport selection is now upstream's, so a submodule bump cannot break it
+  silently.
 
 ## Dongle recon
 
@@ -322,11 +330,11 @@ optional command is
 Two facts that matter for testing and for the eventual upstream port.
 
 **The battery inquiry is transport-gated, and USB is the only blocked transport.**
-`wireless_task()` (`keyboards/linker/wireless/wireless.c:225-243`) only calls
+`wireless_task()` (`keyboards/linker/wireless/wireless.c:252-258`) only calls
 `md_inquire_bat()` when the transport is **not** USB:
 
 ```c
-if (get_transport() == TRANSPORT_USB) {
+if (connection_get_host() == CONNECTION_HOST_USB) {
     usb_remote_wakeup();
 } else if (lpwr_get_state() == LPWR_NORMAL) {
     if (sync_timer_elapsed32(inqtimer) >= WLS_INQUIRY_BAT_TIME) {
@@ -340,8 +348,8 @@ So **Bluetooth populates `md_info.bat` exactly as 2.4 GHz would** — which make
 a **dongle-free substitute** for the blocked 2.4 GHz tests: the real battery
 percentage (and the ground truth defect 1's honesty fix needs), the real
 transport field, and requirement 2. The raw-HID tunnel is likewise
-transport-agnostic (`md_raw.c:23-27`: `replaced_hid_send()` uses `md_send_raw()`
-whenever the transport is not USB). Caveat: the module is the single radio for
+transport-agnostic (the send path rides upstream `host_raw_hid_send()`, so
+`md_send_raw()` is used whenever the transport is not USB). Caveat: the module is the single radio for
 both 2.4 GHz and BT, so a BT *failure* would be ambiguous (module vs host), but a
 BT *success* proves the module radio alive and yields the real reading.
 
@@ -1456,10 +1464,13 @@ switch level is seeded into `config.desired_host` in `keyboard_post_init_kb()`
 (`_noeeprom`) to guarantee no report precedes the switch read now that the vendor
 `driver` pointer no longer masks the ordering.
 
-**Not done (deliberately optional):** the `md_raw.h` line-pinned
-`raw_hid_send`→`replaced_hid_send` remap was left in place; `replaced_hid_send()`
-still exists (routing through `host_raw_hid_send()` — the single driver chooser),
-so the battery push and the remapped callers keep working.
+**Subsequently removed (2026-10-14):** the `md_raw.h` line-pinned
+`raw_hid_send`→`replaced_hid_send` remap, which at the time of this review was
+"deliberately optional" and left in place, has since been **deleted** — along
+with `md_raw.h`, `replaced_hid_send()` itself, and the CI guard that asserted its
+line numbers. The send path now rides upstream `raw_hid_send()` →
+`host_raw_hid_send()`, the single driver chooser, so nothing board-private
+remains and a submodule line-shift can no longer break the tunnel silently.
 
 ### Post-collapse design review — claims verified and remediated (2026-10-09)
 
@@ -1673,7 +1684,9 @@ rejected — it is *mapped*:**
 - `hsm_boot_devs(UNKNOWN, last_bt)` returns `last_bt` when it is a BT index, else
   USB. With the fresh default that is **BT1**.
 - `hsm_host_of_devs(BT1)` returns **BLUETOOTH**.
-- `apply_switch_transport` then calls `connection_set_host_noeeprom(BLUETOOTH)`.
+- The transport applier in the code *at the time* (`apply_switch_transport()`,
+  since replaced by `hsm_input_rule()` / `wls_transport_decide()`) then called
+  `connection_set_host_noeeprom(BLUETOOTH)`.
   The stored value was `AUTO`, so this is a *change*: it writes and calls
   `handle_host_changed()` → `connection_host_changed_kb()` →
   `wls_usb_connect(resolved == USB)` → **`wls_usb_connect(false)` → the USB data
@@ -1683,8 +1696,8 @@ rejected — it is *mapped*:**
    `keyboard_task`) has a function-local-static one-time guard that calls
    `wls_usb_connect(connection_get_host() == USB)` a **second** time — the same
    decision enforced by a second mechanism.
-5. At `post_init_timer + 100 ms`, `wireless_post_task()` calls
-   `apply_switch_transport(hs_mode_switch_pos(), …)` **again**. By then the
+5. At `post_init_timer + 100 ms`, `wireless_post_task()` called the same applier
+   (`apply_switch_transport(hs_mode_switch_pos(), …)`) **again**. By then the
    pull-ups *have* settled, so this read is reliable and re-applies the correct
    transport. **This is why a later replug or a switch flip recovers** — and why
    the failure window is exactly the first ~100 ms of boot.
@@ -1735,8 +1748,8 @@ rather than merely absent — which is the bar this project set for itself.
   `HSM_SWITCH_UNREADABLE`), matching the house `wls_blink_out_t` /
   `filp_action_t` shape; in the unreadable case the payload is **poisoned to
   0xFF**, not zeroed — `DEVS_USB` is 0, so a zeroed payload would be
-  indistinguishable from a real USB decision. `apply_switch_transport()` applies
-  nothing unless settled. Guarded by `tests/transport_logic` (20/20), which
+  indistinguishable from a real USB decision. The input rule (`hsm_input_rule()`)
+  applies nothing unless settled. Guarded by `tests/transport_logic` (20/20), which
   asserts the unreadable case carries no transport for *every* `last_bt`.
 - *Read after a settle.* The boot seed now calls `waitInputPinDelay()` between
   enabling the C14/C15 pull-ups and the first read (the idiom the sleep path
@@ -1750,11 +1763,11 @@ rather than merely absent — which is the bar this project set for itself.
   the board's `connection_host_changed_kb()` plus the boot seed.
 - *A second exporter that does not ride the USB line.* The boot decision
   (switch position, applied host, settled-ness) is retained in `wls.c` beside the
-  boot counter and exposed on the `0xA4` reply at the boot-code index (17), now
+  boot counter and exposed on the `0xA4` reply at the boot-code index (21), now
   as the `(amber, white)` pair the LED also plays — see the instrument finding
   below. Because it is
   retained rather than sampled live, the *next* successful reply is a post-mortem
-  of a boot whose own USB line died — the case the live 6-byte diag block cannot
+  of a boot whose own USB line died — the case the live 10-byte diag block cannot
   cover. Written by `wls_lifecycle_boot()` at the moment of decision; decoded by
   `host/battery_polybar.py` (a `BOOT:` line; note its host field is the
   `HSM_HOST_*` vocabulary, not the raw `CONNECTION_HOST_*`). Tested 7/7.
@@ -1795,8 +1808,8 @@ lasted. It correlated with host activity, not a free-running timer.
 to the same weak `_unhandled_exception`, which is `b.n` to itself — an infinite
 self-branch that would *hang* the MCU, not reset it. Not a watchdog: no
 IWDG/WWDG is linked and `SPLIT_WATCHDOG_ENABLE` is deliberately undefined. Not
-the boot seed: with the switch read UNKNOWN, `apply_switch_transport()` applies
-nothing, so the boot path is inert.
+the boot seed: with the switch read UNKNOWN, the boot applier of the day
+(`apply_switch_transport()`, now `hsm_input_rule()`) applied nothing, so the boot path was inert.
 
 **What it was.** `wls_lifecycle_lpwr_allow_presleep()` ended with
 

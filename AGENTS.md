@@ -154,10 +154,10 @@ without a human build. It uses QMK's official image
 installs the tree's `requirements.txt`, runs `./bin/make`, and also enforces
 `git diff --check` and canonical `qmk format-json` output.
 
-**Toolchain note:** the container ships its own `arm-none-eabi-gcc` (currently
-15.2.0), which can differ from the host's (16.2.0). A different compiler version
-produces a **different `.bin` size and md5 for identical source**, so the CI
-artifact is not byte-comparable to a local build. CI's job is "does it build",
+**Toolchain note:** the container ships its own `arm-none-eabi-gcc`, which can
+differ from the host's (the host currently has 16.2.0). A different compiler
+version produces a **different `.bin` size and md5 for identical source**, so the
+CI artifact is not byte-comparable to a local build. CI's job is "does it build",
 not "is it byte-identical to the host".
 
 ## Software traps in this tree
@@ -171,9 +171,10 @@ keymap is **not** in the tree — it lives in the sibling userspace repo
   Defining e.g. `RGB_MATRIX_DEFAULT_*` in `config.h` when `keyboard.json` already
   sets the same key makes `qmk lint` warn on the duplicate. Edit `keyboard.json`
   and run `qmk format-json -i` on it.
-- **`ENCODER_MAP_ENABLE` is not set**, so the `encoder_map` array in the keymap
-  is compiled out (dead code). Enabling the feature is a one-line change, but
-  nothing currently uses it.
+- **`ENCODER_MAP_ENABLE` is set in the `nathan` keymap's `rules.mk` but not in
+  the tree's `default`**, so the `encoder_map` array compiles into the personal
+  keymap and is compiled out (dead code) in the stock one. Both keymaps guard the
+  array with `#ifdef ENCODER_MAP_ENABLE`; only the personal keymap enables it.
 - **`RGB_MATRIX_DEFAULT_*` in `config.h` only applies to a blank EEPROM.** The
   halves carry saved RGB state, so defaults must be re-applied at
   `keyboard_post_init_user()` to take effect.
@@ -204,6 +205,7 @@ keymap is **not** in the tree — it lives in the sibling userspace repo
 - What the device is, and how to name its parts -> `docs/DEVICE.md`
 - Measured hardware facts -> `docs/HARDWARE.md`
 - Wire format -> `docs/PROTOCOL.md`
+- A worked wire-format example with its expected bytes -> `docs/0xA4-golden-vector.md`
 - Toolchain, flashing, host deps -> `docs/DEPENDENCIES.md`
 - Why the design is as it is -> `docs/FINDINGS.md`
 - A structural decision and its rejected alternatives -> `docs/ADR-*.md`
@@ -213,6 +215,10 @@ keymap is **not** in the tree — it lives in the sibling userspace repo
 - What the keyboard owes the person at the desk, and what they must be able to
   infer from it -> `docs/UX-REQUIREMENTS.md` (the user-facing contract; how it is
   derived and verified is in its §0)
+- How to operate the keyboard -> `docs/USAGE.md`
+- The board layer's contract and its definition of done -> `docs/BOARD-LAYER.md`
+- An audit's plan, method, or results -> `docs/PLAN-fcis-audit.md` (the plan),
+  `docs/AUDIT-fcis.md` / `docs/AUDIT.md` (the findings)
 - Work, defects, status -> `TODO.md` (the live record)
 
 ## Before flashing anything (the pre-flight rule)

@@ -1,23 +1,31 @@
 # TODO
 
-The live record: work, defects, and status. Sections below are marked **LIVE**
-(open work or facts that still bind) or **ARCHIVAL** (closed, kept for rationale
-— do not treat an archival section as an open task).
+The live record: work, defects, and status. A section is **live** unless it
+opens with a `> **ARCHIVAL.**` marker (closed, kept for rationale — do not treat
+an archival section as an open task). A few sections carry an explicit
+`> **Live.**` marker instead, to flag that they are current when they
+sit among archival neighbours.
 
-- **LIVE** — Status, Priority order, Outstanding verification, Defects found on
-  hardware, Right-half DFU, Usability review, Debugging capability, Other.
-- **ARCHIVAL** — Regressions introduced by our own change set, Code audit,
-  Reverse-engineering the board, Re-base.
+- **ARCHIVAL (marked)** — Regressions introduced by our own change set, Code
+  audit, Reverse-engineering the board, Re-base.
+- **Everything else is live**, including Status, Priority order, Outstanding
+  verification, Defects found on hardware, Right-half DFU, the user-experience /
+  usability review, Design cleanup, Debugging capability, and Other.
 
 ## RESUME HERE (written 2026-10-13; **updated 2026-10-14 after the first
 ## hardware readings of the Stage 1 instrument**; **updated again after the
 ## exhaustive walk closed**; **updated again after the colour fix and the
 ## requirement-2 transport reform**; **updated again after the `aec73138…` flash
-## CONFIRMED BOTH FIXES ON HARDWARE**)
+## CONFIRMED BOTH FIXES ON HARDWARE**; **updated 2026-10-14: the UX requirements
+## landed, and a full documentation-corpus review is in progress**)
 
-**The arc is COMMITTED and signed** — root `432fe4c` (plus this landing's
-commit), submodule `split65-overlay` `f771dee5a7`, userspace `966549f`; both
-trees clean, both ahead of origin. The board's identity is the submodule hash.
+**The current arc is COMMITTED and signed** — root `0b6945f` (the UX
+requirements), submodule `split65-overlay` `2481fc1`, userspace `966549f`. The
+board's identity is the submodule hash. **Nothing is pushed** — root is ahead 12,
+submodule ahead 6. A **documentation-corpus review is in flight** (`docs/`), so
+the root tree is currently **dirty** with its edits; expect that, do not read the
+dirty tree as unfinished work. (Earlier landing recorded here was root `432fe4c`
++ `f771dee5a7`, an ancestor of the current tip.)
 **Flashed board = `aec731388c…` (64,600 B)** — walk-close **+ the byte-order
 (colour) fix + the requirement-2 transport reform** — flashed 2026-10-14 and
 **both new fixes are now CONFIRMED ON HARDWARE.**
@@ -61,12 +69,18 @@ cold-boot 2.4 GHz read (§ 2.2) — the switch was flipped at runtime only.
 switch-to-USB at runtime DID repair the transport without a power cycle, which is
 the property Test C checks.)*
 
-**The Tier-1 battery measurement remains BLOCKED AT THE TOOLING LEVEL, not by
-firmware.** No dongle has ever enumerated on this host (only ever one
-`342d:e4c6`, `mfr='LEO'` = the keyboard; no `MILE` device in `lsusb`, sysfs
-sweeps, `journalctl -k`, or a live `udevadm monitor`). So `md state` stays `NONE`
-and the level stays at the module's init constant `100` — **that `100` is not a
-firmware finding** and must not be recorded as one.
+**The Tier-1 battery measurement remains BLOCKED, and the blocker was
+mis-recorded for a time.** It is **not** "the dongle does not enumerate" — that
+premise was measured **false** on 2026-10-09 (see `docs/HARDWARE.md` "The 2.4 GHz
+dongle": with the keyboard in 2.4 GHz mode it enumerates as `342d:e4c6`, `mfr='MILE'`,
+raw-HID at interface 2, and `0xA4` round-trips with transport `0x04`). The real
+blocker is that **no real battery percentage has been observed over a wireless
+transport**: the module only answers `INQVOL` when its own link is up, and across
+sessions `md state` has stayed `NONE`, so the level stays at the module's init
+constant `100` — **that `100` is not a firmware finding** and must not be recorded
+as one. (Earlier sweeps also never saw a `MILE` device, because the dongle is
+USB-silent until powered and the keyboard is actively on 2.4 GHz — a trigger
+artifact, not an absence.)
 
 **2026-10-14: BOTH halves went dark on Bluetooth — cause found, NOT a defect (see
 the RESOLVED block below).** During the first BT session (switch on **Bluetooth**,
@@ -208,7 +222,7 @@ flashed** — the board still runs `usbguard.bin`). **Nothing was committed.**
 **STAGE 3 IS CLOSED (software analysis ran dry).** Three questions, each answered
 by measurement, the last two negative: (1) `QK_BOOT` cannot be dispatched without a
 physical key (split link CRC-guarded, dynamic keymap inert, no synthesising route,
-a false matrix bit needs slave cell `[10,6]` coincident with an Fn hold); (2) no
+a false matrix bit needs slave cell `[10,4]` coincident with an Fn hold); (2) no
 write path we can name reaches the DFU magic word (stacks at RAM bottom, nothing
 allocates, the heap stops `0x720` short of `MAGIC_ADDR`, every runtime-length store
 in our code and the vendor stack is bounded); (3) the `zozonteq` "disable lowpower"
@@ -225,7 +239,7 @@ Recorded in full in `docs/AUDIT-fcis.md` ("Stage 3 question 1/2/3, measured" and
 build is done: a cross-reset journal in `section(".ram0")` (`wls/wls_jump_journal.*`,
 the sixth pure core `wls/jump_journal_logic.*`), a strong `bootloader_jump()`
 override (`wls/wls_boot_jump.c`) that stamps the journal before writing the magic
-word and jumping, and the journal carried in the `0xA4` reply at bytes 23..34
+word and jumping, and the journal carried in the `0xA4` reply at bytes 23..31
 (`KB_BATTERY_IDX_JUMP 23`), decoded by `host/battery_polybar.py` as `JUMP: …`. It
 separates the two surviving explanations: **journal present** = our `QK_BOOT` path
 ran (falsifies Stage 3, points at keycode/matrix); **a `dfa0` window with no
@@ -616,15 +630,17 @@ It is harmless and may stay, but do not treat it as a fix for anything.
 
 ## Status
 
-- **All three repos are clean and signed; each is ahead of origin by two
-  (2026-10-14).** Root `pngdeity/keeb` `main` `18f0294`, submodule
-  `pngdeity/cleave-keeb` `split65-overlay` `8f381870e4`, userspace
-  `pngdeity/keeb-userspace` `main` `966549f` — all signed (`G`), no uncommitted
-  work. The audit and the exhaustive walk are both closed
-  (`docs/AUDIT-fcis.md`); the flash-cycle arc is committed. **The remaining
-  project work is one hardware session** — the Tier-1 batch in
-  `docs/RUNBOOK-flash-and-measure.md`, pre-flight written as § 0.0.5. **Not
-  merged into `main` upstream.**
+- **Both trees are signed; both are ahead of origin (2026-10-14).** Root
+  `pngdeity/keeb` `main` `0b6945f`, submodule `pngdeity/cleave-keeb`
+  `split65-overlay` `2481fc1`, userspace `pngdeity/keeb-userspace` `main`
+  `966549f` — all signed (`G`). Root is ahead 12, submodule ahead 6; nothing is
+  pushed. The root tree is currently **dirty** with an in-flight
+  documentation-corpus review (`docs/`), so do not read the dirty tree as
+  unfinished code work. The audit and the exhaustive walk are both closed
+  (`docs/AUDIT-fcis.md`); the flash-cycle arc and the UX requirements are
+  committed. **The remaining project work is one hardware session** — the Tier-1
+  batch in `docs/RUNBOOK-flash-and-measure.md`, pre-flight written as § 0.0.5.
+  **Not merged into `main` upstream.**
 - **The tree holds our battery firmware, committed inside the `qmk_firmware`
   submodule.** `qmk_firmware/` is a **pinned submodule** of `pngdeity/cleave-keeb`
   branch `split65-overlay`, which now sits on **`qmk/qmk_firmware` master**
@@ -643,7 +659,8 @@ It is harmless and may stay, but do not treat it as a fix for anything.
 - **Artifacts are not tracked here.** Build them and read the hash on demand;
   do not copy a size/md5 into this file (it goes stale on every firmware edit
   and only creates churn):
-  `./bin/make epomaker/epomaker_split65:all && md5sum qmk_firmware/.build/epomaker_epomaker_split65_*.bin`.
+  `./bin/make epomaker/epomaker_split65:nathan && md5sum qmk_firmware/.build/epomaker_epomaker_split65_*.bin`
+  (`:all` is the CI aggregate target, not a keymap — see `.github/workflows/build.yml`).
   CI builds the same source with the container's `arm-none-eabi-gcc`, which can
   differ from the host's, so bytes are not comparable across toolchains — CI
   asserts "it builds", not a fixed md5.
@@ -820,11 +837,11 @@ sections below.
   - **`QK_BOOT` / `EE_CLR` placement.** `QK_BOOT` sits on the **Fn** layer at
     matrix `[10,4]` (the Fn-layer top-right corner key), **not** on the base
     layer; `EE_CLR` moved off Backspace to the hold-only `_RST` layer's
-    right-half **bottom-right corner** (`[11,7]`). The `_RST` layer is armed only
+    right-half **bottom-right corner** (`[11,8]`). The `_RST` layer is armed only
     by holding Fn + the top-right corner key, so the reset needs a held chord
     plus a press on the opposite half's far corner — no single stray keypress
-    reaches it. `nathan` `keymap.md` corrected to match
-    (it had described an older layout).
+    reaches it. (The userspace `nathan` `keymap.md` still describes the older
+    `[11,7]` cell — see the cross-repo correction owed.)
   - **Battery indicator made prominent.** The soft indicator now spans **two**
     adjacent right-half bottom-row LEDs (`HS_MATRIX_BAT_SOFT_INDEX` 64 and new
     `HS_MATRIX_BAT_SOFT_INDEX2` 65) at full channel intensity, instead of one
@@ -868,10 +885,13 @@ sections below.
    the keyboard wireless and the level still updating. The hardware behaviour (VBUS
    vs module UART/radio) is unverified. Needs the user at the keyboard.
 
-**Tier 2 — feature completeness (in scope, not yet probed):**
+**Tier 2 — feature completeness (in scope, partly probed):**
 
-9. **Probe Bluetooth at all**, then update `docs/PROTOCOL.md` and `README.md`.
-   Independent of Tier 1 except that it wants a fixed host tool (2).
+9. **Probe whether the BT link carries input**, then update `docs/PROTOCOL.md`
+   and `README.md`. Independent of Tier 1 except that it wants a fixed host tool
+   (2). (BT is no longer "unprobed": the module advertises and bonds, but its HID
+   GATT server rejects the CCC notification-enabling writes with ATT `0x0E`, so
+   no input flows — `docs/HARDWARE.md`, `docs/UX-REQUIREMENTS.md` § 0.7.)
 
 **Tier 3 — quality / ergonomics (valuable, not blocking):**
 
@@ -945,16 +965,14 @@ sections below.
      stack deliberately drops them (see `docs/FINDINGS.md`, "Battery semantics"),
      so this decides whether that choice costs us a low-battery signal; (c) read
      the pairing (`0x51`/`0x52`) and TMOS sleep
-     (`0x54`/`0x55`/`0x56`/`0x57`/`0x58`) state machines — the parts that are
-     invisible here because the 2.4 GHz dongle does not enumerate and no second
-     machine is available. Prior art: `ArcaneNibble/project-nanjing`,
-     `ch58x-hal`, `fossasia/badgemagic-firmware`. Bounds the protocol doc's
-     applicability to our module revision.
-     **Correction (2026-10-09):** the premise "the 2.4 GHz dongle does not
-     enumerate" is **false** — with the keyboard in 2.4 GHz mode the dongle
-     enumerates (`342d:e4c6`, raw-HID at interface 2) and `0xA4` round-trips (see
-     the dongle subsection in `docs/HARDWARE.md`). So this route to the module's
-     pairing/sleep state machines is now reachable on this host after all.
+     (`0x54`/`0x55`/`0x56`/`0x57`/`0x58`) state machines. (This route was once
+     recorded here as unreachable because "the 2.4 GHz dongle does not enumerate";
+     that premise is **false** — with the keyboard in 2.4 GHz mode the dongle
+     enumerates (`342d:e4c6`, raw-HID at interface 2) and `0xA4` round-trips, see
+     the dongle subsection in `docs/HARDWARE.md`. The route is reachable on this
+     host.) Still unavailable: a **second machine** to pair against. Prior art:
+     `ArcaneNibble/project-nanjing`, `ch58x-hal`, `fossasia/badgemagic-firmware`.
+     Bounds the protocol doc's applicability to our module revision.
 13. ~~**Research: can upstream's split watchdog replace the vendor's hand-rolled
     disconnect handling?**~~ **DONE — decided AGAINST.** The watchdog was enabled
     during the re-base, then proved to reset-loop the slave (~3 s) on hardware:
@@ -1219,39 +1237,40 @@ unverified.
 - [ ] **USB self-detach: confirm the fix on hardware.** Flash the current build
       with the switch in USB and cold-plug: the keyboard must enumerate **and
       stay**. Read the new `BOOT:` line from `python3 host/battery_polybar.py
-      --info` (it should show `settled=True` and `host=3 (USB)`), and the boot
-      LED blink (step 0 = switch position, step 1 = applied host, step 2 = one
-      white pulse settled / three red unsettled). Record in `docs/FINDINGS.md`.
-      The runbook is `docs/RUNBOOK-flash-and-measure.md`.
+      --info` (it should show `settled=True` and `host=3 (USB)`), and read the
+      boot diagnostic LED code — the current instrument is the two-group
+      `(amber, white)` count (`wls/boot_code_logic.h`; how to read it is
+      `docs/INDICATORS.md` § 1). **Do not expect the old multi-step code**
+      (`step 0 = switch position, step 1 = applied host, step 2 = settled`): that
+      instrument was replaced as unreadable in practice. Record in
+      `docs/FINDINGS.md`. The runbook is
+      `docs/RUNBOOK-flash-and-measure.md`.
 - [ ] **2.4 GHz: confirm the value changes while charging.** Re-run the probe with
       a cable in and watch `chg` go `1` -> `2` (full).
-- [ ] **2.4 GHz dongle is not enumerating on the host — unresolved, blocked on
-      hardware.** After the reflash the dongle produces **zero USB events**: no
-      `342d` device in `lsusb`/sysfs, no hidraw node, and no kernel log line at
-      all on a clean boot — not even a `-71` enumeration error. Tested on **both
-      USB-A ports** of the T480 (different root hubs); the keyboard itself
-      enumerates fine on those ports, so the host USB subsystem is not at fault.
-      The keyboard's own mode state is correct (`0xA4` byte5 = `0x04`, 2.4 GHz).
-      A keyboard firmware change cannot stop a separately-plugged dongle from
-      enumerating (see below), so this is believed host/dongle-side, **not a
-      regression from our change set** — but it was reported working beforehand,
-      so it is not closed. **Cannot test the dongle on another computer** (no
-      second machine available, per the operator). Next probes when a dongle is
-      in hand: does the original dongle enumerate on any host; does a second
-      dongle exist. Until then, the 2.4 GHz transport items above cannot be run.
-      This also blocks the `docs/PROTOCOL.md` dongle-interface confirmation
-      (`host/battery_polybar.py` prefers interface 2, but the live keyboard
-      composite's interface 2 is its own mouse/system/consumer block — the two
-      devices share VID:PID `342d:e4c6` and were likely conflated; see the
-      accuracy defect note below). Bounded in `docs/HARDWARE.md` "The
-      known/unknown boundary (no schematic)" as an open (unbounded) unknown —
-      blocked on a second host.
+- [x] ~~**2.4 GHz dongle is not enumerating on the host.**~~ **RESOLVED (2026-10-09):
+      the dongle does enumerate, and 2.4 GHz works.** The earlier "zero USB
+      events" reading was a **trigger artifact**: the dongle stays USB-silent
+      until it is powered *and* the keyboard is actively on the 2.4 GHz link.
+      With both true it enumerates as `342d:e4c6` (`bcdDevice 20.04`, product
+      `2.4G Dongle`, manufacturer `MILE`) and exposes the raw-HID collection at
+      **interface 2** (`/dev/hidraw5`); a `0xA4` pull round-trips
+      (`a4 64 00 00 00 04 01 00 …` = level 100, transport **`0x04`** = 2.4 GHz).
+      See `docs/HARDWARE.md` "The 2.4 GHz dongle" and `docs/DEVICE.md`. **What
+      remains genuinely open is narrower**: a real *battery percentage* has still
+      never been observed over 2.4 GHz (item above), and no **second machine** is
+      available to pair a second host against.
 - [ ] **USB: decide and implement the honesty fix for the fake 100** (defect 1).
       The report must not claim `100%` when the value was never refreshed.
-- [ ] **Bluetooth: probe the transport at all.** Unknown whether the BT link
-      exposes the raw HID collection (`0xFF60`/`0x61`) and whether `*md_getp_bat()`
-      is populated over BT. If raw HID is absent, the BLE Battery Service
-      (`0x180F`/`0x2A19`) fallback in `host/battery_polybar.py` is the path.
+- [ ] **Bluetooth: probe whether the BT link carries INPUT, and whether the raw
+      HID collection / `*md_getp_bat()` are reachable over it.** The transport is
+      no longer "unprobed": the module advertises and pairs/bonds, but its HID
+      GATT server **rejects the notification-enabling (CCC) writes** with ATT
+      `0x0E`, so no input flows (see `docs/HARDWARE.md` "Why a host does not
+      connect", `docs/UX-REQUIREMENTS.md` § 0.7). Open: whether the raw HID
+      collection (`0xFF60`/`0x61`) is exposed over BT and whether
+      `*md_getp_bat()` is populated there. If raw HID is absent, the BLE Battery
+      Service (`0x180F`/`0x2A19`) fallback in `host/battery_polybar.py` is the
+      path.
       Pairing is interactive, so the user must run `bluetoothctl`. **Update
       `docs/PROTOCOL.md`** and `README.md` once known. The upstream-shaped
       `BLUETOOTH_DRIVER = custom` home now exists (`wls/wls_bluetooth.c`), so the
@@ -2251,7 +2270,7 @@ to trim the compiled-in animation list. The remainder stay here.
 - **`QK_BOOT` / `EE_CLR` placement.** `QK_BOOT` sits on the **Fn** layer at the
   Fn-layer top-right corner key (matrix `[10,4]`), **not** on the base layer, and
   `EE_CLR` on the `_RST` layer at the right-half bottom-right corner (matrix
-  `[11,7]`). Reaching `QK_BOOT` takes a held spacebar (Fn) plus that key; `EE_CLR`
+  `[11,8]`). Reaching `QK_BOOT` takes a held spacebar (Fn) plus that key; `EE_CLR`
   takes a held Fn-plus-corner chord plus the opposite half's corner, so no single
   accidental keypress reaches either.
 - **Layers and ergonomics.** `_FL` is reached by holding right Spacebar

@@ -36,16 +36,19 @@ Firmware lives in the `qmk_firmware/` submodule under
 
 ## Before committing
 
-1. Lint the firmware and build all keymaps (from the repo root):
+1. Lint the firmware and build the keymaps you changed (from the repo root):
 
    ```bash
    ./bin/qmk lint -kb epomaker/epomaker_split65 -km default
-   ./bin/make epomaker/epomaker_split65:all
+   ./bin/make epomaker/epomaker_split65:default
+   ./bin/make epomaker/epomaker_split65:nathan
    ```
 
    The submodule holds the vendor `default` keymap plus our board source; the
    `nathan` keymap is in the sibling userspace repo (`../keeb-userspace/`) and
-   `bin/make` supplies the `QMK_USERSPACE` it needs.
+   `bin/make` supplies the `QMK_USERSPACE` it needs. Building every keymap at once
+   (`epomaker/epomaker_split65:all`) is what CI runs on a push; a local check does
+   not need it.
 
 2. Optionally format C to QMK style (vendor code is intentionally left as-is;
    only run this on files you changed):
@@ -54,7 +57,7 @@ Firmware lives in the `qmk_firmware/` submodule under
    ./bin/qmk format-c -n <files>     # -n: check only
    ```
 
-   `qmk format-python` requires `yapf`, which is not installed here; `qmk
+   `qmk format-python` needs `yapf`, which is not installed here, and `qmk
    format-text` has no `-n` (check-only) flag. Do not reformat vendored QMK code
    wholesale — it predates this formatter and such a change would desync us from
    upstream.
@@ -146,15 +149,18 @@ Verified gotchas that cost time if rediscovered. Check here before debugging.
   It is the intended recovery route, but it means a half's persisted state resets
   on every flash done that way. `EE_CLR` is relocated to the hold-only `_RST`
   layer to avoid accidental wipes.
-- **`qmk format-python` needs `yapf`, which is not installed here**, and
-  `qmk format-text` has no `-n` check flag.
 - **Do not run `doas` from an agent context.** An unanswered prompt locks the
   account; `split65.py flash` therefore requires a human.
 
 ## Tests
 
 Firmware unit tests use QMK's GoogleTest harness under `qmk_firmware/tests/` and
-run with `./bin/make test:<group>`. `lib/googletest` is initialized in this
+run with `./bin/make test:<group>`, where `<group>` is the test directory name
+(e.g. `transport_logic`, `wls_diag`, `wls_jump_journal`). `./bin/qmk test-c -t
+<group>` is the equivalent entry point; `-l` lists the groups. **Read the count
+from the run rather than from prose** — the suite grows, and any number written
+into a document is stale the next time a test is added; the harness prints
+`[  PASSED  ] N tests.` at the end. `lib/googletest` is initialized in this
 checkout, so the harness can build; if it is ever missing, restore it with
 `git -C qmk_firmware submodule update --init lib/googletest`. Host-side changes
 should be exercised against

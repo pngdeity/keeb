@@ -50,12 +50,12 @@
 
 | State / Effect | Verdict | Disposition |
 |---|---|---|
-| `active_host` (`host.c:109`) | **SINGLE-OWNER (clean)** — one writer, only on change | ACCEPT (done) |
+| `config.desired_host` (was `active_host`, vendor `host.c:109`; now `quantum/connection/connection.c`) | **SINGLE-OWNER (clean)** — one writer, only on change | ACCEPT (done) |
 | `host_candidates[]`, `w2p4_driver`/`bt_driver` structs | **SINGLE-OWNER (clean)** | ACCEPT (done) |
-| `driver` fallthrough (`host.c:164`) | latent second chooser; upstream contract; not live (no report before first `host_task`) | ACCEPT (upstream) |
-| `connection_set_host` unconditional EEPROM write (`connection.c:80-84`) | upstream idiom; board already uses `_noeeprom` where needed | ACCEPT (upstream) |
+| `driver` fallthrough (vendor `host.c:164`; upstream `quantum/connection/connection.c`) | latent second chooser; upstream contract; not live (no report before first `host_task`) | ACCEPT (upstream) |
+| `connection_set_host` unconditional EEPROM write (`connection.c:79-84`) | upstream idiom; board already uses `_noeeprom` where needed | ACCEPT (upstream) |
 | `connection_host_changed_kb` reads routed state inside a change hook (`:1447`) | board mitigates the upstream "hook skipped on no-op" gap with an explicit `wls_usb_connect()` (`:219`) | ACCEPT (documented mitigation) |
-| `wireless_2p4ghz_task()/init()` | **DONE (fix 11)** — `keyboard.c` now includes `wireless_2p4ghz.h` under `WIRELESS_2P4GHZ_ENABLE` and calls `wireless_2p4ghz_init()` (from `keyboard_init`, mirroring `bluetooth_init()`) and `wireless_2p4ghz_task()` (from `keyboard_task`, mirroring `bluetooth_task()`); both are now `T` in the linked ELF, so the 2.4 GHz contract has a real driven lifecycle | DONE |
+| `wireless_2p4ghz_task()/init()` | **DONE (fix 11)** — `quantum/keyboard.c` calls `wireless_2p4ghz_init()` (from `keyboard_init`, `:547`) and `wireless_2p4ghz_task()` (from `keyboard_task`, `:802`), mirroring `bluetooth_init()`/`bluetooth_task()`; both are `T` in the linked ELF (`wls_2p4ghz.o`). **Note:** the board's own implementations are deliberately empty (`wls/wls_2p4ghz.c:37,39`) — the *lifecycle* is now driven, the 2.4 GHz *contract* is fulfilled by the module path, not by board-side work | DONE |
 | `md_info.state` / `.indicator` | **DONE (fix 6)** — the module now owns the transition: `wireless_devs_change` calls `md_devs_changed()` (module.c) instead of poking `*md_getp_state()`/`*md_getp_indicator()`; no external writer reaches the registers (reads via the accessors remain) | **DONE** |
 | `smsg_instance.state` | **VIOLATION** — decoder sets `replied` (`module.c:158`), send task sets the rest (`module.c:257-276`); no lock | FIX |
 | `lpwr_state` / `lpwr_timestamp` | **VIOLATION** — `md_receive_host_cb` (`lowpower.c:121-133`, UART cadence) writes both alongside `lpwr_task` | **FC/S FIX** |
@@ -306,8 +306,8 @@ indeterminacy must be modelled" concern in its purest form. Remedies:
   `usb_initialized` guard) deleted — the rule now has one owner.
 - **D:** the diagnostic was unreachable exactly when needed (the `0xA4` reply
   needs the line the fault kills), so it gained two exporters: a retained boot
-  report at `KB_BATTERY_IDX_BOOT_REPORT` (17) for the next successful reply, and
-  a host-less LED blink (`wls/boot_blink_logic`, the in-sequence sequencer the
+  report at `KB_BATTERY_IDX_BOOT_CODE` (21) for the next successful reply, and
+  a host-less LED blink (`wls/boot_code_logic`, the in-sequence sequencer the
   concurrent indicator arrays could not provide). Both 7/7.
 
 Tests now **96/96**; build 64,228 B; RAM 20,412/28,672 B (71.2 %, the tighter

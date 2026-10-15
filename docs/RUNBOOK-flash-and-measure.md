@@ -89,7 +89,7 @@ board currently runs `usbguard.bin`
 - The `.ram0` object survives a `NVIC_SystemReset` — *verified from the linker
   script and `crt1.c` (`__init_ram_areas` stops at `no_init_area`) and the ELF's
   own `wls_journal` placement, but not observed on silicon across a real reset*.
-- The `0xA4` reply's bytes 23..34 are carried intact — *the encoder is unit-tested;
+- The `0xA4` reply's bytes 23..31 are carried intact — *the encoder is unit-tested;
   the transport of the wider report is not*.
 - The strong `bootloader_jump()` performs the same jump the weak one did — *the
   body reuses the real `enter_bootloader_mode_if_requested()`, so the jump code is
@@ -113,7 +113,7 @@ board currently runs `usbguard.bin`
 **4. Predicted hardware effect.** After flashing and a normal boot, a
 `python3 host/battery_polybar.py --info` should print
 `JUMP:      no journal (our bootloader_jump has not run since power-on)` — byte 23
-== `0x00`. Pressing the `QK_BOOT` chord (Fn layer, right half `[10,6]`) should,
+== `0x00`. Pressing the `QK_BOOT` chord (Fn layer, right half `[10,4]`) should,
 on the next boot, print `JUMP:      our QK_BOOT ran  gen=1 stage=… code=…
 reset=0x… uptime=… ms` with byte 23 == `0x01`.
 
@@ -238,7 +238,7 @@ cover); the module's own firmware for BT (Layer 0, no dump/update path). The
 driver has no `.send_raw_hid` — so the diag/pin block stays silent on 2.4 GHz and
 must not be read as a fault.
 
-**6. Non-flashing recovery.** § 0.3: `EE_CLR` (hold Fn + `[7,8]`, then `[11,7]`
+**6. Non-flashing recovery.** § 0.3: `EE_CLR` (hold Fn + `[7,8]`, then `[11,8]`
 for 3 s) re-defaults confinfo to USB; the physical switch to USB then power-cycle;
 the spacebar-hole short for DFU. Bootmagic `Esc`-hold is **left-half only** and is
 a last resort (it enters DFU, it does not resume typing).
@@ -305,14 +305,14 @@ transport that types nowhere**.
 
 | Recovery | How | What it does |
 | --- | --- | --- |
-| `EE_CLR` (hold 3 s) | **hold Fn + the top-right corner key** (`[7,8]`, the base `Mute` position) to arm the `_RST` layer, then — still holding — press the **right half's bottom-right corner** (`[11,7]`, the base `Right` position) and hold 3 s | wipes EEPROM → confinfo re-defaults → back to USB |
+| `EE_CLR` (hold 3 s) | **hold Fn + the top-right corner key** (`[7,8]`, the base `Mute` position) to arm the `_RST` layer, then — still holding — press the **right half's bottom-right corner** (`[11,8]`, the base `Right` position) and hold 3 s | wipes EEPROM → confinfo re-defaults → back to USB |
 | Physical mode switch → USB | flip to the USB position, then **power-cycle** | the switch is only level-authoritative **at boot** on this build's switch-edge path; a flip *after* boot also works via the fixed switch-edge code, but a power cycle is the certain form |
 | Spacebar-hole short | `docs/HARDWARE.md` | DFU, for reflashing |
 
 **The arming key is not optional.** Fn alone reaches `_FL`, whose bottom-right
 corner is `Home` — harmless, but not the reset. `EE_CLR` lives on `_RST`, which
 is reachable *only* by holding `[7,8]` with Fn. Both corners are involved:
-`[7,8]` arms, `[11,7]` fires. Sources: the `nathan` keymap's `keymap.md` §5;
+`[7,8]` arms, `[11,8]` fires. Sources: the `nathan` keymap's `keymap.md` §5;
 `wls/wls_keymap.c` (`EE_CLR` arms `wls_ee_clr_timer` on press, clears on
 release); `epomaker_split65.c` (`timer_elapsed32(...) > 3000` →
 `wls_reset_settings(WLS_RESET_CAUSE_LOCAL)`); `wls/wls_eeprom.c`
@@ -394,7 +394,7 @@ python3 host/battery_polybar.py --info
 
 | Field | Value | Why |
 | --- | --- | --- |
-| `battery` `transport` | `USB` | switch position USB → `hs_mode_switch_pos()` → `apply_switch_transport()` |
+| `battery` `transport` | `USB` | switch position USB → `hs_mode_switch_pos()` → the transport owner (`wls_transport_decide()` / `hsm_input_rule()`) |
 | `host(raw)` | `2` (USB) | `hsm_host_of_devs(DEVS_USB)` = USB. Raw `connection_host_t` USB = 2 (`HOST_NAMES` in `host/battery_polybar.py`) |
 | `DIAG: switch=` | `1` (USB) | `hsm_switch_pos_t` USB = 1 |
 | `DIAG: devs=` | `0` | `DEVS_USB` = 0 |
@@ -521,7 +521,7 @@ drops the line. It was never root-caused; the original bisect found no
 behavioral delta, so the cause is environmental (EEPROM), hardware, or an
 undiffed path.
 
-**The instrument:** the `wls_diag` block on the `0xA4` reply at byte 11. Its six
+**The instrument:** the `wls_diag` block on the `0xA4` reply at byte 11. Its ten
 bytes are, in order (`wls/diag_logic.h`):
 
 | Byte | Field | Meaning |
@@ -532,6 +532,10 @@ bytes are, in order (`wls/diag_logic.h`):
 | 14 | `boot_count` | increments once per MCU boot |
 | 15 | `usb_line` | 1 if the USB data line is connected |
 | 16 | `link_state` | module `MD_STATE_*` (`0` NONE `1` PAIRING `2` CONNECTED `3` DISCONNECTED `4` REJECT) |
+| 17 | `pin_c14` | raw `HS_BT_DEF_PIN` level (audits `switch_pos`) |
+| 18 | `pin_c15` | raw `HS_2G4_DEF_PIN` level (audits `switch_pos`) |
+| 19 | `pin_b9` | raw cable-detect (`SPLIT_HAND_PIN`) level |
+| 20 | `reset_cause` | MCU latched `RCC->RSTSTAT` bits, consumed once at boot |
 
 **The disambiguation the old investigation lacked** — read the diag block
 *immediately after a detach*:
@@ -631,8 +635,8 @@ rule.
 
 | Expectation | Source of truth |
 | --- | --- |
-| 0xA4 byte indices (level 1, charge 4, transport 5, model 6, host 7, btsub 8, md_ver 9, md_state 10, **diag 11..16**) | `wls/wls.h` `KB_BATTERY_IDX_*` |
-| 6-byte diag layout | `wls/diag_logic.h` `wls_diag_t` |
+| 0xA4 byte indices (level 1, charge 4, transport 5, model 6, host 7, btsub 8, md_ver 9, md_state 10, **diag 11..20**) | `wls/wls.h` `KB_BATTERY_IDX_*` |
+| 10-byte diag layout | `wls/diag_logic.h` `wls_diag_t` |
 | `transport` byte: `0x01` USB, `0x02` BT, `0x04` 2.4G | `wls/wls.h` `KB_BATTERY_TRANSPORT_*` |
 | `switch_pos` 0/1/2/3 = UNKNOWN/USB/BT/2.4G | `wls/diag_logic.h` comment; `WLS_SWITCH_NAMES` in `battery_polybar.py` |
 | charge 0/1/2 = discharging/charging/full | `CHARGE_NAMES` in `battery_polybar.py` |

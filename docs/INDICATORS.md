@@ -63,7 +63,7 @@ are unambiguous — a **pulse** is lit then dark for the same time
 (`WLS_BOOT_CODE_PULSE_MS`), the **intra-code gap** between the amber and white
 groups is longer (`WLS_BOOT_CODE_GROUP_GAP_MS`), and the **inter-frame pause**
 after the white group is longer still (`WLS_BOOT_CODE_FRAME_GAP_MS`). Cite the
-constants in `wls/wls/boot_code_logic.h` for their values; do not copy numbers
+constants in `wls/boot_code_logic.h` for their values; do not copy numbers
 into prose, where they drift.
 
 The code **repeats** until a keypress dismisses it or a timeout expires, so a
@@ -96,7 +96,7 @@ got to, or stopped). **White = the code within that stage** (the specific fault)
 The stage partition is fixed; **the white-code assignments inside each stage are
 deliberately revisitable** — the vocabulary is expected to change as the boot
 path is re-engineered, and adding a stage or a code must not require touching the
-sequencer. The stages (`WLS_BOOT_STAGE_*` in `wls/wls/boot_code_logic.h`):
+sequencer. The stages (`WLS_BOOT_STAGE_*` in `wls/boot_code_logic.h`):
 
 | Amber | Stage | Meaning |
 | --- | --- | --- |
