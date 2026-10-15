@@ -842,7 +842,7 @@ must not be read as requirement work. `H-n` is a horizon requirement.
 | A5 | USB self-detach: confirm the fix on hardware, read the `BOOT:` line and the boot LED code | **X-7** | flash | `## Outstanding verification`; defect 8 |
 | A6 | Right-half keypress wake (defect 2) — **promoted 2026-10-14**, no longer "deferred" | **X-13**, **X-22** | a drained pack (or a scratch-build threshold bump) | defect 2 |
 | A7 | `X-30` — stop flattening `HSM_LINK_REJECT` to `NONE`/`PAIRING`; "rejected" and "not connected" need opposite user actions | **X-2** | **SOURCE DONE 2026-10-15** — core + shell landed (submodule `5819516`), `transport_logic` 43/43; needs a flash to see | defect 4 (BT keycode hijack); `## Open-item re-audit` |
-| A8 | `X-7` — minimum-brightness floor (Fn-layer encoder `RM_VALD`/`RM_VALU`, `RGB_MATRIX_VAL_STEP` 30, ~4 CCW clicks → 0 → board looks dead; the dark-board scare) | **X-7** | nothing — no hardware | `## User experience / usability review` |
+| A8 | `X-7` — minimum-brightness floor (Fn-layer encoder `RM_VALD`/`RM_VALU`, `RGB_MATRIX_VAL_STEP` 30, **five** CCW clicks → 0 → board looks dead; the dark-board scare) | **X-7** | **SOURCE DONE 2026-10-15** — floor refused in `wls_rgb_key_decide()` (`WLS_RGB_VAL_FLOOR`), key consumed; `rgb_key_logic` 10/10; needs a flash to feel | `## User experience / usability review` |
 | A9 | `X-20`/`X-21` surfacing — BT4/BT5 names and keycodes (core already handles BT1..5; derivation § 0.10) | **X-20**, **X-21** | nothing — no hardware | `## User experience / usability review` |
 | A10 | Charging/battery LED placement (master-only, opposite half from the battery, invisible at brightness 0) | **X-5** | a decision | `## User experience / usability review` |
 | A11 | `KC_BATQ` value (disabled on USB, blinks only ≤15%) | **X-5** | a decision | `## User experience / usability review` |
@@ -2324,14 +2324,16 @@ LED placement is **X-5**.
   readback completes over 2.4 GHz** — both are owed measurements. Also: **our board
   binds `KC_2G4` to `Fn+5` where the vendor documents `Fn+R`** — a deliberate
   divergence, but a guest would reach for `Fn+R`.
-- **Minimum-brightness floor (added 2026-10-14).** The Fn-layer encoder is
+- **Minimum-brightness floor — FIXED 2026-10-15 (X-7).** The Fn-layer encoder is
   `RM_VALD`/`RM_VALU` and `RGB_MATRIX_VAL_STEP` is 30 against a default of 128, so
-  ~4 accidental CCW clicks take the backlight to 0 — after which the board looks
-  dead (the rail follows the value off by design) until `RM_VALU` or a replug.
-  Consider flooring the brightness so it cannot rest at 0 without an explicit
-  toggle, and/or making the off state visibly distinct from "keyboard broken".
-  Found while investigating the 2026-10-14 dark board (`docs/HARDWARE.md` "Both
-  halves went dark on Bluetooth"): that fault was **this**, not a defect.
+  **five** accidental CCW clicks take the backlight to 0 (128→98→68→38→8→0; four
+  leaves it at 8, still lit) — after which the board looks dead (the rail follows
+  the value off by design) until `RM_VALU` or a replug. The floor is now enforced
+  in the pure `wls_rgb_key_decide()`: at or below `WLS_RGB_VAL_FLOOR` the value-down
+  key is **refused** (the record is consumed, so upstream's decrement never runs),
+  so the value cannot rest at 0 while the board is alive. Found while investigating
+  the 2026-10-14 dark board (`docs/HARDWARE.md` "Both halves went dark on
+  Bluetooth"): that fault was **this**, not a defect.
 
 The mappings and indicators are inherited from the vendor and were designed for
 the stock firmware; they have never been reviewed against how this keyboard is
