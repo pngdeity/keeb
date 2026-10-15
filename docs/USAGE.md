@@ -171,7 +171,7 @@ separated so a single fumble cannot hit both.
 > among BT1..5. The physical switch is authoritative: see
 > `wls/transport_logic.c` `hsm_input_rule()`. So flipping the switch to USB
 > recovers a stuck wireless session — the cable is a *power* fact and never
-> forces USB (engineering requirement 2).
+> forces USB (engineering mode 2, serving `docs/UX-REQUIREMENTS.md` X-20).
 >
 > There is one case where nothing in the firmware can type: a wireless mode whose
 > link is not up, with no cable. The board is then alive and correctly on the

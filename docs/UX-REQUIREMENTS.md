@@ -1,11 +1,13 @@
 # UX requirements — what a person must be able to infer from the keyboard
 
-Up to now this project has had only **engineering** requirements: a power-only
-cable must not force USB (requirement 2), a real enumerating host wins
-(requirement 3). Those are correct and they are not user outcomes. This document
-states the **user-facing** requirements: what the keyboard owes a person at the
-desk, in what they can see and do, and what a reasonable person should be able to
-infer from the board without reading any of our documentation.
+Up to now this project has organized itself around **engineering** requirements:
+a power-only cable must not force USB (mode 2), a real enumerating host wins
+(mode 3). Those are correct, but they are not user outcomes — and per § 1.5 they
+are **derived from** the user-facing requirements, not a layer beside them. This
+document states the **user-facing** requirements: what the keyboard owes a person
+at the desk, in what they can see and do, and what a reasonable person should be
+able to infer from the board without reading any of our documentation. **Every
+engineering requirement is downstream of this document.**
 
 It is a **requirements** document, not a description. What the keyboard does
 *today* is in `docs/USAGE.md`; what the LEDs mean *as a debugging instrument* is in
@@ -309,11 +311,12 @@ resolution.
 
 ### 1.2 What each circumstance proves
 
-- **Circumstance 2 *is* engineering requirement 2, measured from the user side.**
+- **Circumstance 2 *is* engineering mode 2, measured from the user side.**
   "Charge through a brick while using it wirelessly" is exactly "a power-only cable
-  must not force USB". The engineering requirement and a real user's stated need
-  are the same requirement — the first place this document has a *user* behind a
-  rule rather than a derivation.
+  must not force USB". The engineering mode and a real user's stated need are the
+  same requirement — **the user statement is the parent, the engineering statement
+  the derivation** (§ 1.5) — and this is the first place the document has a *user*
+  behind a rule rather than a derivation.
 - **Circumstances 3 and 4 are the same requirement in two dresses**: connect, with
   no cable and no fuss, **now**.
 - **Circumstance 4 is the harder bar of the two**, because the person typing is
@@ -373,6 +376,40 @@ contradiction, and the first draft collapsed them into one.
 **Secondary audience (the 20%):** the owner when debugging (the `0xA4` host
 readback, `docs/INDICATORS.md`) and anyone reading this repo. Served by the
 instrument contract; must not shape the primary experience.
+
+### 1.5 The three usage modes, subsumed
+
+The three modes this project was originally organized around — (1) wireless while
+discharging, (2) wireless while charging, (3) USB while charging — are **not a
+requirement layer beside this one.** They are the *engineering* form of the user
+requirements above, and they are **derived from them, not the reverse**. They were
+the project's early goalposts, written before the board was usable over USB, and
+they are subsumed here so there is one requirements set and one direction of
+derivation:
+
+```
+user experience  →  requirement (X-n)  →  interface  →  implementation
+```
+
+An engineering requirement has **no independent authority**: it can be wrong only
+by failing to serve its user-facing parent. The mapping, stated so the modes stay
+recoverable from the requirements rather than asserted alongside them:
+
+| Usage mode | User-facing parent | Why it is the same requirement |
+|---|---|---|
+| 1. Wireless while discharging | **X-20**, **X-24**, **X-25** | "serves the host the person chose, and stays there" — no cable involved. |
+| 2. Wireless while charging | **X-20** (§ 1.2: circumstance 2 *is* this mode) | the person charges from a brick and keeps typing on the laptop; a power-only cable must not force USB. |
+| 3. USB while charging | **X-4**, **X-20** | the switch's USB position is the person's stated intent, and USB is one of the hosts X-20 makes readable. |
+
+Two consequences follow, and both are re-derivations rather than new policy:
+
+- **`README.md` and `docs/FINDINGS.md` frame these as the top-level requirements.**
+  They are the implementation's shape, not the project's end. They stay documented
+  (the transport work needs them in engineering terms), but they are referenced
+  *from here*, not the other way round.
+- **`TODO.md`'s Tier 1 states them as goals.** Under this derivation a Tier-1 item
+  is an *implementation* step serving an X-n; when it is re-stated it must cite its
+  parent, and it can only be "done" when the parent's observation shows.
 
 ---
 

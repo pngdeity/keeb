@@ -722,7 +722,7 @@ It is harmless and may stay, but do not treat it as a fix for anything.
   Ancestors: `kb_battery_snapshot_t` + `kb_battery_snapshot()` made the battery
   read atomic (the value now comes from upstream `quantum/battery`), and the
   cable-transport arbiter `hs_transport_arbitrate_cable()` was gutted to a no-op
-  for functional requirement 2 and later **deleted** (fix 7) along with its
+  for engineering mode 2 and later **deleted** (fix 7) along with its
   dead argument plumbing. Both keymaps build clean; CI green. The larger
   board-API layering (replace the
   `lower_sleep`/`charging_state`/`bat_full_flag` externs) is deliberately
@@ -807,7 +807,31 @@ Three bodies of code exist here, and they do **not** have equal weight:
 Ordered by what unblocks what. Rationale and detail for each item follow in the
 sections below.
 
-**Tier 0 — blockers / one-way doors (do first, cheap, affect everything after):**
+> **Authority.** The governing requirements are user-facing
+> (`docs/UX-REQUIREMENTS.md`); the engineering modes are **derived from** them
+> (§ 1.5). So this order is not "which engineering goal first" — it is **which
+> requirement is most-failing or most cheaply falsifiable**, with capability work
+> (test harness, re-base, shell/core review) in a **separate lane** ordered by
+> leverage, not by tier. See **"Open-item re-audit against the new authority"**
+> at the end of this file for the item-by-item re-reading, and for why defect 2
+> is promoted from "deferred" to a first-class form of X-13.
+>
+> **Two lanes.** Read the tiers below as two separate lanes, not one ladder:
+>
+> - **Lane A — requirement-serving** (Tiers 0–2, and defects 1–8): each item
+>   serves an X-n, and is ordered by *which requirement is most-failing or most
+>   cheaply falsifiable*. This is where the deliverable lives.
+> - **Lane B — engineering capability** (Tier 3, `## Re-base`, the shell/core
+>   review): no X-n parent and correctly so. These make future work cheaper or
+>   make claims checkable; they are ordered by **leverage**, not by tier. They
+>   must not be interleaved with Lane A as if they were requirement work.
+>
+> The tiers below are unchanged in content; the re-audit section at the end of
+> this file gives the item-by-item parent and re-timing. The one item whose
+> *position* moved is defect 2 (deferred → first-class X-13).
+
+**Tier 0 — prerequisites and one-way doors (Lane B for item 1, Lane A for 2–3 —
+do first because everything after lands on them):**
 
 1. **Re-base onto current upstream QMK (`qmk/qmk_firmware` master).** Promoted
    from Tier 4 on the strength of the completed spike: the port is proven
@@ -856,7 +880,8 @@ sections below.
     `hs_transport_arbitrate_cable()` is now a no-op: "a cable is present" no
     longer means "switch to USB". Mode selection belongs solely to the physical
     mode switch (`hs_modeio_detection()` already owns it). This implements
-    requirement 2 in source; hardware behaviour is still unverified.
+    engineering mode 2 (`docs/UX-REQUIREMENTS.md` X-20) in source; hardware
+    behaviour is still unverified.
 
 **Tier 1 — the deliverable (the project exists for this):**
 
@@ -869,7 +894,7 @@ sections below.
 7. **Decide and implement the honesty fix for the fake 100** (defect 1).
    Depends on 5 — you need to know what a real reading looks like before choosing
    how to represent "unknown".
-8. **Wireless while charging (requirement 2).** ~~Disable the cable-insert
+8. **Wireless while charging (engineering mode 2, serving X-20).** ~~Disable the cable-insert
    auto-switch in `housekeeping_task_user()`~~ **SOURCE DONE** — the
    cable-insert auto-switch (`hs_transport_arbitrate_cable()`) is now a no-op
    (Tier 0 item 3 pass). **A SECOND cable consumer was found and removed
@@ -1417,6 +1442,15 @@ old plan named for the sentinel no longer exists; the value is now upstream
 
 ### 2. The right (slave) half cannot be woken by its own keys
 
+> **Promoted 2026-10-14 (open-item re-audit).** This was deferred as ergonomics.
+> Under the new authority it is a first-class form of **X-13** ("from either half,
+> both halves are shown alive and linked"): a half that cannot be woken by its own
+> keys is a split-state failure, and its dark half is exactly what X-14 requires be
+> attributable. It is also **X-22**'s subject (a half that sleeps mid-session
+> cannot keep an unattended link legible). It still needs a flash, so it rides the
+> Tier-1 batch rather than moving ahead of the hardware session — but it is no
+> longer "low priority".
+
 **Addressed in the board-local deep-sleep fix** (plan 3.1;
 `keyboards/epomaker/epomaker_split65/wireless/lpwr_wb32.c`). The original defects,
 for the record:
@@ -1708,7 +1742,7 @@ no `0xCC` to follow, so its rail stayed off.
 `hs_transport_arbitrate_cable()` a no-op. Previously it forced the master's
 transport to match the cable every housekeeping tick, which kept the master out
 of the wireless low-power path while cabled, so `0xBB` never fired. Removing it
-(pre-req for requirement 2) let the master sleep while cabled. Stock firmware had
+(pre-req for engineering mode 2) let the master sleep while cabled. Stock firmware had
 the arbitrator; ours stopped calling it.
 
 **Fix.** Gate both sends on `wireless_get_current_devs() != DEVS_USB`
@@ -2190,7 +2224,7 @@ LED placement is **X-5**.
   `DEVCTRL_PAIR` into five slots and `DEVCTRL_CLEAN` to reclaim), **X-22** (a
   presentation session must survive unattended), and **X-23** (the board must be
   legible to a first-time reader — the guest case). Circumstance 2 *is* engineering
-  requirement 2, now measured from the user side. **The board already handles BT1..5
+  mode 2, now measured from the user side. **The board already handles BT1..5
   in its core (`hsm_devs_is_bt`, `wls_indicator.c` renders BT4/BT5); the limit is
   purely in the board's surfacing — three keycodes and three names — so X-20/X-21
   are a surfacing change, not a protocol one.**
@@ -2481,8 +2515,9 @@ leave the device in a state only a reflash clears.
   update `docs/INDICATORS.md` §2 and the `boot instrument` FINDING in
   `docs/FINDINGS.md` in the same commit.
 
-- **Wireless while charging (requirement 2)** — now first-class, see `## Priority
-  order` item 8 and `docs/FINDINGS.md` "Functional requirements". Verdict to be
+- **Wireless while charging (engineering mode 2, serving `docs/UX-REQUIREMENTS.md`
+  X-20)** — now first-class, see `## Priority order` item 8 and
+  `docs/FINDINGS.md` "Usage modes (derived)". Verdict to be
   recorded in `docs/HARDWARE.md`.
 
 - Firmware unit tests for the board-local pure helpers (`kb_battery_charge`,
@@ -2681,3 +2716,68 @@ detect) are described in that commit. What follows is what the review left open.
 - **The lesson from the CI guard** that read `md_raw.h`: a guard coupled to a
   file it does not own fails silently-wrong. `bin/guard-invariants` asserts
   structure, not line numbers — keep it that way.
+
+---
+
+## Open-item re-audit against the new authority (2026-10-14)
+
+The items above were written while **engineering requirements were the top-level
+authority** — the board must do X, so fix X. That authority has been inverted
+(`docs/UX-REQUIREMENTS.md` § 1.5): the user experience governs, requirements are
+derived from it, and an engineering item has no independent authority — it can be
+wrong only by failing to serve its user-facing parent. So each open item below is
+re-read for **three things**: does it have an X-n parent; is its *timing* still
+right once the parent is what sets priority; and is its *justification* still the
+reason to do it. The items are not being re-litigated on their merits — most are
+real defects in real code — only on **when** and **why**.
+
+**Parented — real, and now ordered by their parent's severity, not by their own:**
+
+| Item | Parent | Re-timed note |
+|---|---|---|
+| Defect 1 (USB report always `100`) | **H-1**, **X-5** | honesty; already Tier 1 item 7. No change. |
+| Defect 2 (right half cannot be woken by its own keys) | **X-13**, **X-22** | a dark/unsleepable half is X-13's exact subject; **promote** — it is not "deferred", it is the split-state requirement. |
+| Defect 4 (BT keycode hijack) | **X-24**, **X-25** | "returns to the last host, or says so" — X-25 is the requirement the *recovery path* must be findable under (X-6). Fix is in; confirmation still owed. |
+| Defect 5 (switch edge writes half the choice) | **X-3**, **X-4** | the switch is a mode and its consequence must show — this is X-4's failure. |
+| Defect 6 (non-connected channel blinks forever) | **X-1**, **X-2** | an unbounded "connecting…" is X-1's named anti-pattern (`"an indefinite connecting… with no end is worse than an honest failure"`). |
+| Defect 7 (NKRO one byte past bitmap) | **X-1** | a defect that can drop/corrupt a keystroke is an input-integrity failure under X-1's "carrying input". |
+| Defect 8 (USB self-detach at boot) | **X-7** | a board that tears its own line down presents as dead — the founding requirement. |
+| X-30 (`REJECT` flattened) | **X-2** (explicit) | already parented in its own entry. |
+| Minimum-brightness floor | **X-7** (explicit) | already parented. |
+| Charging/battery LED placement | **X-5** (explicit) | already parented. |
+
+**Unparented — the re-audit's real finding.** These carry no X-n, and under the
+new authority that is a *defect in the item*, not a gap to be tolerated: either
+it serves a requirement and must name it, or it is work with no user-facing end
+and must say what it is for.
+
+- **The three usage modes as a priority frame** — now **derived** (§ 1.5), not a
+  frame. Re-timed: Tier 1 item 8 stops being "requirement 2's implementation" and
+  becomes "the observation that X-20 holds with a cable attached". The *work* is
+  unchanged; the *reason it is first* is now "it is the cheapest falsifier of the
+  most-used requirement", not "it is requirement 2".
+- **Tier 3 items 10, 10b, 10c, 11, 11b, 12b, 12c** (unit tests, spec harness,
+  suite efficiency, key-based DFU, FCC filings, schematic mining, BLE
+  reverse-engineering) — **no parent, and correctly so.** They are *capability*
+  and *robustness* work: they make future work cheaper or make claims
+  checkable. That is a legitimate category, but it is **not** requirement-serving
+  and must not be ranked as if it were. State it as "engineering capability" and
+  order it by leverage, not by tier.
+- **Tier 0 item 1 (re-base onto upstream)** — no user parent; it is a
+  maintainability one-way door. Legitimate, same category, and correctly ranked
+  first *because it is a one-way door*, not because a user needs it.
+- **The shell/core balance review** — no parent; it is the *fidelity mechanism*
+  for every requirement (a policy in the shell is untestable, so the requirement
+  cannot be shown to hold). Parent it to **X-19** (verification): it is what makes
+  the heuristic evaluation mechanisable.
+- **`KC_BATQ` nearly useless** — **X-5**; it is the charge readout, and its
+  uselessness is a rendering gap, not a keymap one.
+- **Boot-code vocabulary open** — **§ 8** (deliberately not user-facing); already
+  parented by its exclusion.
+
+**Re-timed, not re-scoped.** Nothing above is deleted. The change is that the
+priority order should now be read as **"which requirement is most-failing or
+most-cheaply-falsifiable"**, with capability work (Tier 3, re-base, shell/core)
+in a separate lane ordered by leverage. The one item whose *position* genuinely
+moves is **defect 2**, which the old ordering deferred as ergonomics and which the
+authority inversion promotes to a first-class form of **X-13**.

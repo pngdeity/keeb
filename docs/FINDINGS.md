@@ -10,14 +10,14 @@ change depends on. What the device is is in `DEVICE.md`; measured hardware facts
 live in `HARDWARE.md`; the wire format is `PROTOCOL.md`; live status and open
 work are in `TODO.md`.
 
-> **Reading order.** `Functional requirements` → `Goal` → `Hardware / firmware
+> **Reading order.** `Usage modes (derived)` → `Goal` → `Hardware / firmware
 > base` are the frame. The `FINDING —` sections are self-contained; each states
 > one conclusion and the evidence for it. `Design`, `Build facts` and
 > `Dongle recon` are reference, not findings. Skip by heading.
 
 ## Contents
 
-- Functional requirements · Goal · Hardware / firmware base — the frame.
+- Usage modes (derived) · Goal · Hardware / firmware base — the frame.
 - **Findings**: the vendor fork is shallow (re-base is a replay) · the battery
   value already exists in firmware · raw HID is already bridged over the dongle ·
   the wireless stack is shared · the deep-sleep `PRE_LP()`/`POST_LP()` blobs ·
@@ -42,41 +42,43 @@ work are in `TODO.md`.
 - Design · Build facts · Dongle recon — reference.
 - Open questions tied to these findings.
 
-## Functional requirements
+## Usage modes (derived)
 
-**These are the *engineering* requirements** — the transport behaviours the
-firmware must have, in priority order. They are the end the battery reporting
-described below serves; they are not user outcomes. **The *user-facing*
-requirements — what a person must be able to infer from the keyboard, and the
-method that derived them — are `docs/UX-REQUIREMENTS.md`.** The distinction is
-deliberate: these three say what the board must *do*; that document says what the
-person must be able to *see and act on*. The 2026-10-14 dark board satisfied all
-three of these and still presented a dead keyboard, which is why both sets are
-needed.
+**These are *engineering* modes — the transport behaviours the firmware must have,
+in priority order — and they are *derived from* the user-facing requirements in
+`docs/UX-REQUIREMENTS.md` § 1.5, not a layer beside them.** The user-facing
+requirements (what a person must be able to infer from the keyboard, and the
+method that derived them) are the parent; these modes are their engineering form.
+An engineering mode has no independent authority — it can be wrong only by failing
+to serve its user-facing parent, and each mode below names the X-n it serves. The
+2026-10-14 dark board satisfied all three modes and still presented a dead
+keyboard, which is why the user-facing set is the one that governs.
 
-1. **Wireless while discharging.** Both halves operate on a wireless transport
-   (2.4 GHz or Bluetooth) with no cable attached.
-2. **Wireless while charging.** Both halves operate on a wireless transport
+1. **Wireless while discharging** — serves **X-20**, **X-24**. Both halves
+   operate on a wireless transport (2.4 GHz or Bluetooth) with no cable attached.
+2. **Wireless while charging** — serves **X-20** (§ 1.2: this mode *is* the
+   library-laptop circumstance). Both halves operate on a wireless transport
    while a cable supplies charge (to the battery-bearing left half; see
    `HARDWARE.md` "Batteries").
-3. **USB while charging.** Both halves operate over USB-C with a cable attached.
+3. **USB while charging** — serves **X-4**, **X-20**. Both halves operate over
+   USB-C with a cable attached.
 
-**Why requirement 2 exists.** A cable that only *powers* the keyboard — a wall
+**Why mode 2 exists.** A cable that only *powers* the keyboard — a wall
 charger, a power bank, a USB hub's charging port — must not change the transport:
 the board should keep typing over its wireless link while charge comes from the
 cable. So "a cable is present" must not by itself mean "switch to USB".
 
-**Wording corrected 2026-10-14.** This requirement previously read "charge from an
+**Wording corrected 2026-10-14.** This mode previously read "charge from an
 external PSU while connecting to a *different, power-limited host* (e.g. a phone
 or tablet)". That is not realisable and was wrong: there is ONE USB-C port, and
 a phone is a real USB host that enumerates exactly as a PC does. On a single port
 the board cannot distinguish "a phone supplying charge" from "a PC", so
 "a real host on the cable" and "a power-only supply on the cable" cannot be told
-apart by any means available to the firmware. Requirement 2 therefore means what
+apart by any means available to the firmware. Mode 2 therefore means what
 is implementable and was always the intent: **a power-only cable must not force
 USB; the switch stays authoritative; a real enumerating host still wins.** (A
 phone attached as a host is precisely the "real host" case and correctly takes
-USB — it is requirement 3.) The rule is `hsm_input_rule` in
+USB — it is mode 3.) The rule is `hsm_input_rule` in
 `wls/transport_logic.{c,h}`: the cable is a *power* fact and reaches no transport
 decision at all.
 
@@ -88,7 +90,7 @@ committed transport is not USB, this is expected — keystrokes and the report p
 go to the module, not the host"). The USB peripheral remains enumerated, so the
 board charges. **The pre-reform build measurably did the opposite** — `switch=3
 (2.4G)` with `host(raw)=2 (USB)`, the cable forcing USB and stranding the radio.
-This is the reading that closes requirement 2; § 7's falsifier did not fire.
+This is the reading that closes mode 2; § 7's falsifier did not fire.
 
 Note the limit of this evidence: `host(raw)=4` **cannot be read directly** in this
 state (the `0xA4` reply is unreachable while the transport is not USB — the
@@ -98,7 +100,7 @@ enumerated" rather than a positive field read. The discriminating test is that i
 
 **Accepted tradeoff.** The firmware's cable-insert auto-switch (in
 `housekeeping_task_user()`) forced `DEVS_USB` when a cable appeared, which would
-defeat requirement 2. Removing it is sanctioned: the keyboard has a physical
+defeat mode 2. Removing it is sanctioned: the keyboard has a physical
 mode switch, so mode selection can belong to the switch alone. `hs_modeio_detection()`
 already forces `DEVS_USB` when the switch is in the USB position, and
 `wls_process_long_press()` already makes `KC_BT*`/`KC_2G4` no-ops unless the
@@ -347,7 +349,7 @@ The reply handler (`MD_REV_CMD_BATVOL`, `module.c:232-233`) is transport-agnosti
 So **Bluetooth populates `md_info.bat` exactly as 2.4 GHz would** — which makes BT
 a **dongle-free substitute** for the blocked 2.4 GHz tests: the real battery
 percentage (and the ground truth defect 1's honesty fix needs), the real
-transport field, and requirement 2. The raw-HID tunnel is likewise
+transport field, and mode 2. The raw-HID tunnel is likewise
 transport-agnostic (the send path rides upstream `host_raw_hid_send()`, so
 `md_send_raw()` is used whenever the transport is not USB). Caveat: the module is the single radio for
 both 2.4 GHz and BT, so a BT *failure* would be ambiguous (module vs host), but a
@@ -581,8 +583,8 @@ vendor stack (so upstream divergence stays a one-file diff):
 - **Transport arbiter is now a no-op.** `hs_transport_arbitrate_cable()` used to
   own the cable insert/remove policy (switch to USB on insert; restore
   `confinfo.last_wireless_devs` on remove). It was deliberately gutted to a
-  `return false;` stub so a cable no longer forces USB, which is what functional
-  requirement 2 needs: mode selection now belongs solely to the physical switch
+  `return false;` stub so a cable no longer forces USB, which is what engineering
+  mode 2 needs: mode selection now belongs solely to the physical switch
   (`hs_modeio_detection()` in `wls/wls.c`). Both `housekeeping_task_user` and
   `lpwr_wakeup_hook` still call it, so the two paths stay in one place.
 - **Atomic battery snapshot.** `kb_battery_snapshot_t` + `kb_battery_snapshot()`

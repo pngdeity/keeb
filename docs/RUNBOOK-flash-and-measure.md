@@ -184,7 +184,7 @@ over USB.
   all) but **never hardware-confirmed**. Note it was **falsified** on the
   pre-reform build: the old `hsm_switch_apply_with_cable` forced USB on any cable
   read, and the board measurably went to USB with `switch=3 (2.4G)`
-  (`host(raw)=2`). See `docs/FINDINGS.md` requirement 2 and `TODO.md`.
+  (`host(raw)=2`). See `docs/FINDINGS.md` engineering mode 2 and `TODO.md`.
 
 **3. The four review questions.**
 - *Does any effect feed back into its own trigger?* **No new feedback loop is
@@ -224,7 +224,8 @@ over USB.
   that is the result: `INQVOL` is never answered on this module revision.
 - *Cable in, switch on 2.4 GHz:* the board **stays wireless** (does not switch to
   USB) and the level keeps updating; `charge` reads `1` then `2` as it tops.
-  *(This is requirement 2, and it is the reading that falsified the old build.)*
+  *(This is engineering mode 2, serving X-20, and it is the reading that
+  falsified the old build.)*
 - *Runtime BT→USB switch edge (Test C):* with the switch on BT and no host, flip
   to USB **without power-cycling** and type — **it types over USB**, `--info`
   shows `transport=USB`, `usb_line=1`. This is the single highest-value check and
@@ -251,7 +252,7 @@ cable is inserted with the switch on 2.4 GHz* ⇒ **this has already fired once*
 (against the pre-reform build: `hsm_switch_apply_with_cable` forced USB on any
 cable read, measured as `switch=3 (2.4G)` with `host(raw)=2`). It is what the
 reform fixes; if it fires again on the new build, the cable still reaches the
-transport decision by some path not yet found, and requirement 2 is unmet. *A
+transport decision by some path not yet found, and engineering mode 2 is unmet. *A
 `(N, 5)` reading
 with `N != 7` and a plausible stage* ⇒ the boot-code counts disagree with the
 source, reopening the instrument question with the walk's fixes in place. *The

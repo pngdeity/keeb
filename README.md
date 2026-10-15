@@ -2,13 +2,15 @@
 
 EPOMAKER Split65 wireless (tri-mode) keyboard firmware and host tooling.
 
-The firmware must support three usage modes, in priority order: the whole
-keyboard wireless while discharging; wireless while charging (an external PSU
-charges it while a separate, power-limited host uses it for input); and wired
-over USB while charging. See `docs/FINDINGS.md` "Functional
-requirements" for the rationale and the accepted tradeoffs. **Mode 2 is fixed in
-source**: the cable is a power fact and reaches no transport decision — the
-switch is authoritative (`wls/transport_logic.c`, `hsm_input_rule`). The
+The governing requirements are **user-facing** and live in
+`docs/UX-REQUIREMENTS.md`: what a person must be able to infer from the keyboard.
+The firmware's **engineering** usage modes — the whole keyboard wireless while
+discharging; wireless while charging (a power brick charges it while a
+power-limited host uses it for input); and wired over USB while charging — are
+**derived from** those requirements, not a layer beside them (`docs/FINDINGS.md`
+"Usage modes (derived)"; the mapping is `docs/UX-REQUIREMENTS.md` § 1.5). **Mode 2
+is fixed in source**: the cable is a power fact and reaches no transport decision —
+the switch is authoritative (`wls/transport_logic.c`, `hsm_input_rule`). The
 remaining work is a hardware confirmation, not a code change (`TODO.md` Tier 1
 item 8).
 
