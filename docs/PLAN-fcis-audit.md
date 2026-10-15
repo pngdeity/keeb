@@ -1,6 +1,13 @@
 # Plan: the FC/IS audit, then software analysis, then hardware
 
-**This is the governing plan for the next phase.** It is recorded here because the
+> **ARCHIVAL (2026-10-14).** The phase this plan governed has closed: stage 1 is
+> done, stages 2–3 are complete, and the tree carries their results. **Kept, not
+> deleted, because the V1–V10 values below are the live standard** — they still
+> bind, they are defined here and deliberately not repeated elsewhere, and
+> `docs/AUDIT-fcis.md` and `docs/METHOD.md` both cite them. Read the values, not
+> the phase plan. For current work see `TODO.md`.
+
+**This was the governing plan for that phase.** It is recorded here because the
 process is long and must survive a context loss. Read it before touching code.
 
 ## Why this phase exists
