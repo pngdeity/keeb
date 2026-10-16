@@ -333,6 +333,38 @@ else
          "keep hsm_transport_input_is_pure in transport_logic so the alphabet is checkable"
 fi
 
+# --- the presleep teardown rule (D5) has a home, and the site consults it ------
+#
+# (The D5 guard block sits earlier, with the mask checks; this one is D9, the
+# actuator's refusal, which is the same fact at the actuator rather than at the
+# presleep hook.)
+
+# --- the actuator refuses a teardown while a host is confirmed (D9) ------------
+#
+# "A confirmed host is never torn down" was in-code prose at the gate in
+# `wls_usb.c`: `if (usb_connected_state()) return;`. The rule -- confirmation
+# outranks every hint, so a teardown while confirmed is by definition wrong -- is
+# now `hsm_usb_teardown_refused(host_confirmed)` in the pure core, and the gate is
+# a caller. This guard keeps the rule's home and keeps the gate consulting it: a
+# bare `if (usb_connected_state()) return;`, with no named rule, fails here.
+# See D9 of `TODO.md` "Determination residue" and
+# `docs/STATE-MACHINE-transport-authority.md`.
+usb_c="qmk_firmware/keyboards/epomaker/epomaker_split65/wls/wls_usb.c"
+if rg -q '^bool\s+hsm_usb_teardown_refused\s*\(' "$WLS/transport_logic.c" \
+    && rg -q 'hsm_usb_teardown_refused' "$WLS/transport_logic.h"; then
+    ok "the actuator's teardown refusal has a home in the pure core"
+else
+    fail "the actuator's teardown refusal is not stated in the pure core" \
+         "keep hsm_usb_teardown_refused in transport_logic so 'a confirmed host is never torn down' is checkable"
+fi
+
+if rg -n 'hsm_usb_teardown_refused\s*\(' "$usb_c" --with-filename | rg -v ':[0-9]+:\s*(/\*|\*|//)' | rg -q .; then
+    ok "the USB actuator refuses a teardown through the core's rule"
+else
+    fail "the USB actuator does not consult the teardown-refusal rule" \
+         "gate wls_usb_connect(false) on hsm_usb_teardown_refused(...) rather than a bare usb_connected_state() test"
+fi
+
 # --- the cross-half order has a LIVENESS home, not only a safety one ----------
 #
 # The S2 executor (`wls_sleep_order_open`) gives the slave's sleep order a SAFETY

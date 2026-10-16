@@ -97,7 +97,7 @@ reading the **alphabet** of the decision as a set, not the body of any function.
 |---|---|---|
 | the line is driven from one place, on a change | `bin/guard-invariants` F5 | **unrepresentable** |
 | the decision reads no live USB-line state | `hsm_transport_input_is_pure` + guard | **executable** + guard |
-| a confirmed host is never torn down at the actuator | `wls_usb_connect(false)`'s early return | prose (in-code, enforced by the same guard family) |
+| a confirmed host is never torn down at the actuator | `hsm_usb_teardown_refused` + guard | **executable** + guard |
 | **the presleep hook's teardown rule** | `hsm_usb_teardown_is_safe` + guard | **executable** + guard |
 | whether the USB event queue delivers every transition | nothing (code) | **undetermined** (a plant premise) |
 
@@ -128,7 +128,29 @@ vectors settle the combinations; the presleep site consults the rule instead of
 testing `USB_DRIVER.state != USB_ACTIVE` positionally; two guards keep both from
 regressing. This row is **D5** in `TODO.md` "Determination residue".
 
-The in-code "a confirmed host is never torn down" prose (§1) is **D9** there.
+The in-code "a confirmed host is never torn down" prose is **D9**, closed below.
+
+### The actuator's refusal (closed, 2026-10-15)
+
+The same "a confirmed host outranks every hint" rule has a second site: the
+**actuator**. `wls_usb_connect(false)` refuses to tear the line down while a host
+is confirmed, so a hint-level caller can never cut the line the confirmation just
+established. That gate existed and worked, but it was stated only as in-code
+prose — the rule the gate obeys was not a checkable fact, so a future rewrite of
+the gate could have kept the code and lost the rule.
+
+It is now `hsm_usb_teardown_refused(host_confirmed)` in the pure core: the rule
+is that a teardown issued while a host is confirmed is **by definition wrong**,
+because confirmation outranks the hint that commanded the teardown. The shell
+reads `usb_connected_state()` (which *is* `usbGetDriverStateI(&USB_DRIVER) ==
+USB_ACTIVE`) and the core decides — the same split as D5, at the actuator rather
+than at the presleep hook. The two rules are the same fact at two levels: the
+actuator refuses exactly when a host is talking, which is the `host_talking` half
+of `hsm_usb_teardown_is_safe`. Gating the **actuator** rather than each caller is
+deliberate — it makes every path, present and future, safe at once, so no caller
+needs to know the rule. Three vectors and a guard that keeps the gate consulting
+the rule (a bare `if (usb_connected_state()) return;` fails it). This row is
+**D9** in `TODO.md` "Determination residue".
 
 ---
 
@@ -141,8 +163,10 @@ Per `docs/DETERMINATION.md` §II.2, ascending:
 2. **Executable (done, 2026-10-15).** `hsm_transport_input_is_pure()` names the
    allowed alphabet; four vectors pin it; two guards make the alphabet a checked
    set. The predicate is the cheapest home that fails on the *class* rather than
-   on the instance. The teardown rule (`hsm_usb_teardown_is_safe`, D5) is at the
-   same rung: four vectors, two guards, and the presleep site consulting it.
+   on the instance. The teardown rules are at the same rung:
+   `hsm_usb_teardown_is_safe` (D5, the presleep hook: four vectors, two guards,
+   the site consulting it) and `hsm_usb_teardown_refused` (D9, the actuator:
+   three vectors, one guard, the gate consulting it).
 3. **Unrepresentable (the actuator half is already here).** F5 makes a second
    call site fail at the guard; `wls_usb_connect` is *only* reachable as the
    consequence of a decision, and no caller can drive it another way. For the
@@ -174,5 +198,8 @@ consulting it, four vectors, two guards (D5).
 - The teardown rule and its vectors (2026-10-15): `transport_logic.{h,c}`
   (`hsm_usb_teardown_is_safe`), the presleep site in `wls/wls_lifecycle.c`, and
   the guards above. D5 of `TODO.md` "Determination residue".
+- The actuator's refusal and its vectors (2026-10-15): `transport_logic.{h,c}`
+  (`hsm_usb_teardown_refused`), the gate in `wls/wls_usb.c`, and its guard. D9 of
+  `TODO.md` "Determination residue".
 - The traversal method: `docs/DETERMINATION.md` §I.9; the rungs §II.2; the
   artefact list §II.3 (this is artefact 4).

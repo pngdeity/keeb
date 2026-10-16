@@ -924,7 +924,7 @@ an edit, and it belongs to the batched hardware session.
 | D6 | The pin → wake-code attribution table | `STATE-MACHINE-pad-attribution.md` §4 | **determined** (executable, 2026-10-15) | `lpwr_code_of_pad` / `lpwr_pad_of_code` (`lowpower_logic`) + the classifier as its caller in `wls.c` + `tests/lowpower_logic` + `bin/guard-invariants` |
 | D7 | "No other pad collision drops a wake" | same doc §4 | **determined** (executable, 2026-10-15) | two composed tests over the derived map in `tests/lowpower_logic` |
 | D8 | The arm sites and their ordering (`ordered_sleep` vs `manual_timeout`) | `STATE-MACHINE-stop-wake-split.md` §5 | **determined** (executable, 2026-10-15) | `lpwr_arm_is_coherent` (`lowpower_logic`) + `tests/lowpower_logic` + `bin/guard-invariants` |
-| D9 | "A confirmed host is never torn down at the actuator" | `STATE-MACHINE-transport-authority.md` §4 | weakly determined | in-code prose (`wls_usb.c`) |
+| D9 | "A confirmed host is never torn down at the actuator" | `STATE-MACHINE-transport-authority.md` §4 | **determined** (executable, 2026-10-15) | `hsm_usb_teardown_refused` (`transport_logic`) + the gate's consult in `wls_usb.c` + `tests/transport_logic` + `bin/guard-invariants` |
 | D10 | The WB32 EXTI truly reports port-agnostically on this silicon | `STATE-MACHINE-pad-attribution.md` §4 | **plant premise** | hardware only (cheap: float an unclaimed pad, watch the code) |
 | D11 | The USB event queue delivers every transition | `STATE-MACHINE-transport-authority.md` §4 | **plant premise** | hardware only |
 
@@ -1036,6 +1036,18 @@ refuses the unordered stop — the S1 shape). 4 new vectors in `tests/lowpower_l
 2 new `bin/guard-invariants` checks (each negative-tested) keep the rule in the core and pin each
 shipped `wls_order_sleep(true)` site adjacent to its arm.
 
+**D9 is the actuator's own statement of the same rule, and is now determined at the executable
+rung (2026-10-15).** `wls_usb_connect(false)` refuses to tear the line down while a host is
+confirmed — the actuator-half of "confirmation outranks every hint". The gate worked, but the
+rule it obeys was in-code prose, so a rewrite could have kept the code and lost the rule. It is
+now `hsm_usb_teardown_refused(host_confirmed)` in the pure core; the shell reads
+`usb_connected_state()` (which *is* `usbGetDriverStateI(&USB_DRIVER) == USB_ACTIVE`) and the core
+decides, the same split as D5 at the actuator rather than at the presleep hook. The two are the
+same fact at two levels (the actuator refuses exactly when a host is talking, the `host_talking`
+half of `hsm_usb_teardown_is_safe`). 3 new vectors in `tests/transport_logic` (**60/60**); 2 new
+`bin/guard-invariants` checks (each negative-tested) keep the rule in the core and keep the gate
+consulting it — a bare `if (usb_connected_state()) return;` fails them.
+
 **D10/D11 are the batched hardware session's business, not edits.** D10 is cheap to settle
 (one floating pin); D11 is the ADR's "Costs and risks" — a missed event leaves the transport
 uncorrected until the next input, and no code can assert the queue's completeness on this
@@ -1077,6 +1089,9 @@ violation, and the cheapest rung that does so is the right one:
 - **D8 (the arm sites)** closes by promoting the §1 table's relationship to a predicate:
   `lpwr_arm_is_coherent` states that an order implies an arm, with vectors and a guard that
   pins each shipped ordering site to its arm. **Done (2026-10-15).**
+- **D9 (the actuator's refusal)** closes like D5, one level along: the in-code "a confirmed host
+  is never torn down" becomes `hsm_usb_teardown_refused`, with vectors and a guard that keeps
+  the gate consulting it. **Done (2026-10-15).**
 - **D10/D11 (plant premises)** do not close by an edit at all; they are settled in a batched
   hardware session and recorded in `docs/HARDWARE.md` / `docs/OBSERVATIONS.md` when measured.
 
