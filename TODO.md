@@ -923,7 +923,7 @@ an edit, and it belongs to the batched hardware session.
 | D5 | Whether the presleep hook may read the USB line's own state to decide a teardown | `STATE-MACHINE-transport-authority.md` §4 | **determined** (executable, 2026-10-15) | `hsm_usb_teardown_is_safe` (`transport_logic`) + the presleep site's consult in `wls_lifecycle.c` + `tests/transport_logic` + `bin/guard-invariants` |
 | D6 | The pin → wake-code attribution table | `STATE-MACHINE-pad-attribution.md` §4 | **determined** (executable, 2026-10-15) | `lpwr_code_of_pad` / `lpwr_pad_of_code` (`lowpower_logic`) + the classifier as its caller in `wls.c` + `tests/lowpower_logic` + `bin/guard-invariants` |
 | D7 | "No other pad collision drops a wake" | same doc §4 | **determined** (executable, 2026-10-15) | two composed tests over the derived map in `tests/lowpower_logic` |
-| D8 | The arm sites and their ordering (`ordered_sleep` vs `manual_timeout`) | `STATE-MACHINE-stop-wake-split.md` §5 | weakly determined | prose (the doc's §1 table) |
+| D8 | The arm sites and their ordering (`ordered_sleep` vs `manual_timeout`) | `STATE-MACHINE-stop-wake-split.md` §5 | **determined** (executable, 2026-10-15) | `lpwr_arm_is_coherent` (`lowpower_logic`) + `tests/lowpower_logic` + `bin/guard-invariants` |
 | D9 | "A confirmed host is never torn down at the actuator" | `STATE-MACHINE-transport-authority.md` §4 | weakly determined | in-code prose (`wls_usb.c`) |
 | D10 | The WB32 EXTI truly reports port-agnostically on this silicon | `STATE-MACHINE-pad-attribution.md` §4 | **plant premise** | hardware only (cheap: float an unclaimed pad, watch the code) |
 | D11 | The USB event queue delivers every transition | `STATE-MACHINE-transport-authority.md` §4 | **plant premise** | hardware only |
@@ -1025,6 +1025,17 @@ could not enforce. 9 new vectors in `tests/lowpower_logic` (**26/26**); 3 new
 `bin/guard-invariants` checks (each negative-tested) keep the attribution in the core, keep the
 classifier a caller, and reject a reintroduced `case PAL_PAD(...)` switch.
 
+**D8 is the arm sites' ordering, and is now determined at the executable rung (2026-10-15).** A
+stop needs two independent flags — `manual_timeout` (permission to take the timeout path) and
+`ordered_sleep` (the order) — set at the same sites, in a fixed relationship that lived only in
+a prose table: an *order* implies an *arm*, but an arm does not imply an order. The rule is now
+`lpwr_arm_is_coherent(orders_sleep, arms_timeout)` in the pure core: a site that orders without
+arming is incoherent (its order can never be taken, so its intent and its power effect disagree),
+and every other combination is coherent (an arm alone is safe precisely because the stop policy
+refuses the unordered stop — the S1 shape). 4 new vectors in `tests/lowpower_logic` (**30/30**);
+2 new `bin/guard-invariants` checks (each negative-tested) keep the rule in the core and pin each
+shipped `wls_order_sleep(true)` site adjacent to its arm.
+
 **D10/D11 are the batched hardware session's business, not edits.** D10 is cheap to settle
 (one floating pin); D11 is the ADR's "Costs and risks" — a missed event leaves the transport
 uncorrected until the next input, and no code can assert the queue's completeness on this
@@ -1063,6 +1074,9 @@ violation, and the cheapest rung that does so is the right one:
   rather than restating them. **D6/D7 done (2026-10-15)** — `lpwr_code_of_pad` /
   `lpwr_pad_of_code` in the core, the classifier a caller of it, nine vectors, three
   negative-tested guards.
+- **D8 (the arm sites)** closes by promoting the §1 table's relationship to a predicate:
+  `lpwr_arm_is_coherent` states that an order implies an arm, with vectors and a guard that
+  pins each shipped ordering site to its arm. **Done (2026-10-15).**
 - **D10/D11 (plant premises)** do not close by an edit at all; they are settled in a batched
   hardware session and recorded in `docs/HARDWARE.md` / `docs/OBSERVATIONS.md` when measured.
 

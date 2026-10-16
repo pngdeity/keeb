@@ -258,6 +258,45 @@ else
          "route every pad through lpwr_code_of_pad so the attribution has one home"
 fi
 
+# --- every ordering site also arms the timeout path ---------------------------
+#
+# D8. `manual_timeout` (permission) and `ordered_sleep` (the order) are two flags
+# set at the same sites, and the relationship between them -- an ORDER implies an
+# ARM; an arm alone is fine because the stop policy refuses an unordered stop --
+# was prose in `docs/STATE-MACHINE-stop-wake-split.md` §1. The rule is now
+# `lpwr_arm_is_coherent` in the core (with vectors). This guard pins the shipped
+# sites to it: every `wls_order_sleep(true)` call must arm the timeout path, or
+# the order can never be taken. It reads the two sites as adjacent, which is how
+# each is written; a new ordering site that forgets to arm fails here.
+# See D8 of `TODO.md` "Determination residue".
+if rg -q '^bool\s+lpwr_arm_is_coherent\s*\(' "$wls_root/lowpower_logic.c" \
+    && rg -q 'lpwr_arm_is_coherent' "$wls_root/lowpower_logic.h"; then
+    ok "the arm-site ordering rule has a home in the pure core"
+else
+    fail "the arm-site ordering rule is not stated in the pure core" \
+         "keep lpwr_arm_is_coherent in lowpower_logic so 'orders implies arms' is checkable"
+fi
+
+# Each `wls_order_sleep(true)` site must be followed by an arm on the next line.
+# Matching the `true` argument only: `wls_order_sleep(false)` is the release
+# (post-stop), which orders nothing and owes no arm.
+orders_without_arm=0
+while IFS= read -r hit; do
+    file="${hit%%:*}"
+    line="${hit#*:}"; line="${line%%:*}"
+    next=$((line + 1))
+    if ! sed -n "${next}p" "$file" | rg -q 'lpwr_set_timeout_manual\s*\(\s*true\s*\)'; then
+        echo "     $file:$line orders a sleep but line $next is not an arm"
+        orders_without_arm=$((orders_without_arm + 1))
+    fi
+done < <(rg -n 'wls_order_sleep\s*\(\s*(true|action\.sleep_flag)\s*\)' "$WLS" --glob '*.c' | rg -v ':[0-9]+:\s*(/\*|\*|//)')
+if [ "$orders_without_arm" -eq 0 ]; then
+    ok "every ordering site also arms the timeout path"
+else
+    fail "$orders_without_arm ordering site(s) do not arm the timeout path" \
+         "each wls_order_sleep(true) needs an lpwr_set_timeout_manual(true) so the order can be taken"
+fi
+
 # --- the transport decision reads intent, never the USB line's own state ------
 #
 # The ADR's invariant has two halves. The first (one call site, on a change only)

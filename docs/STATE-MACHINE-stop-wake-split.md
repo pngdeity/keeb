@@ -86,6 +86,15 @@ Only the last two also set `ordered_sleep` — and `ordered_sleep` is what the s
 requires (below). So the **armed-but-unordered** rows (`wls.c:305,308`) are the ones that
 reach PRESLEEP and are then refused: the exact board state of the 30 s dark board.
 
+**The ordering was prose until 2026-10-15 (D8).** The two flags and their relationship —
+an *order* implies an *arm*, but an arm does not imply an order — lived only in this table.
+It is now `lpwr_arm_is_coherent(orders_sleep, arms_timeout)` in the pure core (an ordering
+site that does not arm is incoherent, because its order can never be taken; every other
+combination is coherent, because the stop policy refuses the unordered stop). Four vectors
+in `tests/lowpower_logic` pin it, and a `bin/guard-invariants` check keeps every shipped
+`wls_order_sleep(true)` site adjacent to its `lpwr_set_timeout_manual(true)` arm — a new
+ordering site that forgets to arm fails the guard rather than silently never sleeping.
+
 ---
 
 ## 2. The guard (the edge that refuses, and the shared state behind it)
@@ -209,7 +218,7 @@ handle of §5's last row (D2).
 |---|---|---|
 | S1: PRESLEEP needs the STOP transition | `lpwr_presleep_is_allowed_decide` + test | **executable** |
 | S1: the state is writable only by the machine | `bin/guard-invariants` (3 checks) | **unrepresentable** |
-| The arm sites and their ordering (`ordered_sleep` vs `manual_timeout`) | this document, §1 table | prose |
+| The arm sites and their ordering (`ordered_sleep` vs `manual_timeout`) | `lpwr_arm_is_coherent` + `tests/lowpower_logic` + `bin/guard-invariants` | **executable** + guard |
 | S2: an ordered half must have a reachable release | `wls_sleep_order_open` + `tests/split_logic` | **unrepresentable** |
 | S2: the order is constructible only when a release is reachable | `wls_sleep_order_t` (handle) | **unrepresentable** |
 | The composite's liveness (a half, once ordered, *eventually* released) | `wls_sleep_order_outlived_release` + the `wls.c` record + `tests/split_logic` | **executable, and wired** |
