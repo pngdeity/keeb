@@ -103,8 +103,7 @@ reading the **alphabet** of the decision as a set, not the body of any function.
 
 The two undetermined rows are honest and loaded:
 
-- **`wls_lifecycle.c:256`** decides a *line effect* (tear down the driver before
-  sleep) by reading **the line's own state** — `USB_DRIVER.state != USB_ACTIVE`.
+- **`wls_lifecycle.c:256`** decides a *line effect* (tear down the driver before sleep) by reading **the line's own state** — `USB_DRIVER.state != USB_ACTIVE`.
   This is the ADR's invariant one level out: not "may the line's state cause a
   *decision* change" but "may the line's state cause a *line effect*". It is a
   different question, it is **not** covered by the input-half rule (which is
@@ -118,6 +117,10 @@ The two undetermined rows are honest and loaded:
   uncorrected until the next input changes. No code can assert the queue delivers
   every transition — that is a property of the USB stack on this silicon, so it
   is a **plant premise** and belongs to a batched hardware session, not a test.
+
+The presleep-hook row is **D5** and event-queue completeness **D11** in `TODO.md`
+"Determination residue"; the in-code "a confirmed host is never torn down" prose
+(§1) is **D9** there.
 
 ---
 

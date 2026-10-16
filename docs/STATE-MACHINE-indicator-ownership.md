@@ -150,7 +150,8 @@ implied to be solved.
 The last two rows are the honest ones. The arbiter decides *who owns the frame*; nothing
 decides *who owns which LED*, so two non-exclusive painters that write the same index still
 resolve by call order. The guard catches a *regression* of the pass's gate, not the
-addition of a new overlapping painter.
+addition of a new overlapping painter. These two rows are **D3** and **D4** in `TODO.md`
+"Determination residue".
 
 ---
 

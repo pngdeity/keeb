@@ -890,6 +890,105 @@ unverified claims in particular serve no requirement, because nothing a person
 can observe changes if they stay unknown. Lane A is short, and most of it is
 either flash-gated or blocked on the module's BT fault.
 
+**One class of open item is not in either lane, and correctly so.** The
+determination residue — the §II.3 relations still short of a home (a liveness
+half with no deadline, an unasserted release path, an unarbitrated painter
+overlap, two plant premises) — is **not requirement work** and has no X-n. It is
+listed plainly in `## Determination residue` below, with what "undetermined"
+means there. It enters this index only if one of its rows turns out to fail a
+requirement; none does today.
+
+## Determination residue (the §II.3 relations still short of a home)
+
+`docs/DETERMINATION.md` §II.3 named four relations that spanned more than one file and had no
+home. **All four are now determined** — each has a `docs/STATE-MACHINE-*.md` composite and at
+least one executable or unrepresentable home. This section is the *residue*: what each
+artefact's ledger still lists as unresolved, gathered in one place so it is not buried in the
+§7/§8 narrative. Nothing here is requirement work (no X-n fails while it stands); it is the
+honest floor of the determination work, and working through it is the point of listing it.
+
+**What "undetermined" means here.** A property is *determined* when something fails if it is
+broken — a test, a guard, or a construction that makes it unwritable. *Undetermined* means
+nothing fails: the rule may be written down, but an edit that violates it passes every check.
+*Weakly determined* means the rule is stated (prose or an argument) and a change updates the
+code without updating the statement, with nothing failing. A *plant premise* is not a code
+matter at all — it is a claim about the silicon, so it can only be settled on hardware, not by
+an edit, and it belongs to the batched hardware session.
+
+| # | Item | Ledger row | Kind | Home today |
+| --- | --- | --- | --- | --- |
+| D1 | A half, once ordered to sleep, is *eventually* released | `STATE-MACHINE-stop-wake-split.md` §5 last row | **determined** (executable, 2026-10-15) | `wls_sleep_order_outlived_release()` + `tests/split_logic` + `bin/guard-invariants` |
+| D2 | The release path itself (`0xCC` on USB) | same doc §5; narrative `:129-132`, `:154-157`, `:191` | **undetermined** | nothing |
+| D3 | Which painter owns which LED index (overlaps) | `STATE-MACHINE-indicator-ownership.md` §4 | **undetermined** | nothing (rung 3 not started) |
+| D4 | Whether a painter added later is exclusive | same doc §4 | **undetermined** | nothing |
+| D5 | Whether the presleep hook may read the USB line's own state to decide a teardown | `STATE-MACHINE-transport-authority.md` §4 | **undetermined** | nothing (a deliberate read; `wls_lifecycle.c:256`) |
+| D6 | The pin → wake-code attribution table | `STATE-MACHINE-pad-attribution.md` §4 | weakly determined | prose (the doc's §2 table) |
+| D7 | "No other pad collision drops a wake" | same doc §4 | weakly determined | prose (the doc's §2 argument) |
+| D8 | The arm sites and their ordering (`ordered_sleep` vs `manual_timeout`) | `STATE-MACHINE-stop-wake-split.md` §5 | weakly determined | prose (the doc's §1 table) |
+| D9 | "A confirmed host is never torn down at the actuator" | `STATE-MACHINE-transport-authority.md` §4 | weakly determined | in-code prose (`wls_usb.c`) |
+| D10 | The WB32 EXTI truly reports port-agnostically on this silicon | `STATE-MACHINE-pad-attribution.md` §4 | **plant premise** | hardware only (cheap: float an unclaimed pad, watch the code) |
+| D11 | The USB event queue delivers every transition | `STATE-MACHINE-transport-authority.md` §4 | **plant premise** | hardware only |
+
+**D1 is the sharpest.** S2's *safety* half is unrepresentable (an order without a reachable
+release cannot be constructed), but nothing asserted the *liveness* half — that an order given
+*is* taken. `docs/DETERMINATION.md` §I.4 names the safety/liveness distinction; this was the one
+place where the tree had a safety home and no liveness home for the same object. **Now
+determined (2026-10-15):** `wls_sleep_order_outlived_release(sent_at_ms, now_ms,
+release_transport_still_carries, released)` in `split_logic.{h,c}` states the fault in the only
+form the master can observe — it cannot see the slave (the RPC is request/response and
+`slave_to_master_t` carries no persistent slave state), so *"we ordered it and have not released
+it for longer than one low-power cycle allows"* is the observable liveness fact. Six vectors in
+`tests/split_logic` (**22/22**) pin the four cases and the deadline boundary (including the
+32-bit wrap), and a `bin/guard-invariants` check keeps the predicate defined in the core. The
+deadline is `WLS_SLEEP_ORDER_RELEASE_MS` (120 s), the ceiling on one low-power cycle. **What
+remains unasserted** is the *shell* half — that the master actually records `sent_at` when it
+sends `0xAA` and consults the predicate. The predicate is the rule's home; wiring it to a
+`static uint32_t` in the shell is a separate, aimed change, not yet made, so the property is
+determined in the core and only *available* at the seam.
+
+**D2 is D1's other side and is not the same fact.** D1 is "the release happens in time"; D2 is
+"the release path is correct at all" — the sole `0xCC` call site is USB-gated, so on USB the
+slave is sent no wake, and `wls_split_can_order_sleep()` / the executor is the only thing
+keeping the slave releasable. Guarding the sender would state D2 (the release handle is opened
+only when the transport carries the wake); it remains **not done** — the `0xCC` sender in
+`wls_lifecycle_suspend_wakeup_init_user()` is still a bare USB early-return, and no predicate
+yet owns "this half may send a release". Distinct from D1, which is the *deadline* fact.
+
+**D3/D4 are artefact 2's rung 3, deliberately not started.** Rung 3 there is "give every painter
+an index range and arbitrate overlaps", which subsumes both rows — but it is real work for a
+benefit this artefact did not need, so it was named rather than built.
+
+**D10/D11 are the batched hardware session's business, not edits.** D10 is cheap to settle
+(one floating pin); D11 is the ADR's "Costs and risks" — a missed event leaves the transport
+uncorrected until the next input, and no code can assert the queue's completeness on this
+silicon.
+
+**The process candidate that would have caught these is not adopted.** `docs/DETERMINATION.md`
+§II.4 proposes: *for every safety property that spans more than one file, name its home before
+writing the fix.* It remains a candidate for the user to judge, not process. Its relevance here
+is that D1 and D5 are exactly the shape it names — a property spanning files, fixed at the
+instance, with the class left open.
+
+**What closing a row looks like.** The three rungs (`docs/DETERMINATION.md` §II.2) give each
+row its finish line. A row moves from *undetermined* to *determined* when something fails on
+violation, and the cheapest rung that does so is the right one:
+
+- **D1 (liveness)** closes at the **executable** rung only if a *deadline* is made a fact the
+  shell reads: a predicate over "an order has been outstanding longer than the release needs"
+  that a test can drive. A guard alone cannot state liveness.
+- **D2 (the release path)** closes like the mask did — the sender's precondition becomes a
+  construction (open the release handle only when the transport can carry it), so "a release
+  that cannot be sent" is unrepresentable. Rung 3.
+- **D3/D4 (painter overlaps)** close together at rung 3: a per-painter index range the arbiter
+  can check, which makes "two owners of one index" unrepresentable rather than order-dependent.
+- **D5 (the presleep line read)** closes at the **executable** rung by stating the rule it
+  already obeys (a teardown is refused when the line is enumerated), not by forbidding the read.
+- **D6–D9 (weakly determined)** each close by promoting the prose to a test or guard that
+  pins the same fact — e.g. D6 by deriving the attribution from the `palEnableLineEvent` sites
+  rather than restating them.
+- **D10/D11 (plant premises)** do not close by an edit at all; they are settled in a batched
+  hardware session and recorded in `docs/HARDWARE.md` / `docs/OBSERVATIONS.md` when measured.
+
 ## Priority order
 
 Ordered by what unblocks what. Rationale and detail for each item follow in the

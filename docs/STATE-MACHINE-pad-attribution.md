@@ -115,6 +115,9 @@ The last three rows are the honest floor:
   matrix pad. The argument is complete for the pads in the table; it is prose, so it is
   "weakly determined", not executable.
 
+The attribution-table row is **D6**, the collision argument **D7**, and port-agnostic
+reporting **D10** in `TODO.md` "Determination residue".
+
 ## 5. The three-rung path
 
 Per `docs/DETERMINATION.md` §II.2, in ascending strength:

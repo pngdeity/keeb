@@ -258,4 +258,24 @@ else
          "keep hsm_transport_input_is_pure in transport_logic so the alphabet is checkable"
 fi
 
+# --- the cross-half order has a LIVENESS home, not only a safety one ----------
+#
+# The S2 executor (`wls_sleep_order_open`) gives the slave's sleep order a SAFETY
+# home: an order whose release is unreachable cannot be constructed. Nothing
+# asserted the liveness half -- that a permitted order is *eventually* released.
+# A master that sent 0xAA and then left the transport that carries 0xCC strands
+# the slave exactly as before, one step later, and no test noticed: liveness is a
+# property of time, and nothing owned "this order has been outstanding too long".
+#
+# The rule now has a home: `wls_sleep_order_outlived_release` in the pure core,
+# the observable form of the fault (the master cannot see the slave; it can only
+# see how long it has waited). D1 of `TODO.md` "Determination residue". This guard
+# keeps the predicate from being deleted back to prose.
+if rg -q '^bool\s+wls_sleep_order_outlived_release\s*\(' "$WLS/split_logic.c" && rg -q 'wls_sleep_order_outlived_release' "$WLS/split_logic.h"; then
+    ok "the order-liveness rule has a home in the pure core"
+else
+    fail "the cross-half order's liveness rule is not stated in the pure core" \
+         "keep wls_sleep_order_outlived_release in split_logic so 'an order outlived its release' is checkable"
+fi
+
 exit "$status"

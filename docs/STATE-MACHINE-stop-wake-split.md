@@ -201,13 +201,19 @@ separate change, and the release path itself (`0xCC` on USB) is not yet asserted
 | The arm sites and their ordering (`ordered_sleep` vs `manual_timeout`) | this document, §1 table | prose |
 | S2: an ordered half must have a reachable release | `wls_sleep_order_open` + `tests/split_logic` | **unrepresentable** |
 | S2: the order is constructible only when a release is reachable | `wls_sleep_order_t` (handle) | **unrepresentable** |
-| The composite's liveness (a half, once ordered, *eventually* released) | nothing | **undetermined** |
+| The composite's liveness (a half, once ordered, *eventually* released) | `wls_sleep_order_outlived_release` + `tests/split_logic` | **executable** |
 
-The last row is the honest one: the tree has no statement, no test, and no guard for the
+The last row was the honest gap: the tree had no statement, no test, and no guard for the
 *liveness* half of S2. `docs/DETERMINATION.md` §I.4 (safety vs liveness) names the
-distinction; S2's *safety* half (never order an unreleasable sleep) is now executable, but
-its *liveness* half (a sleep once ordered is eventually released) still has no home above
-prose.
+distinction; S2's *safety* half (never order an unreleasable sleep) is now unrepresentable, and
+its *liveness* half (a sleep once ordered is eventually released) is now **executable** —
+`wls_sleep_order_outlived_release(sent_at, now, release_transport_still_carries, released)` in
+`split_logic.{h,c}`, which states the fault in the only form the master can observe, since it
+cannot see the slave. Six vectors in `tests/split_logic` (22 tests) and a `bin/guard-invariants`
+check. **What is determined is the rule, not its wiring**: no shell yet records `sent_at` when
+it sends `0xAA` and consults the predicate, so the property is available at the seam rather than
+forced through it. The release path itself (`0xCC` on USB, §3) is still a separate unasserted
+fact. Both are **D1** and **D2** in `TODO.md` "Determination residue".
 
 ---
 
