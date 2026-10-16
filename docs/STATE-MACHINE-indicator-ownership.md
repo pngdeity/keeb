@@ -131,8 +131,8 @@ wls_frame_owner_t wls_frame_owner_of(bool exclusive_claim_live);
 still compose by index in their existing order. Making *that* a rule is the separate LED-index
 arbiter (`wls_led_painter_of` and friends, §4 and §5): the frame arbiter decides *who owns the
 frame*, the LED arbiter decides *who owns which LED*. The LED rule is determined at the
-executable rung; forcing every painter through it (the unrepresentable rung) is named as residue
-in §4 and §5 rather than implied to be solved.
+unrepresentable rung — every painter is forced through the chokepoint (`wls_indicator_led_write`,
+§4 and §5) — so the residue this paragraph used to name is closed.
 
 ---
 
@@ -143,20 +143,25 @@ in §4 and §5 rather than implied to be solved.
 | C1: an exclusive claim suppresses the rest | `wls_frame_owner_is_exclusive` + test | **executable** |
 | C2: the boot code's claim expires from a fact | `wls_indicator_boot_code_owns_matrix` (`:449-464`) | **executable** |
 | The pass gates on the arbiter, not on a position | `bin/guard-invariants` (2 checks) | **executable** |
-| The painters and their precedence order | this document, §1 table | prose |
+| The painters and their precedence order | `wls_led_painter_precedence` (`indicator_logic.c`) | **executable** (2026-10-16) |
 | **Which painter owns which LED index (overlaps)** | `wls_led_painter_of` + tests + guard | **executable** (2026-10-15) |
 | **Whether a painter added later is exclusive** | `wls_led_painter_is_exclusive` + tests | **executable** (2026-10-15) |
+| **May painter P write index I (the chokepoint)** | `wls_led_may_write` + `wls_indicator_led_write` + tests + guards | **unrepresentable** (2026-10-16) |
+| **The LED index space bound** | `WLS_LED_INDEX_MAX` + guard (`keyboard.json`) | **executable** (2026-10-16) |
 
-The last two rows are now determined, at the **executable** rung. The frame arbiter
-decides *who owns the frame*; `wls_led_painter_of` decides *who owns which LED*, so two
-non-exclusive painters that write the same index no longer resolve by call order. These two
-rows are **D3** and **D4** in `TODO.md` "Determination residue".
+The last four rows are D3/D4. The frame arbiter decides *who owns the frame*;
+`wls_led_painter_of` decides *who owns which LED*, so two non-exclusive painters that write the
+same index no longer resolve by call order. **The chokepoint closes the rung-3 target:** every
+board painter (the channel flash, cue, link cue, battery, set-flash, marker, caps, win-lock and
+boot code) now writes through `wls_indicator_led_write*`, which asks `wls_led_may_write` first —
+so "a painter writes an LED it does not own" is *refused*, not merely caught by a rule test.
+`WLS_LED_INDEX_MAX` bounds the scan by the board (68 LEDs, max index 67) and is pinned by a guard.
 
-**What is still short of the rung-3 target.** The rule is determined (a wrong winner fails a
-test), but the *shell* is not yet forced through it for every painter: only the at-rest channel
-cue consults the arbiter (`wls_led_can_paint`). The battery, set-flash and marker painters still
-paint directly, so "a painter writes an LED it does not own" is caught by a test of the rule, not
-by a construction that makes the write impossible. That residue is stated, not implied solved.
+**What is deliberately out of scope.** `rgb_record.c` (the RGBR_PLAY custom effect, a QMK effect
+outside the frame pass) and `wls_keymap.c` are the open-ended painter surfaces the core does not
+claim; `rgb_record`'s effect is instead reserved as an **exclusive** painter (`WLS_LED_PAINTER_RGBREC`),
+which is why the board's battery suppression is now `!wls_indicator_led_claim_live()` rather than a
+positional `!rgbrec_is_started()` test.
 
 ---
 
@@ -170,13 +175,14 @@ Per `docs/DETERMINATION.md` §II.2, in ascending strength:
    pinning the exclusivity, the claim's two outcomes, and the composition the pass relies
    on. Two `bin/guard-invariants` checks keep the pass gating on the arbiter rather than on
    the raw predicate; both were **negative-tested**.
-3. **Unrepresentable.** Give every painter an index range and arbitrate overlaps in the
-   core, so a painter that writes an LED it does not own cannot be written. This is the
-   honest target, and it subsumes the two undetermined rows above. **Partly reached
-   (2026-10-15):** the rule and the arbiter exist (`wls_led_painter_of`,
-   `wls_led_painter_is_exclusive`, `wls_led_can_paint`), and the at-rest channel cue consults
-   it, but the battery / set-flash / marker painters are not yet forced through it — so the
-   rule is *executable*, not yet *unrepresentable*. See §4's residue note. Not finished.
+3. **Unrepresentable (reached, 2026-10-16).** Give every painter an index range and arbitrate
+   overlaps in the core, so a painter that writes an LED it does not own cannot be written.
+   Now done: `wls_led_painter_of` / `wls_led_painter_is_exclusive` / `wls_led_may_write` state
+   the rule, `wls_indicator_led_write*` is the one write path and asks it, and three
+   `bin/guard-invariants` checks (all **negative-tested**) keep a raw matrix write out of the
+   board's LED sources, keep the chokepoint asking the rule, and pin the index bound to the
+   board. The precedence order has one home (`wls_led_painter_precedence`), so the winner rule
+   and the may-write rule cannot drift apart.
 
 ---
 
@@ -201,3 +207,18 @@ Per `docs/DETERMINATION.md` §II.2, in ascending strength:
   (`wls_indicator_channel_state` consults `wls_led_can_paint`),
   `tests/indicator_logic/indicator_logic_tests.cpp` (20 tests),
   `bin/guard-invariants` (3 further checks, negative-tested).
+- The chokepoint and the index bound (2026-10-16, D3/D4's unrepresentable rung):
+  `indicator_logic.{h,c}` (`wls_led_may_write`, `WLS_LED_INDEX_MAX`,
+  `WLS_LED_PAINTER_{RGBREC,CAPS,WIN_LOCK}`, `wls_led_painter_precedence`),
+  `wls_indicator.{h,c}` (`wls_indicator_led_write` / `_all` / `_claim_live` /
+  `_reject_live`, and every painter migrated to them), `epomaker_split65.c` (the
+  caps / win-lock / marker writes and the battery suppression),
+  `tests/indicator_logic/indicator_logic_tests.cpp` (28 tests),
+  `bin/guard-invariants` (3 further checks, all negative-tested).
+- The `sleep_order_logic` type rename (2026-10-16): `wls_sleep_order_t` →
+  `wls_sleep_arm_t` (and its `_IDLE`/`_HOLD`/`_NOW`/`_tick` family), because the
+  arming timer and `split_logic`'s cross-half order handle shared one name and a
+  bare `-fsyntax-only` on `wls_indicator.c` failed on the collision. The
+  `split_logic` handle keeps its name (it is the order). Provenance: the two
+  types were created the same day by two extraction slices that never knew of
+  each other.

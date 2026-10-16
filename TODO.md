@@ -909,9 +909,49 @@ honest floor of the determination work, and working through it is the point of l
 **Status (2026-10-15): every code-addressable row is closed.** D1–D9 are all *determined* — each
 has a home in the pure core, vectors, and at least one negative-tested guard. What remains is
 **D10 and D11 alone**: the two *plant premises*, which are claims about the silicon and cannot be
-settled by an edit. They are the batched hardware session's business (below). The only other
-open rung-3 work is stated as residue in the D3/D4 paragraph — forcing every LED painter through
-the arbiter — and is not a row of this table.
+settled by an edit. They are the batched hardware session's business (below). The one other
+rung-3 item that had been stated as residue — forcing every LED painter through the arbiter — is
+now **closed** (`wls_indicator_led_write`; see the D3/D4 paragraph), so it is no longer open work.
+
+**Quality of the closures is a separate, open question (2026-10-16).** Closing a row *executably*
+is not the same as giving the relation a home: the clearest instance is S2, whose whole safety
+rule is `wls_split_can_order_sleep` — a function whose body is `return x` where `x` is a boolean
+the *shell* computes (`wireless_get_current_devs() != DEVS_USB`, in `wls_lifecycle.c`), so the
+relation's content lives in a caller expression and a comment, not in the core. That is the
+ceiling of the current paradigm for a relation that spans two axes, not a failure of the S2 work:
+a per-axis relation can be made unrepresentable (`static lpwr_transition`), a cross-axis one
+cannot. `docs/ADR-cross-axis-contracts.md` (proposed) scopes the missing home — assume-guarantee
+contracts, a shared monitor core, and a temporal vocabulary. It is design only; nothing in it is
+implemented, and it does not change D1–D9's *status*, only the quality argument behind them.
+
+**Why the cores could not have held these relations (2026-10-16).** A census of the tree answered
+the design-rationale question: **there are eleven `_logic` cores, no core includes another core's
+header, and no core header includes anything outside the C standard library.** Every edge between
+two models is therefore *indirect* — it passes through a shell that reads one core's output and
+supplies the other's input. That is what keeps the cores host-testable, and it is also why a
+relation that spans two of them has nowhere whole to live: no file can see two contexts at once.
+The census also measured that this *loss* has happened exactly **once** — `wls_lifecycle.c:242`,
+the `sends_wake` boolean behind S2 — so the problem is one site, not a class. The boundaries
+themselves, and the four defects the census found (the `sends_wake` edge, `transport_logic`
+owning three models, the `wls_sleep_order_t` name collision, the unenclosed LED axis), are now
+stated in **`docs/CONTEXT-MAP.md`** — a strategic-design context map, which is the artefact DDD
+names as *the* product of strategic design and which the module set never had. Two of the four
+defects are gated **open** there and two are gated **held**, each with its evidence, its test, and
+what failing the test would mean — so a held row is a recorded decision, not an omission.
+
+**The map's own first correction (2026-10-16).** Working the `transport_logic` row produced a
+finding the census had wrong: the cue family (`HSM_LINK_CUE_*` / `hsm_link_cue_of`) is **not** "an
+indicator concern in the wrong core" — `hsm_link_cue_of` has **no consumer anywhere in the tree**.
+Its only references outside `transport_logic` are six assertions in `transport_logic_tests.cpp`;
+the shipped renderer paints REJECT by branching on *state* (`wls_indicator.c:349`), never on the
+cue. The sibling `hsm_chan_cue_of` *does* have a consumer and is consumed through a raw
+`switch` (`wls_indicator.c:408`), so the link cue is a **vocabulary kept alive by its own tests**.
+`docs/CONTEXT-MAP.md` §6.2a records the decision rule this produced — *a function belongs to the
+context that owns the decision's language, not the context that owns its input* — and §6.2b names
+the two sub-questions the row exposes: whether the cue is dead code to delete rather than move,
+and whether X-30 is actually **verified** (the painter appears to meet it by another route, so the
+artefact claiming to satisfy it is inert). The X-30 question is a requirement question and is
+recorded as **open**, not closed, by the map.
 
 **What "undetermined" means here.** A property is *determined* when something fails if it is
 broken — a test, a guard, or a construction that makes it unwritable. *Undetermined* means
@@ -995,12 +1035,38 @@ the arbitration that used to be a line number is a rule (**D3**). 8 new vectors 
 3 new `bin/guard-invariants` checks (each negative-tested) keep the rule in the core, keep the
 cue consulting it, and reject a reintroduced bare REJECT early-return.
 
-**What D3/D4 still do not reach.** The honest residue: the rule is *executable* (a wrong winner
-fails a test), but it is not yet *unrepresentable* — the battery, set-flash and marker painters
-still call `rgb_matrix_set_color` directly, so "a painter writes an LED it does not own" is
+**What D3/D4 still do not reach (2026-10-15).** The honest residue: the rule is *executable* (a
+wrong winner fails a test), but it is not yet *unrepresentable* — the battery, set-flash and marker
+painters still call `rgb_matrix_set_color` directly, so "a painter writes an LED it does not own" is
 caught by the rule's test, not by a construction that makes the write impossible. Only the
 channel cue is wired through the arbiter. That is the remaining rung-3 work, stated here rather
 than implied solved.
+
+**D3/D4's rung-3 residue is now closed (2026-10-16).** The write itself is gated, so an unowned
+write is *refused*, not merely testable. The rule gained its general form —
+`wls_led_may_write(painter, index, any_exclusive_claim_live, reject_live)`, answering "may this
+painter write this index" on *precedence* rather than the winner (asking the winner would silence
+the channel cue's own paint on 17/18/19 — the livelock shape) — and `wls_led_can_paint` is now a
+thin call to it, so the rule has one statement. Every board painter writes through
+`wls_indicator_led_write*` (`wls/wls_indicator.c`), which asks the rule first; the caps, win-lock
+and `filp` marker writes in `epomaker_split65.c` were the last three raw writers and are migrated.
+Two painters were added and one reserved: `WLS_LED_PAINTER_CAPS`, `WLS_LED_PAINTER_WIN_LOCK`, and
+`WLS_LED_PAINTER_RGBREC` — the RGBR_PLAY custom effect reserved as an **exclusive** all-LEDs claim,
+which turns the board's positional `!rgbrec_is_started()` battery suppression into
+`!wls_indicator_led_claim_live()`. The precedence order has one home (`wls_led_painter_precedence`),
+and the index-space bound is `WLS_LED_INDEX_MAX` (67, the board's 68 LEDs) pinned to
+`keyboard.json` by a guard. `tests/indicator_logic` is **28/28**; 3 further `bin/guard-invariants`
+checks (raw write outside the chokepoint, chokepoint-not-asking-the-rule, bound drift) were each
+negative-tested. `rgb_record.c` and `wls_keymap.c` remain the open-ended painter surfaces the core
+deliberately does not claim.
+
+**The `wls_sleep_order_t` collision is resolved (2026-10-16).** The name was carried by two
+*different* types: the battery arming timer (`sleep_order_logic`, one `uint32_t armed_ms`) and the
+cross-half order handle (`split_logic`, a `permitted`/`sleep_flag` pair) — created the same day by
+two extraction slices that never knew of each other, and it made a bare `-fsyntax-only` on
+`wls_indicator.c` fail. The arming timer is renamed to `wls_sleep_arm_t` (and its
+`WLS_SLEEP_ARM_{IDLE,HOLD,NOW}` / `wls_sleep_arm_tick` family); the order handle keeps its name
+because it *is* the order. `wls_indicator.c` now compiles for the first time.
 
 **D5 is the transport invariant one level out, and is now determined at the executable rung
 (2026-10-15).** The ADR's input half scopes "the line's own state may not cause a *decision*
@@ -1081,6 +1147,8 @@ violation, and the cheapest rung that does so is the right one:
   that cannot be sent" is unrepresentable. Rung 3.
 - **D3/D4 (painter overlaps)** close together at rung 3: a per-painter index range the arbiter
   can check, which makes "two owners of one index" unrepresentable rather than order-dependent.
+  **Done (2026-10-16)** — the chokepoint `wls_indicator_led_write` asks `wls_led_may_write`, so an
+  unowned write is refused; all board painters migrated.
   **Done to the executable rung (2026-10-15)** — the ranges and the precedence are stated and
   tested (`wls_led_painter_of`, `wls_led_painter_is_exclusive`), and the cue consults them; the
   unrepresentable rung is reached only when every painter is forced through the arbiter.
@@ -3197,6 +3265,47 @@ Probe plan (produces an upstream-usable pin/net map):
 Caution: continuity on a populated board is the slow/lossy part, not the
 electrical part. Record every result as measured vs inferred. Deliverable: a
 `docs/` reverse-engineered interface map a QMK reviewer can trust.
+
+### Metamorphic testing (a note for the future, 2026-10-16)
+
+**Recorded because the missing schematic is exactly the constraint metamorphic
+testing exists to work around — not adopted, nothing built.**
+
+Metamorphic testing is the standard answer to *the oracle problem*: when you
+cannot state the expected output of an input (because you have no reference
+model — here, no schematic and no vendor source for the module), you state
+instead a **relation between the outputs of related inputs** — `f(T(x))` must
+be `M(f(x))` for a chosen transformation `T` and relation `M` — and check *that*.
+A detected violation is a real defect with no oracle required; a passing run
+raises confidence in the *model* without proving any single value correct
+(Chen, Cheung & Yiu, "Metamorphic Testing", TR-98-01; Chen et al., ACM Comput.
+Surv. 2018).
+
+Where it would apply here, and why it is a natural fit rather than a novelty:
+
+- **The `0xA4` battery report has no oracle on this board.** The module reports
+  the value and no second source exists (the right half has no cell; defect 1 is
+  the module's compile-time constant). What *can* be stated without a reference:
+  monotonicity and invariant relations — charge state rising while cabled and
+  falling while not, level never increasing without a charge transition, the
+  transport byte tracking the switch within one cycle. These are metamorphic
+  relations over consecutive readings, not expected values.
+- **The D10/D11 plant premises are the same shape.** "The WB32 EXTI reports
+  port-agnostically" and "the USB event queue delivers every transition" are
+  claims about silicon with no available oracle. A metamorphic relation (e.g.
+  *the same pad edge reported under two different port labels must yield the
+  same wake code*; *a reconnect produces the same observable state as the first
+  connect*) probes the claim without a reference model, which is closer to
+  what they need than a single-value test can be.
+- **Cross-axis relations are relations by construction** — the ADR's monitors
+  are already `Everytime [E] then [C]`; a metamorphic relation is a sibling
+  form of the same idea and may share a home with them if that layer is built.
+
+The honest caveat, and the reason this is a note and not a plan: metamorphic
+relations are only as strong as the **transformation** chosen, they can pass
+while the model is wrong in a way no relation captures, and on this board the
+*observability* channel (the LED instrument) is the binding constraint, not the
+oracle — the same limit the pin-reading item above hit.
 
 ## Debugging capability (probe + tooling prerequisites)
 

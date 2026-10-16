@@ -506,6 +506,13 @@ A candidate, not yet adopted — for the user to judge before it becomes process
 > that leaves the property's home uncreated is a patch (Lamport, I.8) — it repairs
 > the instance and leaves the class.
 
+**A candidate home for the cross-file case is scoped in
+`docs/ADR-cross-axis-contracts.md` (proposed, 2026-10-16).** It applies this
+paragraph's rule to the relations D1–D9 closed, and its starting observation is
+that a *cross-axis* relation cannot reach the "unrepresentable" rung the way a
+per-axis one can — the S2 work is the worked instance. Like II.4 itself, it is a
+proposal for the user to judge, not process.
+
 ---
 
 ## Sources consulted

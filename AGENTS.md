@@ -219,6 +219,9 @@ keymap is **not** in the tree — it lives in the sibling userspace repo
 - A real reaction to using the board — testimony, captured raw and judged later,
   and the place a requirement gets *contradicted* -> `docs/OBSERVATIONS.md`
 - The board layer's contract and its definition of done -> `docs/BOARD-LAYER.md`
+- Which decision core owns which model, what language it speaks, and which
+  others it depends on -> `docs/CONTEXT-MAP.md` (the boundaries *between* the
+  cores; the composites below are authoritative for a single relation's status)
 - An audit's plan, method, or results -> `docs/PLAN-fcis-audit.md` (the plan),
   `docs/AUDIT-fcis.md` / `docs/AUDIT.md` (the findings)
 - Work, defects, status -> `TODO.md` (the live record)

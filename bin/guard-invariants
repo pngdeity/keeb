@@ -473,15 +473,16 @@ else
          "gate it on hsm_usb_teardown_is_safe(...) rather than a bare USB_DRIVER.state != USB_ACTIVE test"
 fi
 
-# --- LED-index ownership has a home, and the cue consults it -------------------
+# --- LED-index ownership has a home, and every painter consults it --------------
 #
 # `wls_frame_owner_of()` arbitrates the FRAME; nothing arbitrated the LED. Two
 # non-exclusive painters writing one index resolved by CALL ORDER, so the winner
 # was a line number and moving a paint call changed the sight with nothing
 # failing. D3/D4 of `TODO.md` "Determination residue". The rule now lives in
-# `wls_led_painter_of` / `wls_led_painter_is_exclusive` / `wls_led_can_paint`
-# (indicator_logic), and the at-rest channel cue asks it rather than testing the
-# REJECT early-return positionally.
+# `wls_led_painter_of` / `wls_led_painter_is_exclusive` / `wls_led_may_write`
+# (indicator_logic), and every board painter writes through the chokepoint that
+# asks it (`wls_indicator_led_write`, D3/D4's unrepresentable rung) rather than
+# testing REJECT positionally.
 # See `docs/STATE-MACHINE-indicator-ownership.md`.
 if rg -q '^wls_led_painter_t\s+wls_led_painter_of\s*\(' "$WLS/indicator_logic.c" \
     && rg -q 'wls_led_painter_of' "$WLS/indicator_logic.h"; then
@@ -491,23 +492,90 @@ else
          "keep wls_led_painter_of in indicator_logic so 'who owns index N' is checkable"
 fi
 
-# The cue must consult the core rule, not re-derive REJECT positionally. A future
-# edit that reintroduces `if (hsm_link_state_of_md(...) == HSM_LINK_REJECT)
-# return;` in `wls_indicator_channel_state` puts the arbitration back in a line's
-# position; it fails here instead.
-ind_c="qmk_firmware/keyboards/epomaker/epomaker_split65/wls/wls_indicator.c"
-if rg -q 'wls_led_can_paint\s*\(' "$ind_c"; then
-    ok "the at-rest channel cue arbitrates through the core's LED ownership"
+# The general "may painter P write index I" rule must have a home too: the cue's
+# `wls_led_can_paint` is now a thin call to it, so the rule has one statement.
+if rg -q '^bool\s+wls_led_may_write\s*\(' "$WLS/indicator_logic.c"; then
+    ok "the may-write rule has a home in the pure core"
 else
-    fail "the at-rest channel cue does not consult the LED-ownership arbiter" \
-         "gate it on wls_led_can_paint(...) so the arbitration is the core's, not a line's position"
+    fail "the may-write rule is not stated in the pure core" \
+         "keep wls_led_may_write in indicator_logic so every painter's permission has one home"
 fi
 
+# The cue must not re-derive REJECT positionally. A future edit that reintroduces
+# `if (hsm_link_state_of_md(...) == HSM_LINK_REJECT) return;` in
+# `wls_indicator_channel_state` puts the arbitration back in a line's position;
+# it fails here instead.
+ind_c="qmk_firmware/keyboards/epomaker/epomaker_split65/wls/wls_indicator.c"
 if rg -n '==\s*HSM_LINK_REJECT\s*\)\s*(/\*.*\*/\s*)?\{\s*$' "$ind_c" >/dev/null; then
     fail "the channel cue still gates on a bare REJECT early-return" \
-         "route the suppression through wls_led_can_paint so the rule has one home"
+         "let the chokepoint refuse the writes instead of a positional return"
 else
     ok "the channel cue does not gate on a bare REJECT early-return"
+fi
+
+# --- the LED write chokepoint (D3/D4's unrepresentable rung) --------------------
+#
+# The arbiter above makes "who owns index N" a rule, but a painter could still
+# call `rgb_matrix_set_color*` directly and write an LED it does not own -- the
+# rule was executable, not unrepresentable. Now every painter writes through
+# `wls_indicator_led_write*` (wls_indicator.c), which asks the core's
+# `wls_led_may_write` first. A raw matrix write reintroduced in the board's LED
+# sources fails here rather than on the board. The two raw writes that ARE
+# allowed are the chokepoint's own bodies; every other line must go through it.
+# `rgb_record.c` and `wls_keymap.c` are the QMK custom-effect and keymap surfaces
+# the core deliberately does not claim (open-ended painters), so they are out of
+# scope. See `docs/STATE-MACHINE-indicator-ownership.md`.
+led_sources=( "$WLS/wls_indicator.c" "$kbd_c" )
+# The chokepoint's allowed raw-write line numbers: inside wls_indicator_led_write
+# and wls_indicator_led_write_all. Computed from the file so it cannot drift.
+allowed_raw=$(awk '
+    /^(static[ \t]+)?void[ \t]+wls_indicator_led_write(_all)?[ \t]*\(/ {in_fn=1}
+    in_fn && /rgb_matrix_set_color(_all)?[ \t]*\(/ {print NR}
+    in_fn && /^}/ {in_fn=0}
+' "$WLS/wls_indicator.c" | sort -n | paste -sd, -)
+raw_writes=$(rg -n 'rgb_matrix_set_color(_all)?\s*\(' "${led_sources[@]}" --with-filename \
+    | rg -v ':[0-9]+:\s*(/\*|\*|//)' || true)
+# Drop the allowed chokepoint lines from wls_indicator.c.
+if [ -n "$raw_writes" ] && [ -n "$allowed_raw" ]; then
+    raw_writes=$(printf '%s\n' "$raw_writes" | awk -v allowed="$allowed_raw" '
+        BEGIN {n=split(allowed, a, ","); for (i=1;i<=n;i++) ok[a[i]]=1}
+        {
+            split($0, p, ":")
+            if (p[1] ~ /wls_indicator\.c$/ && (p[2] in ok)) next
+            print
+        }')
+fi
+raw_writes=$(printf '%s\n' "$raw_writes" | rg -v '^\s*$' || true)
+if [ -z "$raw_writes" ]; then
+    ok "every board LED painter writes through the chokepoint"
+else
+    fail "a board LED painter writes the matrix directly" \
+         "route it through wls_indicator_led_write so wls_led_may_write can refuse it"
+    printf '%s\n' "$raw_writes"
+fi
+
+# The chokepoint must keep asking the core: a rewrite that paints without the
+# `wls_led_may_write` guard is a chokepoint in name only.
+if rg -q 'wls_led_may_write\s*\(' "$WLS/wls_indicator.c"; then
+    ok "the LED chokepoint consults the core's may-write rule"
+else
+    fail "the LED chokepoint does not consult wls_led_may_write" \
+         "gate wls_indicator_led_write on wls_led_may_write so an unowned write is refused"
+fi
+
+# --- the LED index space is pinned to the board --------------------------------
+#
+# `WLS_LED_INDEX_MAX` bounds the overlap scan and must cover every real LED. The
+# core cannot include the firmware macro that would derive it, so a literal that
+# drifts from the board is invisible -- exactly the accretion this closes. Read
+# `keyboard.json`'s rgb_matrix.layout length and compare.
+led_entries=$(python3 -c "import json;print(len(json.load(open('qmk_firmware/keyboards/epomaker/epomaker_split65/keyboard.json'))['rgb_matrix']['layout']))")
+core_bound=$(rg -o '^#define WLS_LED_INDEX_MAX\s+([0-9]+)' -r '$1' "$WLS/indicator_logic.h")
+if [ "$led_entries" = "$((core_bound + 1))" ]; then
+    ok "WLS_LED_INDEX_MAX matches the board's LED count ($led_entries LEDs, max index $core_bound)"
+else
+    fail "WLS_LED_INDEX_MAX ($core_bound) does not match the board's LED layout ($led_entries entries)" \
+         "set WLS_LED_INDEX_MAX to (layout length - 1) in wls/indicator_logic.h"
 fi
 
 exit "$status"
