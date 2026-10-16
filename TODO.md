@@ -918,7 +918,7 @@ an edit, and it belongs to the batched hardware session.
 | # | Item | Ledger row | Kind | Home today |
 | --- | --- | --- | --- | --- |
 | D1 | A half, once ordered to sleep, is *eventually* released | `STATE-MACHINE-stop-wake-split.md` §5 last row | **determined** (executable + wired, 2026-10-15) | `wls_sleep_order_outlived_release()` + the `wls.c` record (`wls_note_sleep_order_sent/_released`, `hs_sleep_order_liveness_check`) + `tests/split_logic` + `bin/guard-invariants` |
-| D2 | The release path itself (`0xCC` on USB) | same doc §5; narrative `:129-132`, `:154-157`, `:191` | **undetermined** | nothing |
+| D2 | The release path itself (`0xCC` on USB) | same doc §3, §5 | **determined** (executable, 2026-10-15) | `wls_sleep_release_open()` / `wls_sleep_release_permitted()` / `wls_split_can_send_relay()` + both relay sites in `wls_lifecycle.c` + `tests/split_logic` + `bin/guard-invariants` |
 | D3 | Which painter owns which LED index (overlaps) | `STATE-MACHINE-indicator-ownership.md` §4 | **undetermined** | nothing (rung 3 not started) |
 | D4 | Whether a painter added later is exclusive | same doc §4 | **undetermined** | nothing |
 | D5 | Whether the presleep hook may read the USB line's own state to decide a teardown | `STATE-MACHINE-transport-authority.md` §4 | **undetermined** | nothing (a deliberate read; `wls_lifecycle.c:256`) |
@@ -954,12 +954,22 @@ that carries `0xCC`, which is the switch — the person's decision, not the firm
 one release writer.
 
 **D2 is D1's other side and is not the same fact.** D1 is "the release happens in time"; D2 is
-"the release path is correct at all" — the sole `0xCC` call site is USB-gated, so on USB the
+"the release path is correct at all" — the sole `0xCC` call site was USB-gated, so on USB the
 slave is sent no wake, and `wls_split_can_order_sleep()` / the executor is the only thing
-keeping the slave releasable. Guarding the sender would state D2 (the release handle is opened
-only when the transport carries the wake); it remains **not done** — the `0xCC` sender in
-`wls_lifecycle_suspend_wakeup_init_user()` is still a bare USB early-return, and no predicate
-yet owns "this half may send a release". Distinct from D1, which is the *deadline* fact.
+keeping the slave releasable. **Now determined (2026-10-15)** by giving the release the same
+precondition the order has: `wls_sleep_release_open(sends_release_on_this_transport)` in
+`split_logic.{h,c}` returns a handle permitted exactly when the release is actually sent on this
+transport, and both relay sites (`wls_lifecycle_suspend_wakeup_init_user` for `0xCC`,
+`wls_lifecycle_suspend_power_down_user` for `0xBB`) take it as a gate instead of a bare
+`if (== DEVS_USB) return;`. The rule has a words form too (`wls_split_can_send_relay()`) beside
+`wls_split_can_order_sleep()`, so both sides read the same way. **The pair cannot disagree**:
+both opens consume the *same* fact derived the *same* way (`wireless_get_current_devs() !=
+DEVS_USB`), pinned by `the_order_and_the_release_cannot_disagree` in `tests/split_logic`
+(**26/26**). D2 matters where D1 does not because the safety argument (S2 rung 3) *silently
+assumes* the release is sent whenever it is reachable — an unstated premise with no home, which
+is exactly what this gives it. Two `bin/guard-invariants` checks keep it (the gate's home in the
+pure core; each relay send gated by its own handle), both negative-tested. Distinct from D1,
+which is the *deadline* fact.
 
 **D3/D4 are artefact 2's rung 3, deliberately not started.** Rung 3 there is "give every painter
 an index range and arbitrate overlaps", which subsumes both rows — but it is real work for a

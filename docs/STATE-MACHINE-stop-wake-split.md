@@ -130,13 +130,22 @@ only by the slave's own `lpwr_stop_hook_post()` (`wls.c:433-442`) — which requ
 slave to reach `LPWR_WAKEUP`, i.e. to actually wake from a real stop. `0xCC` does not
 clear it. So if `0xCC` is not received, the slave has no path out of its order.
 
-**And the sender is USB-gated.** `WLS_SPLIT_CMD_WAKEUP` (`0xCC`) has exactly **one** call
-site in the tree: `wls_lifecycle.c:179`, inside
-`wls_lifecycle_suspend_wakeup_init_user()`, which **returns before it on USB**
-(`:175-177`):
+**And the sender was USB-gated by convention.** `WLS_SPLIT_CMD_WAKEUP` (`0xCC`) has exactly
+**one** call site in the tree: `wls_lifecycle.c`, inside
+`wls_lifecycle_suspend_wakeup_init_user()`, which **returned before it on USB** with a bare
+`if (wireless_get_current_devs() == DEVS_USB) return;`:
 
 > *"While cabled the rail must stay up on both halves; broadcasting it would extinguish
 > the slave's backlight."*
+
+That early return was a *convention*, exactly the shape the order executor removed one step
+back, and it left the safety argument's premise (the release is sent whenever it is reachable)
+with no home — D2. It is now the release handle (`wls_sleep_release_open()`,
+`wls_sleep_release_permitted()`, and the words-form `wls_split_can_send_relay()`), taken by
+both relay sites: `0xCC` in this hook and `0xBB` in
+`wls_lifecycle_suspend_power_down_user()`. The two endpoints consume the same fact derived the
+same way, so **the transport that may not order is exactly the transport that may not
+release**.
 
 So on USB the master sends the slave **no wake at all** — and USB is the transport the
 user returns to. The master is alive (its USB enumerates, its matrix scans, it types);
@@ -189,7 +198,8 @@ The master's column is now safe (S1 determined executably). The slave's column *
 the open fault (S2) and is now determined executably too — the master no longer orders a
 sleep it cannot release (`wls_split_can_order_sleep`, §3). **The two columns remain
 independent**, which is why §8's fix did not restore the right half: it took a second,
-separate change, and the release path itself (`0xCC` on USB) is not yet asserted.
+separate change. The release path itself (`0xCC` on USB) is now asserted as well — the release
+handle of §5's last row (D2).
 
 ---
 
@@ -203,14 +213,15 @@ separate change, and the release path itself (`0xCC` on USB) is not yet asserted
 | S2: an ordered half must have a reachable release | `wls_sleep_order_open` + `tests/split_logic` | **unrepresentable** |
 | S2: the order is constructible only when a release is reachable | `wls_sleep_order_t` (handle) | **unrepresentable** |
 | The composite's liveness (a half, once ordered, *eventually* released) | `wls_sleep_order_outlived_release` + the `wls.c` record + `tests/split_logic` | **executable, and wired** |
+| S2: the release is sent only where it is carried (the sender's gate) | `wls_sleep_release_open` + `wls_split_can_send_relay` + `tests/split_logic` + `bin/guard-invariants` | **unrepresentable at the seam** |
 
-The last row was the honest gap: the tree had no statement, no test, and no guard for the
+The liveness row was the honest gap: the tree had no statement, no test, and no guard for the
 *liveness* half of S2. `docs/DETERMINATION.md` §I.4 (safety vs liveness) names the
 distinction; S2's *safety* half (never order an unreleasable sleep) is now unrepresentable, and
 its *liveness* half (a sleep once ordered is eventually released) is now **executable** —
 `wls_sleep_order_outlived_release(sent_at, now, release_transport_still_carries, released)` in
 `split_logic.{h,c}`, which states the fault in the only form the master can observe, since it
-cannot see the slave. Six vectors in `tests/split_logic` (22 tests) and a `bin/guard-invariants`
+cannot see the slave. Six vectors in `tests/split_logic` and a `bin/guard-invariants`
 check. **The wiring is now made as well (2026-10-15)**: the rule had no caller — nothing recorded
 that an order had been sent, so no check could run. The record is `wls_sleep_order_record_t`
 (`split_logic.h`), held in `wls.c` with one writer each way
@@ -218,9 +229,19 @@ that an order had been sent, so no check could run. The record is `wls_sleep_ord
 `0xCC` send), and `hs_sleep_order_liveness_check()` — master, wireless only, on the module-poll
 tick — consults the predicate and **reports** the residue to the diagnostic rather than acting,
 because the recovery the master owns (reaching a transport that carries `0xCC`) is the switch, a
-person's decision. A guard keeps the record at exactly one writer each way. The release path
-itself (`0xCC` on USB, §3) is still a separate unasserted fact. That is **D2** in `TODO.md`
-"Determination residue"; **D1 is closed**.
+person's decision. A guard keeps the record at exactly one writer each way.
+
+**The last row is D2, and it is a different fact.** The liveness row is "the release happens in
+time"; the release *sender*'s rule is "the release path is correct at all". The `0xCC`/`0xBB`
+pair relay the slave's LED rail, so both are gated by the transport; that gate was a bare
+`if (== DEVS_USB) return;` at each site — a convention, not a precondition, which left the
+safety argument's premise (*the release is sent whenever it is reachable*) unstated and
+unowned. It now has a home: `wls_sleep_release_open(sends_release_on_this_transport)` returns a
+handle permitted exactly when the release is carried, taken by both relay sites; the words-form
+`wls_split_can_send_relay()` sits beside `wls_split_can_order_sleep()` so both endpoints read
+alike. Because both opens consume the same fact derived the same way, the pair **cannot
+disagree** — pinned by `the_order_and_the_release_cannot_disagree` in `tests/split_logic`
+(26 tests) and kept by two negative-tested guards. **D1 and D2 are both closed.**
 
 ---
 

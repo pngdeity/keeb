@@ -298,4 +298,44 @@ else
     rg -n 'wls_note_sleep_order_(sent|released)\s*\(' "$WLS" --glob '*.c' || true
 fi
 
+# --- the release sender is gated by the handle, not a local early return ------
+#
+# D2. The 0xCC release had exactly one call site, behind a bare
+# `if (wireless_get_current_devs() == DEVS_USB) return;` -- the same
+# convention-not-precondition shape the executor removed for the order, one step
+# along. The safety argument silently assumed the release is sent whenever one is
+# reachable, and that assumption had no home. The release handle
+# (`wls_sleep_release_open`) is now that home, taken by both relay sites.
+# The rule this keeps: every `wls_split_send(...WAKEUP...)` /
+# `...POWER_DOWN...)` in the shell is preceded by a release-handle gate, and the
+# handle keeps its DEFINITION in the pure core so the rule cannot go stale.
+# See `docs/STATE-MACHINE-stop-wake-split.md` section 5, and D2 of `TODO.md`.
+if ! rg -q '^wls_sleep_order_t\s+wls_sleep_release_open\s*\(' "$WLS/split_logic.c"; then
+    fail "the release gate is not stated in the pure core" \
+         "keep wls_sleep_release_open in split_logic so the release rule is checkable"
+else
+    ok "the release gate has a home in the pure core"
+fi
+
+relay_ungated=$(rg -n 'wls_split_send\s*\(\s*WLS_SPLIT_CMD_(WAKEUP|POWER_DOWN)' "$WLS" --glob '*.c' \
+    | rg -v ':[0-9]+:\s*(/\*|\*|//)' \
+    | wc -l)
+relay_gates=$(rg -n 'wls_sleep_release_permitted\s*\(' "$WLS/wls_lifecycle.c" \
+    | rg -v ':[0-9]+:\s*(/\*|\*|//)' \
+    | wc -l)
+if [ "$relay_gates" -eq "$relay_ungated" ] && [ "$relay_ungated" -eq 2 ]; then
+    ok "each relay send is gated by the release handle ($relay_gates gates, $relay_ungated sends)"
+else
+    fail "the relay sends and their release gates do not correspond ($relay_gates gates, $relay_ungated sends; want 2 and 2)" \
+         "each wls_split_send(WAKEUP|POWER_DOWN) needs its own wls_sleep_release_open/_permitted gate"
+    rg -n 'wls_split_send\s*\(\s*WLS_SPLIT_CMD_(WAKEUP|POWER_DOWN)|wls_sleep_release_permitted\s*\(' "$WLS" --glob '*.c' || true
+fi
+
+# Note: the relay SITES legitimately read the transport once to supply the
+# handle's fact (`wls_sleep_release_open(!on_usb)`), exactly as the order path
+# does. Forbidding that read would forbid stating the rule. What must hold is
+# that no relay send goes UNGATED, which the check above pins; and that both
+# endpoints take the same fact, which `the_order_and_the_release_cannot_disagree`
+# pins in `tests/split_logic`. No further shell check is honest here.
+
 exit "$status"
