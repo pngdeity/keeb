@@ -149,10 +149,11 @@ The flash is a **human action**: `wb32-dfu-updater_cli -t -s 0x08000000 -D
 
 **This is the working pre-flight for the next flash, and it supersedes the
 walk-close draft that stood here before 2026-10-15.** That draft pinned
-`aec731388c…` (64,600 B); two requirement fixes have landed since, so the
-artefact, both hashes, and the predictions below are rebuilt from the current
-tree. It is built from a committed, signed tree, so the checklist wording
-"confirmed clean against HEAD" is met.
+`aec731388c…` (64,600 B); requirement fixes have landed since (A7, A8, and the
+X-4 channel cue), so the predictions below are rebuilt from the current tree —
+**but the pinned hash still names the A7+A8 build and has not been regenerated for
+the X-4 cue (see § 1's staleness note).** It is built from a committed, signed
+tree, so the checklist wording "confirmed clean against HEAD" is met.
 
 **What is new in this build over the walk-close artefact, and why each is here:**
 
@@ -176,6 +177,17 @@ tree. It is built from a committed, signed tree, so the checklist wording
   consumes the record (`return false`), so upstream's `rgb_matrix_decrease_val()`
   never runs. **This changes the 2026-10-14 dark-board recovery**: CCW now stops
   at 1 rather than going dark. See § 2 and § 7.
+- **A17 — the at-rest channel cue (`X-4`).** The channel was shown **only when it
+  changed** (`wls_indicate_devs` fires from the switch edge, the keycode path and
+  the re-pair long-press, then the LEDs return to the fill), so at rest the board
+  said nothing about which channel was live — while X-4 requires the mode be
+  indicated *"while the switch is in that position"*. The core fix is
+  `hsm_chan_cue_of()` (`transport_logic.{c,h}`, one arm per `DEVS_*`, no
+  `default:`), and the render is `wls_indicator_channel_state()`
+  (`wls_indicator.c`, called from `epomaker_split65.c:272`): master-gated, it paints
+  a **steady dim `{0x10,0x10,0x10}` on the one channel LED** for the live device
+  index, and **defers to `wls_indicator_link_state()` on REJECT** (that cue owns the
+  BT LEDs). See § 4's channel-cue prediction and § 5.
 
 **1. The artefact.** `qmk_firmware/.build/epomaker_epomaker_split65_nathan.bin`,
 **64,640 bytes**, sha256
@@ -184,6 +196,16 @@ the walk-close build **plus A7 (the REJECT cue) and A8 (the value floor)**, and 
 **32 bytes smaller** than the walk-close `aec73138…` (64,600 → 64,640). Verify the
 hash **before** flashing; if it differs, the tree moved and this pre-flight is
 stale — regenerate it (§ 0.2) and update the hash here.
+
+> **STALE AS OF 2026-10-15 (the X-4 channel cue).** The hash and size above are the
+> **A7+A8** build, and the tree has since gained the at-rest channel cue
+> (`hsm_chan_cue_of` + `wls_indicator_channel_state()`), so **the current on-disk
+> artefact no longer matches** this line — it has not been rebuilt, because a full
+> cross-compile needs the user's go-ahead and was not run. **Do not flash
+> `44eea0d4…` as if it were current.** Before the session: rebuild with
+> `./bin/make epomaker/epomaker_split65:nathan` (with consent), then re-pin the
+> hash, the size, and the submodule SHA here. The § 2–§ 7 predictions now describe
+> **that** build (A7 + A8 + the X-4 cue), not `44eea0d4…`.
 
 - **Submodule `split65-overlay` = `a4878e7bfe`** (A8's landing; A7 is `5819516e2c`
   beneath it), signed (`G`).
@@ -224,33 +246,46 @@ over USB. It does **not** carry A7 or A8.
   hardware-confirmed.** The decider returns FLOOR at/below 1 and the shell
   consumes the record; whether the visible result is "the key stops responding at
   the dimmest setting" is the prediction in § 4.
+- *The at-rest channel cue is right (X-4), and its intensity/read are a CHOICE* —
+  **unit-tested, never hardware-confirmed.** `wls_indicator_channel_state()` paints
+  a steady dim `{0x10,0x10,0x10}` on the one channel LED for the live device index;
+  the pure `hsm_chan_cue_of()` is proven exhaustive and injective on the surfaced
+  channels, but whether "one small steady LED whose position tells you the channel"
+  is *legible at a glance* is a stage-4 UX opinion needing a person's eye (the same
+  reservation as A7's REJECT sight). The arbitration -- the cue defers to the REJECT
+  paint on BT1/2/3 -- is proven by construction but not on hardware.
 
 **3. The four review questions.**
 - *Does any effect feed back into its own trigger?* **No new feedback loop is
-  introduced by the walk, and A7/A8 add none.** The one loop-shaped site changed
+  introduced by the walk, and A7/A8/A17 add none.** The one loop-shaped site changed
   by the walk is the split device index: `wls_split.c` clamps the wire value in the
   pure core **before** it can reach `wls_module_devs_change()`, so the index that
   feeds the transport decision cannot echo back a value the transport itself would
   produce. A7's cue is a read of the module's state byte (`md_getp_state()`) with
   no write back; A8's floor is a read of `rgb_matrix_get_val()` with the *record*
-  consumed rather than a value written — neither modifies a signal it depends on.
+  consumed rather than a value written; the X-4 channel cue **reads**
+  `wireless_get_current_devs()` and paints an LED -- a read, not a transport write,
+  so it cannot move the transport it displays. None modifies a signal it depends on.
+  The one interaction to name is A7 vs the channel cue: both may want the BT1/2/3
+  LEDs, and it is resolved by ordering, not feedback (the cue defers to REJECT).
 - *Does every signal have a real value (not a constant, not undefined)?* The
   journal is `b wls_journal` at `0x20004fbc` (16 B, `.ram0`); `wls_reset_cause` is
   `T`; `bootloader_jump` and `enter_bootloader_mode_if_requested` are both strong
   `T`. `KB_BATTERY_IDX_DIAG 11`, `_BOOT_CODE 21`, `_JUMP 23` are all emitted
-  (`wls.h`). A7 reads `*md_getp_state()` (the live module byte) and A8 reads
-  `rgb_matrix_get_val()` (live); both are values, not constants. The three new
-  `_Static_assert`s in `wls_battery.c` and the two frame-size asserts in the
-  adapters **compiled in this build**.
+  (`wls.h`). A7 reads `*md_getp_state()` (the live module byte), A8 reads
+  `rgb_matrix_get_val()` (live), and the X-4 cue reads
+  `wireless_get_current_devs()` (live); all three are values, not constants. The
+  three new `_Static_assert`s in `wls_battery.c` and the two frame-size asserts in
+  the adapters **compiled in this build**.
 - *Which code is even compiled?* `wls.mk` lists all 25 sources. `wls_indicator.c`
-  and `transport_logic.c` are compiled with A7's additions (both in the build; `nm`
-  shows `hsm_link_cue_of`/`hsm_link_state_of_md` as `T`), and `wls_keymap.c`/
-  `rgb_key_logic.c` with A8's. `KB_BATTERY_IDX_JUMP` is under `#ifndef VIA_ENABLE`;
-  VIA is not enabled.
+  and `transport_logic.c` are compiled with A7's and the X-4 cue's additions (both
+  in the build; `nm` shows `hsm_link_cue_of`/`hsm_link_state_of_md`/`hsm_chan_cue_of`
+  as `T`), and `wls_keymap.c`/`rgb_key_logic.c` with A8's.
+  `KB_BATTERY_IDX_JUMP` is under `#ifndef VIA_ENABLE`; VIA is not enabled.
 - *Measured vs inherited?* Listed in §2: the battery level and the
   cable-plus-2.4GHz behaviour are the two genuinely unmeasured claims the earlier
-  session attempted; **A7's REJECT cue and A8's floor are newly unmeasured** and
-  have predictions below.
+  session attempted; **A7's REJECT cue, A8's floor, and the X-4 channel cue are
+  newly unmeasured** and have predictions below.
 
 **4. Predicted hardware effect.**
 - *After flashing, first cold boot (switch wherever it sits):* the boot LED code
@@ -287,6 +322,19 @@ over USB. It does **not** carry A7 or A8.
   REJECT can be provoked, record that — it stays an unmeasured choice, per § 2.
   *Falsifier:* a refused connection renders **identically** to a non-connection
   (the cue is not firing, or the state byte never reaches `HSM_LINK_REJECT`).
+- **The at-rest channel cue (`X-4`, A17).** With the switch on **BT** (any of
+  BT1/2/3) or **2.4 GHz**, and *no key pressed and nothing changing*, one of the
+  four channel LEDs (17/18/19/20) should be **steadily lit, dim**
+  (`0x10,0x10,0x10`) — the one matching the live channel — while the rest of the
+  matrix is the fill. Which LED is lit **is** the readout. On **USB** no channel LED
+  is lit (the cable is the mode). Flipping the switch should move the lit LED to the
+  new channel within a frame, and the transition flash should still be visible on
+  top of it. *Falsifier:* at rest **no** LED is lit on a wireless channel (the cue
+  is not firing / not called), or **more than one** channel LED is lit, or the cue
+  paints over the REJECT red (the arbitration is wrong), or it is bright enough to
+  read as "something just happened". The *legibility* of "one small steady LED" is
+  a stage-4 UX choice — this is where it first meets a person's eye; record whether
+  it is readable at a glance from typing posture.
 
 **5. What the build does not explain.** Present and **not** regressions: the `-71
 EPROTO` loop; the `342d:e4c6` self-detach (5 enumerations / 5 drops in 5 min, zero
@@ -302,13 +350,14 @@ must not be read as a fault. **Also still open, and asked of this session:**
   by that path**. The question therefore narrows to: *can the value reach 0 by any
   other route* (a saved EEPROM value of 0, `RGB_VAD`, `rgb_matrix_disable()`), and
   if so, is the charge cue then lost? Record whichever route exists.
-- **The X-4 channel-visibility gap (`TODO.md`, A17).** The active channel is
-  indicated **only at its transition** (`wls_indicate_devs`), not while it is in
-  effect, so at rest nothing on the board says which channel is live. This build
-  does **not** change it — it is recorded requirement work, not implemented. While
-  at the keyboard, note what the board actually shows at rest in each switch
-  position: the observation feeds the fix and is the kind of at-rest fact only a
-  person at the board can supply.
+- **The X-4 channel cue — now implemented in this build (`TODO.md`, A17).**
+  Previously the active channel was indicated **only at its transition**
+  (`wls_indicate_devs`), not while it was in effect; this build adds the at-rest
+  cue (see § 4's prediction). While at the keyboard, judge the *legibility* the
+  prediction cannot: is "one small steady dim LED whose position names the channel"
+  readable at a glance from a typing posture, and does it conflict with anything
+  else on the matrix? That judgement is the stage-4 UX input and can only come from
+  a person at the board.
 
 **6. Non-flashing recovery.** § 0.3: `EE_CLR` (hold Fn + `[7,8]`, then `[11,8]`
 for 3 s) re-defaults confinfo to USB; the physical switch to USB then power-cycle;
@@ -322,7 +371,10 @@ and the same CCW key will not have been what darkened it.
 **7. The falsifier.** *Battery still reads exactly 100 after twelve 2.4 GHz
 samples with `md state=2`* ⇒ `INQVOL` is unanswered on this revision; the
 "default 100" is the module's constant and the honesty fix (defect 1) becomes the
-only path — the retry-harder option is closed. *The board switches to USB when a
+only path — the retry-harder option is closed. *At rest on a wireless channel, no
+channel LED is lit, or more than one is, or the cue overwrites the REJECT red* ⇒
+the X-4 cue is not firing, is not exclusive, or its arbitration with A7 is wrong;
+compare against § 4's prediction. *The board switches to USB when a
 cable is inserted with the switch on 2.4 GHz* ⇒ **this has already fired once**
 (against the pre-reform build: `hsm_switch_apply_with_cable` forced USB on any
 cable read, measured as `switch=3 (2.4G)` with `host(raw)=2`). It is what the

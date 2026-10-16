@@ -860,7 +860,7 @@ concluding the lanes are the whole picture.
 | A14 | Whether a host is chosen on the wireless switch edge without half asymmetry (defect 5) | **X-3**, **X-4** | flash | defect 5 |
 | A15 | Blink-forever (defect 6) | **X-1**, **X-2** | flash | defect 6 |
 | A16 | NKRO overflow (defect 7) | **X-1** | flash | defect 7 |
-| A17 | The rest of the UX review — layers, held-modifier comfort, switch discoverability, legends | the UX set | **RESOLVED 2026-10-15** — the mode-visibility half is real X-4 work (see the note); comfort/legends are not requirement work | `## User experience / usability review` |
+| A17 | The rest of the UX review — layers, held-modifier comfort, switch discoverability, legends | the UX set | **RESOLVED 2026-10-15** — mode-visibility half (X-4) **implemented 2026-10-15**; comfort/legends are not requirement work | `## User experience / usability review` |
 | A18 | Confirm right-half power path / master assignment / stock factory config / switch glyphs / layout count | **X-14** (one half) | physical inspection | `### Unmeasured device facts` |
 
 **Lane B — engineering capability (no X-n parent, and correctly so)**
@@ -2414,6 +2414,19 @@ to trim the compiled-in animation list. The remainder stay here.
   requirement work**, and it is A9's sibling (A9 was the *host* legibility, this is
   the *channel* legibility, both under X-4/X-20). It lands with the mode-visible
   work rather than here — see the closing note.
+  **IMPLEMENTED 2026-10-15.** The at-rest cue is now in the tree: the pure
+  `hsm_chan_cue_of(devs)` (`transport_logic.{c,h}`) maps a device index to a
+  `hsm_chan_cue_t` (one arm per `DEVS_*`, no `default:` — A7's class guard), and
+  the master-gated `wls_indicator_channel_state()` (`wls_indicator.c`) paints it as
+  a **steady dim `{0x10,0x10,0x10}` on one channel LED** (17/18/19/20), called from
+  the frame pass after the flash and the link cue. It **defers to
+  `wls_indicator_link_state()` on REJECT** (that cue owns the BT LEDs and must win —
+  the X-30 flattening must not be reintroduced). Steady+dim is deliberate: not the
+  flash's motion (X-11), not full brightness (X-10), and *which* LED carries the
+  channel (X-9, never colour alone). 6 new vectors in `tests/transport_logic`
+  (49/49 green). One choice is unmeasured: the exact intensity and the "one LED at
+  a time" read are a stage-4 UX opinion needing a person's eye, exactly like A7's
+  REJECT sight.
   **The other two halves are not requirement work:** keycode *discoverability* is a
   documentation/legend concern (`docs/USAGE.md` already tabulates them), and the
   switch-and-keys coherence is **already correct by construction** — `hs_keycode_allowed()`
@@ -3088,8 +3101,12 @@ that decides anything here:
   required) and needs no new mechanism: `wireless_get_current_devs()` is in hand and
   the four channel LEDs exist. It is **A9's sibling** — A9 was the *host* legibility
   (X-20), this is the *channel* legibility (X-4) — and both belong to one piece of
-  mode-visibility work rather than to a Lane B row. It is **not** deferred; it is
-  recorded as requirement work awaiting an implementation pass.
+  mode-visibility work rather than to a Lane B row. It is **not** deferred; it was
+  **implemented 2026-10-15** (see the connection-mode bullet above for the shape:
+  `hsm_chan_cue_of` + `wls_indicator_channel_state()`, steady dim on one channel
+  LED, deferring to the REJECT cue). The host half (A9/B14) remains un-surfaced by
+  decision, so the sibling is now half-done: the channel reads at rest, the host
+  still does not.
 - **Keycode discoverability — not requirement work.** `docs/USAGE.md` already
   tabulates the keys; nothing fails while it stays documentation.
 - **Switch-and-keys coherence — already correct by construction.** `hs_keycode_allowed()`
