@@ -2087,6 +2087,28 @@ attribution table itself (prose — a pin change updates the code, not the table
 fails) and whether the WB32 EXTI truly reports port-agnostically on this silicon (a plant
 premise read from the ChibiOS LLD, not measured here).
 
+**The transport-authority input alphabet (2026-10-15, artefact 4 of `DETERMINATION.md`
+§II.3).** The ADR's invariant (`docs/ADR-transport-authority.md`) has two halves:
+*"`wls_usb_connect` may only be called as the consequence of a decision change, **and nothing
+in the line's own state may cause a decision change**."* The **actuator half** (one call
+site, on a change only) has been guarded by `bin/guard-invariants` F5 since the ADR. The
+**input half** is the half that actually *caused* the 2026-10-13 livelock — `USB_ACTIVE` was
+both an input to the decision and a consequence of it, so the decision perturbed its own
+input — and it was **documentation only**: nothing checked that the owner never reads the USB
+line. It is now executable — `hsm_transport_input_is_pure(bool reads_line_state)` in
+`transport_logic.{h,c}` (`return !reads_line_state;`), stated as a restriction on the class
+(*every* line-state read is impure) rather than an enumeration of the allowed inputs, which
+would go stale. **Tested:** 4 new vectors in `tests/transport_logic` (**53/53 green**),
+including that the two halves are independent. **Guarded:** two `bin/guard-invariants` checks
+(negative-tested) — the owner reads no live USB-line symbol
+(`usb_connected_state`/`USB_ACTIVE`/`USB_DRIVER.state`/`usbGetDriverState`) and the purity
+predicate keeps its definition in the core. Composite written down in
+**`docs/STATE-MACHINE-transport-authority.md`**. **Still undetermined:** the presleep hook's
+*own* line read (`wls_lifecycle.c:256`, `USB_DRIVER.state != USB_ACTIVE` deciding a teardown
+— the same shape one level out, and a deliberate read whose honest remedy is to state its
+rule, not forbid the read) and whether the USB event queue delivers every transition (a plant
+premise, for a batched hardware session).
+
 **The fix, if taken.** Make the expiry a **fact, not a call**: have
 `wls_indicator_boot_code_owns_matrix()` itself return false once
 `timer_elapsed32(boot_code_started) >= wls_boot_code_show_ms(...)`, so a predicate that

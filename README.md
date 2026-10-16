@@ -64,6 +64,7 @@ earlier build, not the current tree's** — see Status.
 | `docs/STATE-MACHINE-stop-wake-split.md` | The composite low-power × split state machine that no single file owns — its two safety rules (S1 panel, S2 slave), what is determined and what is still prose. |
 | `docs/STATE-MACHINE-indicator-ownership.md` | The composite relation no single file owns: the painters that write the RGB matrix in one frame pass, and the rule that arbitrates which of them owns the frame. |
 | `docs/STATE-MACHINE-pad-attribution.md` | The pad → wake-code attribution no single file owns: the WB32 EXTI reports by pad number alone, so an excluded wake code is sound only when its pad is still reachable through an armed one. |
+| `docs/STATE-MACHINE-transport-authority.md` | The transport decision's input alphabet, no single file owns: the two halves of the ADR's invariant (one call site on a change; no line-state read), where each is guarded, and the still-undetermined presleep line read. |
 | `docs/PLAN-fcis-audit.md` | The plan that named the audit's values (V1–V10) and their measurements. |
 | `docs/AUDIT.md` | Per-state audit against the plan's values. |
 | `docs/AUDIT-fcis.md` | Per-value, per-module audit record (the measurement used, not an impression). |

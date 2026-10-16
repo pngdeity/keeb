@@ -482,8 +482,19 @@ The concrete gaps, each a relation with no home:
    **`docs/STATE-MACHINE-pad-attribution.md` (2026-10-15)**. Still undetermined there: *the
    pin→code attribution table itself* (prose) and *whether the WB32 EXTI truly reports
    port-agnostically on this silicon* (a plant premise).
-4. **The transport authority** — see `docs/ADR-transport-authority.md` for the
-   decision; whether its rule is determined executably is open.
+4. **The transport authority** (`docs/ADR-transport-authority.md`): the ADR's invariant has
+   two halves, and only the first was guarded. *Now determined* — the **actuator half**
+   ("`wls_usb_connect` only as the consequence of a decision change") is `bin/guard-invariants`
+   F5 (one call site); the **input half** ("nothing in the line's own state may cause a
+   decision change") — the half that *caused* the 2026-10-13 livelock, since `USB_ACTIVE` was
+   both an input and a consequence — is now executable: `hsm_transport_input_is_pure` in
+   `transport_logic.{h,c}`, pinned by four vectors in `tests/transport_logic` (53 tests) and
+   two negative-tested guards (the owner reads no live USB-line symbol; the predicate keeps
+   its home in the core). The composite is **`docs/STATE-MACHINE-transport-authority.md`
+   (2026-10-15)**. Still undetermined there: *the presleep hook's own line read*
+   (`wls_lifecycle.c` `:256`, `USB_DRIVER.state != USB_ACTIVE` deciding a teardown — the same
+   shape one level out, deliberately read) and *whether the USB event queue delivers every
+   transition* (a plant premise).
 
 ### II.4 The method this document implies (to be folded into `docs/METHOD.md`)
 

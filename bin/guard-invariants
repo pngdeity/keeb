@@ -222,4 +222,40 @@ else
     ok "lpwr_wakeup_armed_mask does not return a bare constant"
 fi
 
+# --- the transport decision reads intent, never the USB line's own state ------
+#
+# The ADR's invariant has two halves. The first (one call site, on a change only)
+# is F5 above. This is the second: "nothing in the line's own state may cause a
+# decision change". It is the half that CAUSED the 2026-10-13 livelock --
+# `USB_ACTIVE` was an input to the decision, and driving the line (a consequence
+# of the decision) restarts the driver, which clears `USB_ACTIVE`. The decision
+# perturbed its own input, so the board re-decided forever at the enumeration
+# cadence.
+#
+# The rule: the transport owner's inputs are intent (the switch, the persisted
+# index) and event-delivered host facts, never a live read of the USB line. A
+# future edit that adds `usb_connected_state()` to `hints()` re-closes the cycle
+# with no test going red; it fails here instead.
+# See `docs/ADR-transport-authority.md` (the invariant) and
+# `docs/STATE-MACHINE-transport-authority.md`.
+transport_c="qmk_firmware/keyboards/epomaker/epomaker_split65/wls/wls_transport.c"
+if rg -n 'usb_connected_state|USB_ACTIVE\b|USB_DRIVER\.state|usbGetDriverState' "$transport_c" \
+    | rg -v ':[0-9]+:\s*(/\*|\*|//)' | rg -q .; then
+    fail "the transport owner reads the USB line's own state" \
+         "inputs must be intent or event-delivered host facts, never a line read"
+    rg -n 'usb_connected_state|USB_ACTIVE\b|USB_DRIVER\.state|usbGetDriverState' "$transport_c" | rg -v ':[0-9]+:\s*(/\*|\*|//)' || true
+else
+    ok "the transport decision reads no live USB-line state"
+fi
+
+# The predicate that states the rule must keep its home, so the rule is a
+# checkable set rather than prose that can go stale. Check the DEFINITION in the
+# core (a bare name match would also hit the header declaration), plus a caller.
+if rg -q '^bool\s+hsm_transport_input_is_pure\s*\(' "$WLS/transport_logic.c" && rg -q 'hsm_transport_input_is_pure' "$WLS/transport_logic.h"; then
+    ok "the input-purity rule has a home in the pure core"
+else
+    fail "the transport input-purity rule is not stated in the pure core" \
+         "keep hsm_transport_input_is_pure in transport_logic so the alphabet is checkable"
+fi
+
 exit "$status"
