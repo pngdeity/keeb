@@ -891,8 +891,8 @@ can observe changes if they stay unknown. Lane A is short, and most of it is
 either flash-gated or blocked on the module's BT fault.
 
 **One class of open item is not in either lane, and correctly so.** The
-determination residue — the §II.3 relations still short of a home (D1–D11, less the
-rows since closed) — is **not requirement work** and has no X-n. It is
+determination residue — the §II.3 relations still short of a home (D1–D11, D1–D9 now closed;
+D10/D11 are plant premises) — is **not requirement work** and has no X-n. It is
 listed plainly in `## Determination residue` below, with what "undetermined"
 means there. It enters this index only if one of its rows turns out to fail a
 requirement; none does today.
@@ -905,6 +905,13 @@ least one executable or unrepresentable home. This section is the *residue*: wha
 artefact's ledger still lists as unresolved, gathered in one place so it is not buried in the
 §7/§8 narrative. Nothing here is requirement work (no X-n fails while it stands); it is the
 honest floor of the determination work, and working through it is the point of listing it.
+
+**Status (2026-10-15): every code-addressable row is closed.** D1–D9 are all *determined* — each
+has a home in the pure core, vectors, and at least one negative-tested guard. What remains is
+**D10 and D11 alone**: the two *plant premises*, which are claims about the silicon and cannot be
+settled by an edit. They are the batched hardware session's business (below). The only other
+open rung-3 work is stated as residue in the D3/D4 paragraph — forcing every LED painter through
+the arbiter — and is not a row of this table.
 
 **What "undetermined" means here.** A property is *determined* when something fails if it is
 broken — a test, a guard, or a construction that makes it unwritable. *Undetermined* means
