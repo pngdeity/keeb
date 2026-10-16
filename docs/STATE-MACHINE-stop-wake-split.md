@@ -199,7 +199,8 @@ separate change, and the release path itself (`0xCC` on USB) is not yet asserted
 | S1: PRESLEEP needs the STOP transition | `lpwr_presleep_is_allowed_decide` + test | **executable** |
 | S1: the state is writable only by the machine | `bin/guard-invariants` (3 checks) | **unrepresentable** |
 | The arm sites and their ordering (`ordered_sleep` vs `manual_timeout`) | this document, §1 table | prose |
-| S2: an ordered half must have a reachable release | `wls_split_can_order_sleep` + test | **executable** |
+| S2: an ordered half must have a reachable release | `wls_sleep_order_open` + `tests/split_logic` | **unrepresentable** |
+| S2: the order is constructible only when a release is reachable | `wls_sleep_order_t` (handle) | **unrepresentable** |
 | The composite's liveness (a half, once ordered, *eventually* released) | nothing | **undetermined** |
 
 The last row is the honest one: the tree has no statement, no test, and no guard for the
@@ -222,11 +223,11 @@ Per `docs/DETERMINATION.md` §II.2, in ascending strength:
    the order is skipped rather than stranding the slave. The suppression fact is derived as
    `wireless_get_current_devs() != DEVS_USB` — the same predicate the sole `0xCC` call site
    uses.
-3. **Unrepresentable (S1 done 2026-10-15; S2 target unchanged).** See §6a. Rung 3 was
-   reached for **S1** — the unsafe *order* is no longer writable, checked by a guard. For
-   **S2** it remains the honest target: make the master's order and its release a single
-   transaction whose handle cannot exist without naming a transport on which the release is
-   reachable. Expensive; not started.
+3. **Unrepresentable (both S1 and S2 done 2026-10-15).** See §6a for S1 and §6b for S2.
+   For S1, the unsafe *entry* is no longer writable, checked by a guard. For S2, the
+   single-transaction form exists: the order cannot be **constructed** unless a release is
+   reachable, so "an order without a reachable release" is not a state the shell can write.
+   S2's *liveness* half remains the honest target (§5's last row).
 
 ### 6a. Rung 3 for S1 — the unsafe order is now unwritable (2026-10-15)
 
@@ -253,6 +254,36 @@ The property this determines: *the low-power state is writable only by the state
 It is the rung-3 form of S1's rule. It does not replace rung 2 — a reordering *inside*
 `lowpower.c` is still caught by the rung-2 test — it closes the bypass.
 
+### 6b. Rung 3 for S2 — the order cannot be constructed without a reachable release (2026-10-15)
+
+Rung 2 (`wls_split_can_order_sleep`) **refused** an unsendable order, but it was a
+convention, not a precondition: the send was still a plain call
+(`wls_split_send(WLS_SPLIT_CMD_SLEEP, ...)`) that any caller could make after forgetting to
+ask, or after asking and disregarding the answer. Nothing in the type of the operation said
+"this may only happen when the release is reachable."
+
+Rung 3 makes the right a **precondition of constructing the order**:
+
+- `wls_sleep_order_t` (`split_logic.h`) is a small executor. The only way to obtain one is
+  `wls_sleep_order_open(sends_wake_on_this_transport, sleep_flag)`, which returns a handle
+  whose `permitted` is exactly the contract — and there is no path that produces a permitted
+  handle for an unreachable wake.
+- The shell (`wls_lifecycle_lpwr_allow_presleep()`) no longer decides anything: it derives
+  the transport fact as before, opens the handle, and sends **only** if the handle permits.
+  The flag it sends is carried by the handle, so the body the slave reads cannot be
+  reconstructed independently of the decision.
+- 5 vectors pin it at the construction site (`tests/split_logic`, 16 tests): the handle is
+  unpermitted for *every* flag when the wake is suppressed; permitted when it is reachable;
+  it carries the flag unchanged; it agrees with `wls_split_can_order_sleep()` for both
+  transports (the stricter form must not be more permissive than the rule it formalises); and
+  a null handle is never permitted.
+
+The property this determines: *an order without a reachable release is not representable.*
+That is S2's *safety* half, at the rung-3 strength S1 now has. **What it does not determine:**
+*liveness* — that an order, once given, is *eventually* released. The handle proves a release
+was reachable at the moment of ordering; it does not prove the release is taken. That remains
+§5's last row, undetermined.
+
 **Not to be done in this document:** writing the fix. `docs/DETERMINATION.md` §II.4 (a
 candidate, not yet adopted) says *name the property's home before writing the fix* — this
 document named it, and the fix (rung 2) was then written as a separate, aimed change with
@@ -274,3 +305,7 @@ its own test vectors.
 - The S1 rung-3 change and its guard (2026-10-15): `lowpower.c` (`lpwr_transition` static,
   `lpwr_request_wakeup`), `lowpower.h` (the public setter removed),
   `bin/guard-invariants` (three checks, negative-tested).
+- The S2 rung-3 change and its vectors (2026-10-15): `split_logic.h` (`wls_sleep_order_t`,
+  `wls_sleep_order_open`, `wls_sleep_order_permitted`), `split_logic.c` (the handle opened
+  from the contract), `wls_lifecycle.c` (the presleep send built from the handle),
+  `tests/split_logic/split_logic_tests.cpp` (16 tests).

@@ -2107,6 +2107,23 @@ undetermined**: the tree still has nothing asserting that an order once given is
 *eventually* released (only that it is never given when unreleasable), and this is an
 explicit open row there.
 
+**S2 rung 3 (2026-10-15) — the order is now unconstructible without a reachable release.**
+The rung-2 predicate refused an unsendable order but was a *convention*: the send remained
+a plain call any code could make after forgetting to ask. It is now a **precondition of
+construction** — the S2 analogue of S1's rung 3. `wls_sleep_order_t` (`split_logic.h`) is a
+small executor; the only way to obtain one is `wls_sleep_order_open(sends_wake, sleep_flag)`,
+which yields a permitted handle *only* when the release is reachable, and carries the
+`sleep_flag` the slave will read. `wls_lifecycle_lpwr_allow_presleep()` no longer decides
+anything: it opens the handle and sends only if the handle permits. **"An order without a
+reachable release" is therefore not representable.** **Tested:** 5 new vectors in
+`tests/split_logic` (**16/16 green**), pinning it at the construction site — unpermitted for
+every flag when the wake is suppressed, permitted when reachable, flag carried unchanged,
+agreement with `wls_split_can_order_sleep()` for both transports, and a null handle never
+permitted. Recorded in `docs/STATE-MACHINE-stop-wake-split.md` §5/§6/§6b. **Still
+undetermined: liveness** (the handle proves a release was *reachable* at the moment of
+ordering, not that it is *taken*), and **the release path itself** (`0xCC` on USB) is still
+unasserted.
+
 **What was observed (2026-10-15, flashed `8ea408a4…`).** Verbatim: *"When I execute
 cold boot, let the boot code finish, then switch the switch from USB to BT and let the
 backlight turn off after 30 seconds, after flipping the switch from BT back to USB, the
