@@ -462,8 +462,13 @@ The concrete gaps, each a relation with no home:
    on the prose rung.
 2. **The indicator matrix's ownership chain** (`TODO.md` §7): ownership of the RGB
    matrix passes between the boot code and the indicators; the rule "ownership must
-   be readable without the paint running" was implicit. *Now partly determined* (the
-   expiry is computed from the clock); the composite is still prose.
+   be readable without the paint running" was implicit. *Now determined* — the §7 fix
+   made the boot code's *own* expiry a fact (`wls_indicator_boot_code_owns_matrix`), and
+   the **arbitration between painters** (which had no home above the frame pass's call
+   order) is now executable: `wls_frame_owner_of` / `wls_frame_owner_is_exclusive` in
+   `indicator_logic.{h,c}`, with the composite written down in
+   **`docs/STATE-MACHINE-indicator-ownership.md` (2026-10-15)**. Still undetermined
+   there: *which painters overlap which LEDs*.
 3. **The pad → wake-code attribution** (`wls.c` armed mask × `lpwr_wb32.c` aliasing):
    the rule "the mask must include every pad the board arms, and the alias is why
    UART is excluded" is comment prose, not a check.

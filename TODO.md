@@ -2051,6 +2051,21 @@ the **feedback shape** of the defect class in `docs/FINDINGS.md` ("a state whose
 exit is a call the same state suppresses"). It is a latent hazard worth closing — but
 it is **not** what this board did, and must not be cited as such.
 
+**The arbitration around that latch (2026-10-15, artefact 2 of `DETERMINATION.md` §II.3).**
+The §7 fix made the boot code's *own* expiry a fact. It did not address the relation
+*between* the painters: which of them owns the frame was the **order of calls** in
+`rgb_matrix_indicators_advanced_kb` plus one early `return true`, so a paint call moved
+across that line silently changed which indicator the board shows, and nothing failed.
+That rule now has a home — `wls_frame_owner_t` with `wls_frame_owner_of()` and
+`wls_frame_owner_is_exclusive()` (`wls/indicator_logic.{h,c}`, pure), 5 vectors in
+`tests/indicator_logic` (**12/12 green**), and two `bin/guard-invariants` checks
+(negative-tested) keeping the frame pass gating on the arbiter rather than on the raw
+predicate. The composite is written down in
+**`docs/STATE-MACHINE-indicator-ownership.md`**. **Visible behaviour is unchanged** — no
+reachable paint changed; what changed is that the rule is readable without reading the
+pass's line numbers. **Still undetermined there:** which painters overlap which LEDs (two
+non-exclusive painters writing one index still resolve by call order).
+
 **The fix, if taken.** Make the expiry a **fact, not a call**: have
 `wls_indicator_boot_code_owns_matrix()` itself return false once
 `timer_elapsed32(boot_code_started) >= wls_boot_code_show_ms(...)`, so a predicate that

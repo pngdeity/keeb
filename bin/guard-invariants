@@ -164,4 +164,34 @@ else
     echo "$stray"
 fi
 
+# --- frame ownership is arbitrated in the core, not by a line's position ------
+#
+# Every indicator painter writes the same matrix buffer in the same frame pass,
+# so who is showing is a property of the ORDER the painters run in. That ordering
+# used to BE the frame pass: it returned early at the line after the boot code,
+# so a painter moved across that line silently changed ownership and nothing
+# failed. Artifact 2 of docs/DETERMINATION.md II.3. The rule now lives in
+# `wls_frame_owner_of()` / `wls_frame_owner_is_exclusive()` (indicator_logic),
+# and the frame pass must consult it rather than testing the raw predicate.
+#
+# The rule: the frame pass gates on the arbiter, and the arbiter is asked with a
+# fact computed without painting (the predicate itself computes its deadline).
+# A future edit that reintroduces a bare `if (wls_indicator_boot_code_owns_matrix())`
+# in the pass fails here rather than on the board.
+# See `docs/STATE-MACHINE-indicator-ownership.md`.
+kbd_c="qmk_firmware/keyboards/epomaker/epomaker_split65/epomaker_split65.c"
+if rg -q 'wls_frame_owner_is_exclusive\s*\(\s*wls_frame_owner_of\s*\(' "$kbd_c"; then
+    ok "the frame pass arbitrates ownership through the core"
+else
+    fail "the frame pass does not consult the frame-ownership arbiter" \
+         "gate painters on wls_frame_owner_is_exclusive(wls_frame_owner_of(...))"
+fi
+
+if rg -n 'if\s*\(\s*wls_indicator_boot_code_owns_matrix\s*\(\s*\)\s*\)' "$kbd_c" >/dev/null; then
+    fail "the frame pass still gates on the raw boot-code predicate" \
+         "route the claim through the arbiter so the rule has one home"
+else
+    ok "the frame pass does not gate on the raw boot-code predicate"
+fi
+
 exit "$status"
