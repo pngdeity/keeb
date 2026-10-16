@@ -14,6 +14,12 @@ One session, four goals:
 
 A fifth, unavoidable one rides along: **the 2.4 GHz dongle**.
 
+**Updated 2026-10-15:** the current pre-flight is **§ 0.0.5**, whose artefact
+carries two requirement fixes landed since this runbook was first written — **A7**
+(the refused-link cue, `X-30`) and **A8** (the backlight floor, `X-7`). Their
+predictions are in § 0.0.5 § 4 and their falsifiers in § 7; read § 0.0.5 before
+this overview, which still describes the earlier walk-close session's four goals.
+
 This runbook is written to be executed top to bottom. Commands are copy-paste
 ready; every "expected" value is derived from the source, and the source of
 truth for each is named in `code:` form so it can be re-checked rather than
@@ -139,32 +145,55 @@ flashing.
 The flash is a **human action**: `wb32-dfu-updater_cli -t -s 0x08000000 -D
 <bin>` then `-R` (or `./split65.py flash`). Do not run it from an agent.
 
-### 0.0.5 (filled in) — the walk-close flash (Tier 1, the deliverable batch)
+### 0.0.5 (filled in) — the Tier-1 batch, carrying A7 and A8 (the current pre-flight)
 
-**This is the working pre-flight for the flash that first carries every fix from
-the exhaustive walk, and the first session that attempts the Tier-1 battery
-measurement with a clean baseline. Unlike § 0.0.4 it is built from a committed,
-signed tree, so the runbook's checklist wording "confirmed clean against HEAD" is
-now met.**
+**This is the working pre-flight for the next flash, and it supersedes the
+walk-close draft that stood here before 2026-10-15.** That draft pinned
+`aec731388c…` (64,600 B); two requirement fixes have landed since, so the
+artefact, both hashes, and the predictions below are rebuilt from the current
+tree. It is built from a committed, signed tree, so the checklist wording
+"confirmed clean against HEAD" is met.
+
+**What is new in this build over the walk-close artefact, and why each is here:**
+
+- **A7 — the refused-link cue (`X-30`).** The module reports five link states and
+  the board mapped all five, but the render **and** the watch flattened
+  `REJECT` into an actionless start-up state — so "the module refused this
+  connection" was painted **exactly like** "the link is not up", and those need
+  opposite actions (fix the host's pairing vs. wait/re-pair). The core fix is
+  `hsm_link_cue_of()` / `hsm_link_state_of_md()` (a `switch` with **no
+  `default:`**, so a future state fails to compile — the class fix, since the
+  original defect *was* a `default:` swallowing `REJECT`). The render is
+  `wls_indicator_link_state()` (`wls_indicator.c:344`, called from
+  `epomaker_split65.c:271`): master-gated, and it paints **only** on `REJECT`,
+  leaving the LEDs to their owners otherwise. See § 4's REJECT prediction and § 2.
+- **A8 — the backlight floor (`X-7`).** The value-down key (`RM_VALD`, the
+  Fn-layer encoder CCW) previously drove the value to **zero** in five clicks
+  (128→98→68→38→8→0, `RGB_MATRIX_VAL_STEP` 30 — see § 4), and at zero the LED
+  rail drops (`wls_led_rail_apply()` keys the rail off `rgb_matrix_get_val() !=
+  0`), so "intentionally dialled to zero" and "the board is dead" rendered
+  identically. Now `WLS_RGB_VAL_FLOOR` (= 1) refuses the change and the shell
+  consumes the record (`return false`), so upstream's `rgb_matrix_decrease_val()`
+  never runs. **This changes the 2026-10-14 dark-board recovery**: CCW now stops
+  at 1 rather than going dark. See § 2 and § 7.
 
 **1. The artefact.** `qmk_firmware/.build/epomaker_epomaker_split65_nathan.bin`,
-**64,600 bytes** (`text 0 / data 64600 / bss 0`, `fc58`), sha256
-**`aec731388c8c478c1264aebf1efa23dc1db8ba4aeabf86722d914be1d0886144`**. This is
-the walk-close build **plus the `WS2812_BYTE_ORDER_RGB` fix** (see the colour
-prediction in § 4) **plus the requirement-2 transport reform** (the cable is no
-longer a transport input; see § 4's cable prediction and § 7). It is 136 bytes
-*smaller* than the byte-order build `633d5886…`, because the reform removed the
-`hsm_switch_apply_with_cable` / `hsm_transport_decide` pair in favour of one rule.
+**64,640 bytes**, sha256
+**`44eea0d45ba62d8b797489b703b312e11d8e301090c79e519a24ab4bb0dffd3b`**. This is
+the walk-close build **plus A7 (the REJECT cue) and A8 (the value floor)**, and is
+**32 bytes smaller** than the walk-close `aec73138…` (64,600 → 64,640). Verify the
+hash **before** flashing; if it differs, the tree moved and this pre-flight is
+stale — regenerate it (§ 0.2) and update the hash here.
 
-- **Submodule `split65-overlay` = `8aa4680a5c…`** (the byte-order commit), signed
-  (`G`), with the transport reform on top (committed by the same landing as this
-  edit — the gitlink pins it).
+- **Submodule `split65-overlay` = `a4878e7bfe`** (A8's landing; A7 is `5819516e2c`
+  beneath it), signed (`G`).
 - **Root `main` = the commit that carries this runbook section, signed (`G`)**.
-- `git status --short` is **empty in both trees** once the landing is committed.
+- `git status --short` shows **only** the benign untracked `qmk_firmware/lib/lufa`
+  in the submodule; nothing else.
 
 The board currently runs the **walk-close** build (`a45a9762…`, 64,736 B) — the
 build whose flash **restored USB typing** and which reported `(7 amber, 5 white)`
-over USB.
+over USB. It does **not** carry A7 or A8.
 
 **2. Untested assumptions (state each as measured or inherited).**
 - *`.ram0` survives a `NVIC_SystemReset` across a real reset* — **inherited**
@@ -185,37 +214,49 @@ over USB.
   pre-reform build: the old `hsm_switch_apply_with_cable` forced USB on any cable
   read, and the board measurably went to USB with `switch=3 (2.4G)`
   (`host(raw)=2`). See `docs/FINDINGS.md` engineering mode 2 and `TODO.md`.
+- *A7's `REJECT` cue is reachable and correct* — **the sight is a CHOICE, never
+  observed on hardware.** `REJECT` has not been produced on this board; the cue
+  is a stage-4 UX choice (`docs/UX-REQUIREMENTS.md` § 0.5) awaiting a person's eye.
+  Only the *requirement* (REJECT must not share a sight with DISCONNECTED, and not
+  by colour alone) is proven; the dim-red-on-BT1/2/3 render is an opinion. This
+  session is where it first meets a person, if a REJECT can be provoked at all.
+- *A8's floor is reachable and is refused, not clamped* — **unit-tested, never
+  hardware-confirmed.** The decider returns FLOOR at/below 1 and the shell
+  consumes the record; whether the visible result is "the key stops responding at
+  the dimmest setting" is the prediction in § 4.
 
 **3. The four review questions.**
 - *Does any effect feed back into its own trigger?* **No new feedback loop is
-  introduced by the walk.** The one loop-shaped site changed is the split device
-  index: `wls_split.c` now clamps the wire value in the pure core **before** it
-  can reach `wls_module_devs_change()`, so the index that feeds the transport
-  decision cannot echo back a value the transport itself would produce. The
-  switch-decode consolidation in `wls.c` removes a second decoder rather than
-  adding a consumer.
+  introduced by the walk, and A7/A8 add none.** The one loop-shaped site changed
+  by the walk is the split device index: `wls_split.c` clamps the wire value in the
+  pure core **before** it can reach `wls_module_devs_change()`, so the index that
+  feeds the transport decision cannot echo back a value the transport itself would
+  produce. A7's cue is a read of the module's state byte (`md_getp_state()`) with
+  no write back; A8's floor is a read of `rgb_matrix_get_val()` with the *record*
+  consumed rather than a value written — neither modifies a signal it depends on.
 - *Does every signal have a real value (not a constant, not undefined)?* The
   journal is `b wls_journal` at `0x20004fbc` (16 B, `.ram0`); `wls_reset_cause` is
   `T`; `bootloader_jump` and `enter_bootloader_mode_if_requested` are both strong
   `T`. `KB_BATTERY_IDX_DIAG 11`, `_BOOT_CODE 21`, `_JUMP 23` are all emitted
-  (`wls.h`). The three new `_Static_assert`s in `wls_battery.c` and the two
-  frame-size asserts in the adapters **compiled in this build**.
-- *Which code is even compiled?* `wls.mk` lists all 25 sources including
-  `split_logic.c` (the new clamp), `wls_module.c`, `wls_transport.c`,
-  `wls_jump_journal.c`, `wls_boot_jump.c`. `KB_BATTERY_IDX_JUMP` is under
-  `#ifndef VIA_ENABLE`; VIA is not enabled. `G1`'s `devs` default and `E4`'s clamp
-  are both in the compiled path.
+  (`wls.h`). A7 reads `*md_getp_state()` (the live module byte) and A8 reads
+  `rgb_matrix_get_val()` (live); both are values, not constants. The three new
+  `_Static_assert`s in `wls_battery.c` and the two frame-size asserts in the
+  adapters **compiled in this build**.
+- *Which code is even compiled?* `wls.mk` lists all 25 sources. `wls_indicator.c`
+  and `transport_logic.c` are compiled with A7's additions (both in the build; `nm`
+  shows `hsm_link_cue_of`/`hsm_link_state_of_md` as `T`), and `wls_keymap.c`/
+  `rgb_key_logic.c` with A8's. `KB_BATTERY_IDX_JUMP` is under `#ifndef VIA_ENABLE`;
+  VIA is not enabled.
 - *Measured vs inherited?* Listed in §2: the battery level and the
-  cable-plus-2.4GHz behaviour are the two genuinely unmeasured claims this session
-  attempts; both have a stated prediction below.
+  cable-plus-2.4GHz behaviour are the two genuinely unmeasured claims the earlier
+  session attempted; **A7's REJECT cue and A8's floor are newly unmeasured** and
+  have predictions below.
 
 **4. Predicted hardware effect.**
 - *After flashing, first cold boot (switch wherever it sits):* the boot LED code
-  plays **one full frame**. **With the byte-order fix in this build the amber
-  group should now render as amber** (`WS2812_BYTE_ORDER_RGB`); on every earlier
-  build it rendered green. Read the pair `(amber, white)` against the stage/code
-  rule (amber = stage, 0 = OK; white = code + 1). Amber correct confirms the
-  byte-order cause; amber still green falsifies it.
+  plays **one full frame**, amber group correct (`WS2812_BYTE_ORDER_RGB` is in this
+  build). Read `(amber, white)` against the stage/code rule (amber = stage, 0 =
+  OK; white = code + 1).
 - *Switch on USB, cold boot, `python3 host/battery_polybar.py --info`:*
   `transport=USB`, `host(raw)=2`, `DIAG: switch=1`, `DIAG: devs=0`,
   `DIAG: usb_line=1`, `bootcnt` **+1** vs the previous read.
@@ -224,12 +265,28 @@ over USB.
   that is the result: `INQVOL` is never answered on this module revision.
 - *Cable in, switch on 2.4 GHz:* the board **stays wireless** (does not switch to
   USB) and the level keeps updating; `charge` reads `1` then `2` as it tops.
-  *(This is engineering mode 2, serving X-20, and it is the reading that
-  falsified the old build.)*
+  *(Engineering mode 2, serving X-20; the reading that falsified the old build.)*
 - *Runtime BT→USB switch edge (Test C):* with the switch on BT and no host, flip
   to USB **without power-cycling** and type — **it types over USB**, `--info`
-  shows `transport=USB`, `usb_line=1`. This is the single highest-value check and
-  the fix that has never been hardware-confirmed.
+  shows `transport=USB`, `usb_line=1`. Highest-value check; never hardware-confirmed.
+- **A8 — the value floor (`X-7`).** On the Fn layer, turn the encoder **CCW**
+  repeatedly from the default. Predicted: the backlight steps 128→98→68→38→8 (four
+  clicks, visibly dimming) and then the **fifth click does nothing** — the value
+  **stops at 8**, it does **not** reach 0, and the board stays lit. `rgb_matrix_get_val()`
+  never reads 0 by this path, so the LED rail stays up. *Falsifier:* the backlight
+  goes **fully dark** after five-or-so clicks (the floor is not taking effect), or
+  it keeps dimming past 8 (the refusal is not reaching upstream). Note this is the
+  **behaviour change to the 2026-10-14 recovery**: a board dialled all the way down
+  now rests at 8, dim but alive, and the same CCW key can no longer make it dark.
+  Turning it back **CW** restores brightness normally.
+- **A7 — the REJECT cue (`X-30`).** *Conditional and possibly unreachable this
+  session*: if a Bluetooth connection is **refused** by the host (e.g. pair a BT
+  slot to a host that rejects it, or a paired host that declines), the four
+  BT-channel LEDs (indices 17/18/19) paint a **dim steady red** (`0x40,0,0`) while
+  `REJECT` holds, distinctly from the "nothing painted" of DISCONNECTED. If no
+  REJECT can be provoked, record that — it stays an unmeasured choice, per § 2.
+  *Falsifier:* a refused connection renders **identically** to a non-connection
+  (the cue is not firing, or the state byte never reaches `HSM_LINK_REJECT`).
 
 **5. What the build does not explain.** Present and **not** regressions: the `-71
 EPROTO` loop; the `342d:e4c6` self-detach (5 enumerations / 5 drops in 5 min, zero
@@ -237,12 +294,30 @@ over-current); the pin-lie (`C14`/`C15` readable-but-wrong, which fixes A–D do
 cover); the module's own firmware for BT (Layer 0, no dump/update path). The
 `0xA4` reply is **unreachable while the transport is not USB** — the wireless
 driver has no `.send_raw_hid` — so the diag/pin block stays silent on 2.4 GHz and
-must not be read as a fault.
+must not be read as a fault. **Also still open, and asked of this session:**
+- **B15 — does a brightness-zero board still show its charge?** The soft battery
+  indicator is gated on `rgb_matrix_get_val() != 0` (`wls_indicator.c:146`), so a
+  board dialled to brightness 0 loses its charge readout — the X-7/X-5 seam. But
+  A8's floor now **refuses** the value-down key at 1, so a board **cannot reach 0
+  by that path**. The question therefore narrows to: *can the value reach 0 by any
+  other route* (a saved EEPROM value of 0, `RGB_VAD`, `rgb_matrix_disable()`), and
+  if so, is the charge cue then lost? Record whichever route exists.
+- **The X-4 channel-visibility gap (`TODO.md`, A17).** The active channel is
+  indicated **only at its transition** (`wls_indicate_devs`), not while it is in
+  effect, so at rest nothing on the board says which channel is live. This build
+  does **not** change it — it is recorded requirement work, not implemented. While
+  at the keyboard, note what the board actually shows at rest in each switch
+  position: the observation feeds the fix and is the kind of at-rest fact only a
+  person at the board can supply.
 
 **6. Non-flashing recovery.** § 0.3: `EE_CLR` (hold Fn + `[7,8]`, then `[11,8]`
 for 3 s) re-defaults confinfo to USB; the physical switch to USB then power-cycle;
 the spacebar-hole short for DFU. Bootmagic `Esc`-hold is **left-half only** and is
-a last resort (it enters DFU, it does not resume typing).
+a last resort (it enters DFU, it does not resume typing). **A8 changes one recovery
+assumption:** the old "dim the backlight to zero" reflex can no longer darken the
+board (the value stops at 8), so the value-down key is **not** a way to make the
+board look dead — if the board still looks dead after A8, the cause is elsewhere,
+and the same CCW key will not have been what darkened it.
 
 **7. The falsifier.** *Battery still reads exactly 100 after twelve 2.4 GHz
 samples with `md state=2`* ⇒ `INQVOL` is unanswered on this revision; the
@@ -257,9 +332,13 @@ transport decision by some path not yet found, and engineering mode 2 is unmet. 
 with `N != 7` and a plausible stage* ⇒ the boot-code counts disagree with the
 source, reopening the instrument question with the walk's fixes in place. *The
 board drops USB while the switch says USB* ⇒ the self-detach path, unchanged by
-this build; read the diag block for `bootcnt`/`usb_line` at the drop.
+this build; read the diag block for `bootcnt`/`usb_line` at the drop. *The
+backlight reaches 0 (goes fully dark) under repeated CCW on the value-down key* ⇒
+A8's floor is not taking effect, and the X-7 defect is not fixed. *A refused BT
+connection renders the same as no connection* ⇒ A7's cue is not firing, or
+`HSM_LINK_REJECT` is never reached.
 
-**8. Verify the artefact on disk** matches `aec73138…` (§ 0.2) before flashing;
+**8. Verify the artefact on disk** matches `44eea0d4…` (§ 0.2) before flashing;
 it was rebuilt from the committed tree during this pre-flight and matched.
 
 The flash is a **human action** — see the note above.
