@@ -2010,7 +2010,20 @@ lowpower_logic 8, wireless_nkro_parity 8). **Not yet flashed.**
 
 ### 7. The boot code's ownership latch can starve every indicator — LATENT HAZARD, not the observed fault (found 2026-10-15)
 
-**Status: NOT the cause of the 2026-10-15 darkening. Kept because the hazard is real.**
+**Status: FIXED 2026-10-15. NOT the cause of the 2026-10-15 darkening. Kept because
+the hazard is real.**
+
+**The fix (2026-10-15).** `wls_indicator_boot_code_owns_matrix()` no longer returns
+the raw latch: it now computes the expiry from the clock itself
+(`timer_elapsed32(boot_code_started) >= wls_boot_code_show_ms(boot_code_counts)`,
+guarded by `!boot_code_armed` so the deferred first-pass arming is preserved) and
+clears `boot_code_active` there, so **ownership is a fact readable without the paint
+running**. `wls_indicator_boot_code()` now gates on that same predicate rather than
+on `boot_code_active` directly, so the paint and the frame pass cannot disagree; the
+duplicated inline deadline block was removed with it, and the
+`active`/`done` asymmetry is gone. **No unit test:** the boot-code shell is not in a
+test target, stated plainly rather than papered over. The verdict on the underlying
+error is unchanged — see "class" below.
 
 **What was observed (2026-10-15, flashed `8ea408a4…`).** On the flash built to verify
 the X-4 at-rest channel cue, **no indicator appeared at all** on the right half's top
@@ -2054,12 +2067,31 @@ exactly 30 s (`wls/wls.h:26`) against a 60 s `HS_SLEEP_TIMEOUT` (`:27`).
 ### 8. After the 30 s link-back stop, returning the switch to USB leaves the board half-dead (found 2026-10-15)
 
 **Status: REPRODUCED on hardware from a cold boot; MECHANISM IDENTIFIED IN SOURCE
-(2026-10-15, fourth reading) — a refused stop leaves the matrix disabled; the slave half
-composes with the third reading.** Two mechanisms have now been proposed and killed by
+(2026-10-15, fourth reading); FIXED 2026-10-15 — NOT YET VERIFIED ON HARDWARE.**
+The fourth reading is that a refused stop leaves the matrix disabled; the slave half
+composes with the third reading. Two mechanisms have now been proposed and killed by
 evidence (the pin-mode write-up, refuted by the source; the phantom-wake discard, refuted
 by test (A) on hardware), and a third was **half-wrong** (its slave chain stands, its
 master cause did not). All four readings are recorded below so they are not re-derived.
 The master/slave asymmetry measured on the board is what the surviving pair explains.
+
+**The fix (2026-10-15).** The stop policy is now consulted **before** the sleep
+sequence begins, so the first irreversible effect is never entered on a stop that
+will be refused. `lpwr_task`'s `LPWR_NORMAL` case gates the transition to
+`LPWR_PRESLEEP` on a new pure rule, `lpwr_presleep_is_allowed_decide(timeout_allowed,
+stop_allowed)` (= `timeout_allowed && stop_allowed`, in `lowpower_logic.{h,c}`), and
+the `LPWR_PRESLEEP` case re-checks it before the irreversible step so a policy that
+changes *during* the presleep delay aborts symmetrically (`lpwr_wakeup_cb()` — the
+inverse of the `suspend_power_down()` presleep ran — then back to `LPWR_NORMAL`).
+`lpwr_stop_cb()` keeps its own check: it remains the declared point of commitment and
+another route could enter `LPWR_STOP`. **Tested**: 4 new vectors in
+`tests/lowpower_logic` (13/13 green), including one composed from the real deciders in
+the order the shell composes them — `timeout_allowed = TRUE`,
+`stop_allowed = FALSE` ⇒ presleep refused, which is the exact board state that
+produced the dark board. **NOT yet verified on hardware:** the fix is a source change;
+a new binary must be built and both halves reflashed (human action) before the dark
+board is retired. **The slave half's chain is NOT fixed by this** — it is the separate
+composing fault, still open.
 
 **What was observed (2026-10-15, flashed `8ea408a4…`).** Verbatim: *"When I execute
 cold boot, let the boot code finish, then switch the switch from USB to BT and let the
