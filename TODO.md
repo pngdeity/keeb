@@ -2066,6 +2066,27 @@ reachable paint changed; what changed is that the rule is readable without readi
 pass's line numbers. **Still undetermined there:** which painters overlap which LEDs (two
 non-exclusive painters writing one index still resolve by call order).
 
+**The pad → wake-code attribution (2026-10-15, artefact 3 of `DETERMINATION.md` §II.3).**
+The armed wake mask (`wls.c` `lpwr_wakeup_armed_mask`) excludes UART, and the *reason* it is
+safe to exclude — UART's reporting pad is also reachable through an armed code — was comment
+prose, not a check. The WB32 EXTI reports by **pad number alone**
+(`PAL_PAD(line) = line & 0x0F`, port discarded; one callback per pad index, `_pal_events[16]`
+in `epomaker_split65/wireless/lpwr_wb32.c`), so two pins on different ports sharing a pad are
+indistinguishable: UART RX is `C11` and a left matrix column is `B11`, both pad 11, so a
+`B11` keypress arrives stamped `LPWR_WAKEUP_UART` and is dropped by the mask — sound only
+because a genuine `B11` edge also fires its matrix line event and reports MATRIX. The rule is
+now executable — `lpwr_excluded_code_is_safe(excluded, covered)` in `lowpower_logic.{h,c}`
+(`!excluded || covered`), applied where the mask is built so the hand-written constant is
+gone and an unsound exclusion falls through to **arming** the code (failing toward waking,
+not toward a silent discard). **Tested:** 4 new vectors in `tests/lowpower_logic` (**17/17
+green**), including the composed mask-builder case. **Guarded:** two `bin/guard-invariants`
+checks (negative-tested) — the mask must be built through the predicate, and must not be a
+bare `return LPWR_WAKEUP...` constant. Composite written down in
+**`docs/STATE-MACHINE-pad-attribution.md`**. **Still undetermined:** the pin→code
+attribution table itself (prose — a pin change updates the code, not the table, and nothing
+fails) and whether the WB32 EXTI truly reports port-agnostically on this silicon (a plant
+premise read from the ChibiOS LLD, not measured here).
+
 **The fix, if taken.** Make the expiry a **fact, not a call**: have
 `wls_indicator_boot_code_owns_matrix()` itself return false once
 `timer_elapsed32(boot_code_started) >= wls_boot_code_show_ms(...)`, so a predicate that

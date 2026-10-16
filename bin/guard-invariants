@@ -194,4 +194,32 @@ else
     ok "the frame pass does not gate on the raw boot-code predicate"
 fi
 
+# --- the armed wake mask is derived from a checked attribution ----------------
+#
+# The WB32 EXTI reports by PAD NUMBER ALONE (`PAL_PAD(line) = line & 0x0F` in
+# chibios-contrib WB32 GPIOv1), so two pins on different ports sharing a pad are
+# indistinguishable to the wake classifier. This board therefore excludes UART
+# from its armed mask (its traffic would defeat deep sleep) ONLY because UART's
+# pad is also reachable through a code it arms. That rule -- an excluded code's
+# pad must be covered -- was comment prose; it is now `lpwr_excluded_code_is_safe`
+# (lowpower_logic) applied where the mask is built. Artifact 3 of
+# docs/DETERMINATION.md II.3. The rule: the mask is computed through the
+# predicate, not returned as a hand-written constant, so a wrong attribution
+# fails toward arming the code instead of silently discarding wakes.
+# See `docs/STATE-MACHINE-pad-attribution.md`.
+wls_c="qmk_firmware/keyboards/epomaker/epomaker_split65/wls/wls.c"
+if rg -q 'lpwr_excluded_code_is_safe\s*\(' "$wls_c"; then
+    ok "the armed wake mask is built through lpwr_excluded_code_is_safe"
+else
+    fail "the armed wake mask is a hand-written constant again" \
+         "derive it through lpwr_excluded_code_is_safe so an unsound exclusion arms the code"
+fi
+
+if rg -n 'uint32_t lpwr_wakeup_armed_mask\s*\(\s*void\s*\)\s*\{\s*return LPWR_WAKEUP' "$wls_c" >/dev/null; then
+    fail "lpwr_wakeup_armed_mask returns a bare constant" \
+         "route it through the attribution predicate (see docs/STATE-MACHINE-pad-attribution.md)"
+else
+    ok "lpwr_wakeup_armed_mask does not return a bare constant"
+fi
+
 exit "$status"

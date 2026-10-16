@@ -471,7 +471,17 @@ The concrete gaps, each a relation with no home:
    there: *which painters overlap which LEDs*.
 3. **The pad → wake-code attribution** (`wls.c` armed mask × `lpwr_wb32.c` aliasing):
    the rule "the mask must include every pad the board arms, and the alias is why
-   UART is excluded" is comment prose, not a check.
+   UART is excluded" was comment prose, not a check. *Now determined* — the WB32 EXTI
+   reports by **pad number alone** (`PAL_PAD(line) = line & 0x0F`, port discarded), so two
+   pins on different ports sharing a pad are indistinguishable to the wake classifier. The
+   rule that makes an exclusion sound — *an excluded code's reporting pad must still be
+   reachable through a code the board arms* — is now executable:
+   `lpwr_excluded_code_is_safe` in `lowpower_logic.{h,c}`, applied where the board builds
+   its mask (`wls.c` `lpwr_wakeup_armed_mask`, no longer a hand-written constant), with two
+   negative-tested guards and the composite written down in
+   **`docs/STATE-MACHINE-pad-attribution.md` (2026-10-15)**. Still undetermined there: *the
+   pin→code attribution table itself* (prose) and *whether the WB32 EXTI truly reports
+   port-agnostically on this silicon* (a plant premise).
 4. **The transport authority** — see `docs/ADR-transport-authority.md` for the
    decision; whether its rule is determined executably is open.
 

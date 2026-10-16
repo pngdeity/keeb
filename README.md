@@ -63,6 +63,7 @@ earlier build, not the current tree's** — see Status.
 | `docs/DETERMINATION.md` | **Why the codebase's *relations* were the hard part** — the principles (information hiding, invariants, typestate, assertions) with sources, and how to traverse a codebase whose cross-file rules have no home. Read with `docs/STATE-MACHINE-stop-wake-split.md`. |
 | `docs/STATE-MACHINE-stop-wake-split.md` | The composite low-power × split state machine that no single file owns — its two safety rules (S1 panel, S2 slave), what is determined and what is still prose. |
 | `docs/STATE-MACHINE-indicator-ownership.md` | The composite relation no single file owns: the painters that write the RGB matrix in one frame pass, and the rule that arbitrates which of them owns the frame. |
+| `docs/STATE-MACHINE-pad-attribution.md` | The pad → wake-code attribution no single file owns: the WB32 EXTI reports by pad number alone, so an excluded wake code is sound only when its pad is still reachable through an armed one. |
 | `docs/PLAN-fcis-audit.md` | The plan that named the audit's values (V1–V10) and their measurements. |
 | `docs/AUDIT.md` | Per-state audit against the plan's values. |
 | `docs/AUDIT-fcis.md` | Per-value, per-module audit record (the measurement used, not an impression). |
