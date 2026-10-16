@@ -920,7 +920,7 @@ an edit, and it belongs to the batched hardware session.
 | D2 | The release path itself (`0xCC` on USB) | same doc §3, §5 | **determined** (executable, 2026-10-15) | `wls_sleep_release_open()` / `wls_sleep_release_permitted()` / `wls_split_can_send_relay()` + both relay sites in `wls_lifecycle.c` + `tests/split_logic` + `bin/guard-invariants` |
 | D3 | Which painter owns which LED index (overlaps) | `STATE-MACHINE-indicator-ownership.md` §4 | **determined** (executable, 2026-10-15) | `wls_led_painter_of` / `wls_led_painters_overlap` / `wls_led_can_paint` (`indicator_logic`) + the cue's consult + `tests/indicator_logic` + `bin/guard-invariants` |
 | D4 | Whether a painter added later is exclusive | same doc §4 | **determined** (executable, 2026-10-15) | `wls_led_painter_is_exclusive` (`indicator_logic`) + `tests/indicator_logic` |
-| D5 | Whether the presleep hook may read the USB line's own state to decide a teardown | `STATE-MACHINE-transport-authority.md` §4 | **undetermined** | nothing (a deliberate read; `wls_lifecycle.c:256`) |
+| D5 | Whether the presleep hook may read the USB line's own state to decide a teardown | `STATE-MACHINE-transport-authority.md` §4 | **determined** (executable, 2026-10-15) | `hsm_usb_teardown_is_safe` (`transport_logic`) + the presleep site's consult in `wls_lifecycle.c` + `tests/transport_logic` + `bin/guard-invariants` |
 | D6 | The pin → wake-code attribution table | `STATE-MACHINE-pad-attribution.md` §4 | weakly determined | prose (the doc's §2 table) |
 | D7 | "No other pad collision drops a wake" | same doc §4 | weakly determined | prose (the doc's §2 argument) |
 | D8 | The arm sites and their ordering (`ordered_sleep` vs `manual_timeout`) | `STATE-MACHINE-stop-wake-split.md` §5 | weakly determined | prose (the doc's §1 table) |
@@ -995,6 +995,21 @@ caught by the rule's test, not by a construction that makes the write impossible
 channel cue is wired through the arbiter. That is the remaining rung-3 work, stated here rather
 than implied solved.
 
+**D5 is the transport invariant one level out, and is now determined at the executable rung
+(2026-10-15).** The ADR's input half scopes "the line's own state may not cause a *decision*
+change" to the transport owner. The presleep hook in `wls_lifecycle.c` is the one place the line's
+own state causes a *line effect*: it tears the USB driver down before a stop and asks
+`USB_DRIVER.state` whether that is safe. That read is deliberate — a host that enumerated and is
+talking must never be cut by a low-power action — so the residue was the missing *rule*, not the
+read, and the fix states the rule rather than forbidding the read:
+`hsm_usb_teardown_is_safe(host_talking, driver_idle)` (`transport_logic`) refuses a teardown while
+the line is in use at **either** level (a live host talking, or a driver that has not settled
+idle). The presleep site consults it instead of testing `USB_DRIVER.state != USB_ACTIVE`
+positionally; 4 new vectors in `tests/transport_logic` (**57/57**) settle the four combinations;
+2 new `bin/guard-invariants` checks (each negative-tested) keep the rule in the core and keep the
+site consulting it. The rung-3 form would be a teardown API that cannot be called without passing
+the line's in-use reading — not built: one site, one rule, already stated.
+
 **D10/D11 are the batched hardware session's business, not edits.** D10 is cheap to settle
 (one floating pin); D11 is the ADR's "Costs and risks" — a missed event leaves the transport
 uncorrected until the next input, and no code can assert the queue's completeness on this
@@ -1003,8 +1018,11 @@ silicon.
 **The process candidate that would have caught these is not adopted.** `docs/DETERMINATION.md`
 §II.4 proposes: *for every safety property that spans more than one file, name its home before
 writing the fix.* It remains a candidate for the user to judge, not process. Its relevance here
-is that D1 and D5 are exactly the shape it names — a property spanning files, fixed at the
-instance, with the class left open.
+is that D1 and D5 were exactly the shape it names — a property spanning files, fixed at the
+instance, with the class left open. Both have since been closed with the property given a named
+home (`wls_sleep_order_outlived_release`, `hsm_usb_teardown_is_safe`) rather than fixed in place,
+which is the evidence the candidate's practice produces; whether to adopt it as process is still
+the user's to judge.
 
 **What closing a row looks like.** The three rungs (`docs/DETERMINATION.md` §II.2) give each
 row its finish line. A row moves from *undetermined* to *determined* when something fails on
@@ -1023,6 +1041,8 @@ violation, and the cheapest rung that does so is the right one:
   unrepresentable rung is reached only when every painter is forced through the arbiter.
 - **D5 (the presleep line read)** closes at the **executable** rung by stating the rule it
   already obeys (a teardown is refused when the line is enumerated), not by forbidding the read.
+  **Done (2026-10-15)** — `hsm_usb_teardown_is_safe` in the core, the presleep site consulting
+  it, four vectors, two negative-tested guards.
 - **D6–D9 (weakly determined)** each close by promoting the prose to a test or guard that
   pins the same fact — e.g. D6 by deriving the attribution from the `palEnableLineEvent` sites
   rather than restating them.

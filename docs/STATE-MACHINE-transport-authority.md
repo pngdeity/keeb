@@ -98,29 +98,37 @@ reading the **alphabet** of the decision as a set, not the body of any function.
 | the line is driven from one place, on a change | `bin/guard-invariants` F5 | **unrepresentable** |
 | the decision reads no live USB-line state | `hsm_transport_input_is_pure` + guard | **executable** + guard |
 | a confirmed host is never torn down at the actuator | `wls_usb_connect(false)`'s early return | prose (in-code, enforced by the same guard family) |
-| **the presleep hook's line read** (`wls_lifecycle.c` `:256`) | nothing | **undetermined** |
+| **the presleep hook's teardown rule** | `hsm_usb_teardown_is_safe` + guard | **executable** + guard |
 | whether the USB event queue delivers every transition | nothing (code) | **undetermined** (a plant premise) |
 
-The two undetermined rows are honest and loaded:
+The one undetermined row is honest and loaded:
 
-- **`wls_lifecycle.c:256`** decides a *line effect* (tear down the driver before sleep) by reading **the line's own state** — `USB_DRIVER.state != USB_ACTIVE`.
-  This is the ADR's invariant one level out: not "may the line's state cause a
-  *decision* change" but "may the line's state cause a *line effect*". It is a
-  different question, it is **not** covered by the input-half rule (which is
-  scoped to `wls_transport.c`), and it currently rests on a comment. It is the
-  same *shape* the ADR exists to remove, so it is the natural next home — but it
-  is also a *deliberate* read (the comment argues tearing down a live host is
-  never a low-power action), so the honest remedy is to state *that* rule, not to
-  forbid the read.
 - **Event-queue completeness.** The ADR's "Costs and risks" names it: moving host
   lifecycle onto the USB event queue means a *missed* event leaves the transport
   uncorrected until the next input changes. No code can assert the queue delivers
   every transition — that is a property of the USB stack on this silicon, so it
   is a **plant premise** and belongs to a batched hardware session, not a test.
 
-The presleep-hook row is **D5** and event-queue completeness **D11** in `TODO.md`
-"Determination residue"; the in-code "a confirmed host is never torn down" prose
-(§1) is **D9** there.
+### The presleep hook's line read (closed, 2026-10-15)
+
+`wls_lifecycle.c`'s presleep hook decides a *line effect* (tear down the driver
+before sleep) by reading **the line's own state** — `USB_DRIVER.state`. This is
+the ADR's invariant one level out: not "may the line's state cause a *decision*
+change" but "may the line's state cause a *line effect*". It is a different
+question and it is **not** covered by the input-half rule (which is scoped to
+`wls_transport.c`).
+
+It is also a **deliberate** read — tearing down a host that enumerated and is
+talking is never a low-power action, so the hook *must* be able to see the line —
+so the honest remedy is to state *that rule*, not to forbid the read. The rule is
+now `hsm_usb_teardown_is_safe(host_talking, driver_idle)` (`transport_logic`): a
+teardown is refused while the line is in use at **either** level — a live host
+talking (`USB_ACTIVE`) or a driver that has not yet reached `USB_STOP`. Four
+vectors settle the combinations; the presleep site consults the rule instead of
+testing `USB_DRIVER.state != USB_ACTIVE` positionally; two guards keep both from
+regressing. This row is **D5** in `TODO.md` "Determination residue".
+
+The in-code "a confirmed host is never torn down" prose (§1) is **D9** there.
 
 ---
 
@@ -133,7 +141,8 @@ Per `docs/DETERMINATION.md` §II.2, ascending:
 2. **Executable (done, 2026-10-15).** `hsm_transport_input_is_pure()` names the
    allowed alphabet; four vectors pin it; two guards make the alphabet a checked
    set. The predicate is the cheapest home that fails on the *class* rather than
-   on the instance.
+   on the instance. The teardown rule (`hsm_usb_teardown_is_safe`, D5) is at the
+   same rung: four vectors, two guards, and the presleep site consulting it.
 3. **Unrepresentable (the actuator half is already here).** F5 makes a second
    call site fail at the guard; `wls_usb_connect` is *only* reachable as the
    consequence of a decision, and no caller can drive it another way. For the
@@ -141,11 +150,15 @@ Per `docs/DETERMINATION.md` §II.2, ascending:
    parameter list cannot mention the line — e.g. an opaque `hsm_inputs_t` the
    caller may only construct from intent and events. Not built; the predicate +
    guard is the honest stopping point unless a second line-state input appears.
+   For the *teardown* rule the rung-3 form would be a teardown API that cannot be
+   called without passing the line's in-use reading — not built for the same
+   reason: one site, one rule, already stated.
 
-**Not to be done in this document:** writing the `:256` fix. `docs/DETERMINATION.md`
-§II.4 (a candidate, not yet adopted) says *name the property's home before
-writing the fix*; this document names the `:256` site and its rule, and leaves
-the fix to a separate, aimed change.
+**The presleep site is closed (2026-10-15).** `docs/DETERMINATION.md` §II.4 (a
+candidate, not yet adopted) says *name the property's home before writing the
+fix*; this document named the site and its rule, and the fix then landed as its
+own aimed change: `hsm_usb_teardown_is_safe` in the core, the presleep site
+consulting it, four vectors, two guards (D5).
 
 ---
 
@@ -156,8 +169,10 @@ the fix to a separate, aimed change.
   `bin/guard-invariants` F5 block, `wls/wls_usb.h`.
 - The input rule and its vectors (2026-10-15): `transport_logic.{h,c}`
   (`hsm_transport_input_is_pure`), `tests/transport_logic/transport_logic_tests.cpp`
-  (53 tests, 4 new), `bin/guard-invariants` (two new checks, negative-tested).
-- The undetermined `:256` site: `wls/wls_lifecycle.c` (the presleep hook's
-  `USB_DRIVER.state != USB_ACTIVE` read).
+  (57 tests, 8 new across the input rule and the teardown rule),
+  `bin/guard-invariants` (four new checks, negative-tested).
+- The teardown rule and its vectors (2026-10-15): `transport_logic.{h,c}`
+  (`hsm_usb_teardown_is_safe`), the presleep site in `wls/wls_lifecycle.c`, and
+  the guards above. D5 of `TODO.md` "Determination residue".
 - The traversal method: `docs/DETERMINATION.md` §I.9; the rungs §II.2; the
   artefact list §II.3 (this is artefact 4).

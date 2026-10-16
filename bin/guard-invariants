@@ -338,6 +338,34 @@ fi
 # endpoints take the same fact, which `the_order_and_the_release_cannot_disagree`
 # pins in `tests/split_logic`. No further shell check is honest here.
 
+# --- the presleep teardown is a stated rule, not a bare line-state test --------
+#
+# D5. The presleep hook (`wls_lifecycle.c`) performs the one line EFFECT decided
+# by the line's own state: it tears the USB driver down before a stop and asks
+# `USB_ACTIVE` whether that is safe. That read is DELIBERATE -- a host that
+# enumerated and is talking must never be cut by a low-power action -- so the
+# residue is the missing RULE, not the read, and the fix states the rule rather
+# than forbidding it. `hsm_usb_teardown_is_safe(host_talking, driver_idle)` is the
+# rule's home: a teardown is refused while the line is in use at either level. The
+# presleep site must consult it, not re-derive `USB_DRIVER.state != USB_ACTIVE` as
+# a bare test no test can reach. D5 of `TODO.md` "Determination residue";
+# `docs/STATE-MACHINE-transport-authority.md` section 4.
+if rg -q '^bool\s+hsm_usb_teardown_is_safe\s*\(' "$WLS/transport_logic.c" \
+    && rg -q 'hsm_usb_teardown_is_safe' "$WLS/transport_logic.h"; then
+    ok "the presleep teardown rule has a home in the pure core"
+else
+    fail "the presleep teardown rule is not stated in the pure core" \
+         "keep hsm_usb_teardown_is_safe in transport_logic so 'may this line be torn down' is checkable"
+fi
+
+lifecycle_c="$WLS/wls_lifecycle.c"
+if rg -q 'hsm_usb_teardown_is_safe\s*\(' "$lifecycle_c"; then
+    ok "the presleep hook arbitrates through the core's teardown rule"
+else
+    fail "the presleep hook does not consult the teardown rule" \
+         "gate it on hsm_usb_teardown_is_safe(...) rather than a bare USB_DRIVER.state != USB_ACTIVE test"
+fi
+
 # --- LED-index ownership has a home, and the cue consults it -------------------
 #
 # `wls_frame_owner_of()` arbitrates the FRAME; nothing arbitrated the LED. Two
