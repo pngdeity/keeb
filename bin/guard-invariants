@@ -278,4 +278,24 @@ else
          "keep wls_sleep_order_outlived_release in split_logic so 'an order outlived its release' is checkable"
 fi
 
+# --- the outstanding-order record has exactly one writer each way -------------
+#
+# The predicate above decides an order's liveness from its send time, so the
+# shell must RECORD that time. It did not, which made the property determined in
+# the core and unavailable at the seam -- the residue D1's row names. The record
+# now has one send writer and one release writer; a second writer would file the
+# same fact twice and the record would stop meaning exactly one order.
+# See `docs/STATE-MACHINE-stop-wake-split.md` section 5 (the liveness row).
+order_writers=$(rg -n 'wls_note_sleep_order_(sent|released)\s*\(' "$WLS" --glob '*.c' \
+    | rg -v ':[0-9]+:\s*(/\*|\*|//)' \
+    | rg -v ':[0-9]+:\s*(void|bool|static|[A-Za-z_]+)\s+.*wls_note_sleep_order_[a-z]+\s*\([^;]*\)\s*\{' \
+    | wc -l)
+if [ "$order_writers" -eq 2 ]; then
+    ok "the outstanding-order record has one send writer and one release writer"
+else
+    fail "the outstanding-order record has $order_writers writer sites (want 2)" \
+         "stamp wls_note_sleep_order_sent on the 0xAA send and _released on the 0xCC send"
+    rg -n 'wls_note_sleep_order_(sent|released)\s*\(' "$WLS" --glob '*.c' || true
+fi
+
 exit "$status"

@@ -917,7 +917,7 @@ an edit, and it belongs to the batched hardware session.
 
 | # | Item | Ledger row | Kind | Home today |
 | --- | --- | --- | --- | --- |
-| D1 | A half, once ordered to sleep, is *eventually* released | `STATE-MACHINE-stop-wake-split.md` §5 last row | **determined** (executable, 2026-10-15) | `wls_sleep_order_outlived_release()` + `tests/split_logic` + `bin/guard-invariants` |
+| D1 | A half, once ordered to sleep, is *eventually* released | `STATE-MACHINE-stop-wake-split.md` §5 last row | **determined** (executable + wired, 2026-10-15) | `wls_sleep_order_outlived_release()` + the `wls.c` record (`wls_note_sleep_order_sent/_released`, `hs_sleep_order_liveness_check`) + `tests/split_logic` + `bin/guard-invariants` |
 | D2 | The release path itself (`0xCC` on USB) | same doc §5; narrative `:129-132`, `:154-157`, `:191` | **undetermined** | nothing |
 | D3 | Which painter owns which LED index (overlaps) | `STATE-MACHINE-indicator-ownership.md` §4 | **undetermined** | nothing (rung 3 not started) |
 | D4 | Whether a painter added later is exclusive | same doc §4 | **undetermined** | nothing |
@@ -940,11 +940,18 @@ form the master can observe — it cannot see the slave (the RPC is request/resp
 it for longer than one low-power cycle allows"* is the observable liveness fact. Six vectors in
 `tests/split_logic` (**22/22**) pin the four cases and the deadline boundary (including the
 32-bit wrap), and a `bin/guard-invariants` check keeps the predicate defined in the core. The
-deadline is `WLS_SLEEP_ORDER_RELEASE_MS` (120 s), the ceiling on one low-power cycle. **What
-remains unasserted** is the *shell* half — that the master actually records `sent_at` when it
-sends `0xAA` and consults the predicate. The predicate is the rule's home; wiring it to a
-`static uint32_t` in the shell is a separate, aimed change, not yet made, so the property is
-determined in the core and only *available* at the seam.
+deadline is `WLS_SLEEP_ORDER_RELEASE_MS` (120 s), the ceiling on one low-power cycle. **The shell
+half is now made too (2026-10-15)** — the predicate alone was determined in the core and only
+*available* at the seam, because nothing recorded that an order had been sent, so no check could
+run. The record is `wls_sleep_order_record_t` (`split_logic.h`), held in `wls.c` with one writer
+each way: `wls_note_sleep_order_sent(release_carried_by_transport)` on the `0xAA` send
+(`wls_lifecycle_lpwr_allow_presleep`) and `wls_note_sleep_order_released()` on the `0xCC` send
+(`wls_lifecycle_suspend_wakeup_init_user`). `hs_sleep_order_liveness_check()` (master, wireless
+only) rides the module-poll tick and consults the predicate; it **reports** the residue to the
+diagnostic rather than acting, because the only recovery the master owns is reaching a transport
+that carries `0xCC`, which is the switch — the person's decision, not the firmware's. A
+`bin/guard-invariants` check (negative-tested) keeps the record at exactly one send writer and
+one release writer.
 
 **D2 is D1's other side and is not the same fact.** D1 is "the release happens in time"; D2 is
 "the release path is correct at all" — the sole `0xCC` call site is USB-gated, so on USB the

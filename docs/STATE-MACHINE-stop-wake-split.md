@@ -42,7 +42,8 @@ S1 is now **executable** — the pure predicate `lpwr_presleep_is_allowed_decide
 (`tests/split_logic`), and the master's presleep send routed through it
 (`wls_lifecycle.c`). The condition it enforces is stated once, in `split_logic.h`:
 *a half may not be ordered asleep on a transport where its release is suppressed.*
-The liveness half below remains **not** determined by any artefact.
+The liveness half — that an order given *is* released — is now determined too, and wired:
+see §5's last row.
 
 ---
 
@@ -154,7 +155,7 @@ skipped entirely, so the slave is never ordered on a transport that cannot relea
 suppression fact is derived the same way the sole `0xCC` call site derives it
 (`wireless_get_current_devs() != DEVS_USB`), so the two cannot disagree. Tested in
 `tests/split_logic` (11 tests), composed the S1 way. The *liveness* half — that an order
-once given is *eventually* released — remains undetermined (§5).
+once given is *eventually* released — is now determined and wired (§5).
 
 ---
 
@@ -201,7 +202,7 @@ separate change, and the release path itself (`0xCC` on USB) is not yet asserted
 | The arm sites and their ordering (`ordered_sleep` vs `manual_timeout`) | this document, §1 table | prose |
 | S2: an ordered half must have a reachable release | `wls_sleep_order_open` + `tests/split_logic` | **unrepresentable** |
 | S2: the order is constructible only when a release is reachable | `wls_sleep_order_t` (handle) | **unrepresentable** |
-| The composite's liveness (a half, once ordered, *eventually* released) | `wls_sleep_order_outlived_release` + `tests/split_logic` | **executable** |
+| The composite's liveness (a half, once ordered, *eventually* released) | `wls_sleep_order_outlived_release` + the `wls.c` record + `tests/split_logic` | **executable, and wired** |
 
 The last row was the honest gap: the tree had no statement, no test, and no guard for the
 *liveness* half of S2. `docs/DETERMINATION.md` §I.4 (safety vs liveness) names the
@@ -210,10 +211,16 @@ its *liveness* half (a sleep once ordered is eventually released) is now **execu
 `wls_sleep_order_outlived_release(sent_at, now, release_transport_still_carries, released)` in
 `split_logic.{h,c}`, which states the fault in the only form the master can observe, since it
 cannot see the slave. Six vectors in `tests/split_logic` (22 tests) and a `bin/guard-invariants`
-check. **What is determined is the rule, not its wiring**: no shell yet records `sent_at` when
-it sends `0xAA` and consults the predicate, so the property is available at the seam rather than
-forced through it. The release path itself (`0xCC` on USB, §3) is still a separate unasserted
-fact. Both are **D1** and **D2** in `TODO.md` "Determination residue".
+check. **The wiring is now made as well (2026-10-15)**: the rule had no caller — nothing recorded
+that an order had been sent, so no check could run. The record is `wls_sleep_order_record_t`
+(`split_logic.h`), held in `wls.c` with one writer each way
+(`wls_note_sleep_order_sent()` on the `0xAA` send, `wls_note_sleep_order_released()` on the
+`0xCC` send), and `hs_sleep_order_liveness_check()` — master, wireless only, on the module-poll
+tick — consults the predicate and **reports** the residue to the diagnostic rather than acting,
+because the recovery the master owns (reaching a transport that carries `0xCC`) is the switch, a
+person's decision. A guard keeps the record at exactly one writer each way. The release path
+itself (`0xCC` on USB, §3) is still a separate unasserted fact. That is **D2** in `TODO.md`
+"Determination residue"; **D1 is closed**.
 
 ---
 
@@ -233,7 +240,7 @@ Per `docs/DETERMINATION.md` §II.2, in ascending strength:
    For S1, the unsafe *entry* is no longer writable, checked by a guard. For S2, the
    single-transaction form exists: the order cannot be **constructed** unless a release is
    reachable, so "an order without a reachable release" is not a state the shell can write.
-   S2's *liveness* half remains the honest target (§5's last row).
+   S2's *liveness* half is now done too — see §5's last row (predicate, record, guard).
 
 ### 6a. Rung 3 for S1 — the unsafe order is now unwritable (2026-10-15)
 
@@ -287,8 +294,8 @@ Rung 3 makes the right a **precondition of constructing the order**:
 The property this determines: *an order without a reachable release is not representable.*
 That is S2's *safety* half, at the rung-3 strength S1 now has. **What it does not determine:**
 *liveness* — that an order, once given, is *eventually* released. The handle proves a release
-was reachable at the moment of ordering; it does not prove the release is taken. That remains
-§5's last row, undetermined.
+was reachable at the moment of ordering; it does not prove the release is taken. That is §5's
+last row, now determined and wired there (predicate + record + guard).
 
 **Not to be done in this document:** writing the fix. `docs/DETERMINATION.md` §II.4 (a
 candidate, not yet adopted) says *name the property's home before writing the fix* — this
