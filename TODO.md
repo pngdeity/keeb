@@ -832,6 +832,12 @@ most-failing or most cheaply falsifiable*. An item marked **Lane B** has no X-n
 parent and correctly so: it is engineering capability, ordered by leverage, and
 must not be read as requirement work. `H-n` is a horizon requirement.
 
+**One input to this index is not in it, by design.** `docs/OBSERVATIONS.md` holds
+dated first-person testimony of actually using the board — raw, unmapped at capture.
+Items only enter this index *after* being reconciled there, so an entry can
+contradict an X-n (and change Lane A) rather than merely add to it. Read it before
+concluding the lanes are the whole picture.
+
 **Lane A — serves a user-facing requirement**
 
 | # | Item | Serves | Blocked by | Where |

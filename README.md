@@ -65,6 +65,7 @@ earlier build, not the current tree's** — see Status.
 | `docs/AUDIT-fcis.md` | Per-value, per-module audit record (the measurement used, not an impression). |
 | `docs/METHOD.md` | **How we work** — the authoritative process in two halves: the **engineering loop** (exhaust analysis before any flash → standard → audit → slice → class → fitness function → hardware) and the **debugging loop** (observe → instrument → layer → class), generalized from practice, each rule citing its incident. Read before changing code or investigating a fault. |
 | `docs/UX-REQUIREMENTS.md` | **What a person must be able to infer from the keyboard** — the user-facing requirements, derived from the human-interface literature with the derivation method recorded. The standard that `docs/USAGE.md` describes behaviour against. |
+| `docs/OBSERVATIONS.md` | **The other direction** — dated, first-person testimony of real reactions to the real board, captured raw and judged later. Where a requirement is *contradicted* by a real session, and where subtractions are found. |
 | `TODO.md` | **The live record** — outstanding work, defects, and verification status. |
 | `CHANGELOG.md` | Notable changes. |
 | `CONTRIBUTING.md` | Lint/build/commit conventions and the traps in this tree. |

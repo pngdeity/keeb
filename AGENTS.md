@@ -216,6 +216,8 @@ keymap is **not** in the tree — it lives in the sibling userspace repo
   infer from it -> `docs/UX-REQUIREMENTS.md` (the user-facing contract; how it is
   derived and verified is in its §0)
 - How to operate the keyboard -> `docs/USAGE.md`
+- A real reaction to using the board — testimony, captured raw and judged later,
+  and the place a requirement gets *contradicted* -> `docs/OBSERVATIONS.md`
 - The board layer's contract and its definition of done -> `docs/BOARD-LAYER.md`
 - An audit's plan, method, or results -> `docs/PLAN-fcis-audit.md` (the plan),
   `docs/AUDIT-fcis.md` / `docs/AUDIT.md` (the findings)

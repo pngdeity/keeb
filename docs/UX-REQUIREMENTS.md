@@ -554,6 +554,15 @@ Two consequences follow, and both are re-derivations rather than new policy:
   is an *implementation* step serving an X-n; when it is re-stated it must cite its
   parent, and it can only be "done" when the parent's observation shows.
 
+**The one direction this set cannot run for itself.** Derivation here is one-way,
+which is what keeps it honest — and also means it can only ever confirm itself. A
+requirement that a real session *contradicts* is not findable from inside this
+document. That is what `docs/OBSERVATIONS.md` is for: dated first-person testimony
+of using the board, captured raw and reconciled *back* into these requirements
+afterwards (including subtracting an X-n, or marking it `SUPERSEDED`). The
+capability derivation (§ 0.5) answers "what may be surfaced"; the observation log
+answers "was surfacing it the right thing at all".
+
 ---
 
 ## 2. Task analysis — the experiences, step by step
@@ -621,6 +630,15 @@ edge, the keycode path and the re-pair long-press) and **not while it is in effe
 visible **while it is in effect**, not only when it changed". The day-walk is what
 makes that visible, because a day is mostly *rest*, and a task list is mostly
 *action*.
+
+**The direction this narrative runs, and the one it cannot.** § 2.0 is written
+**downward** from the requirements: every moment above is an existing circumstance
+and every claim cites an existing X-n, so it can *illustrate* the contract but can
+never *disagree* with it. That is a review, not a design input, and it is honest to
+say so. The design input that runs the other way — a real reaction to the real
+board, which *can* contradict an X-n or argue a feature should not exist — lives in
+`docs/OBSERVATIONS.md`, which is deliberately a separate document so that raw
+testimony is never smoothed into the contract's shape.
 
 **A number the walk refuses to repeat.** `docs/USAGE.md` § 5 describes the
 sleep/wake behaviour, and the timings written there (a 30-minute idle timeout, a
