@@ -2090,8 +2090,22 @@ the order the shell composes them — `timeout_allowed = TRUE`,
 `stop_allowed = FALSE` ⇒ presleep refused, which is the exact board state that
 produced the dark board. **NOT yet verified on hardware:** the fix is a source change;
 a new binary must be built and both halves reflashed (human action) before the dark
-board is retired. **The slave half's chain is NOT fixed by this** — it is the separate
-composing fault, still open.
+board is retired. **The slave half's chain is now fixed too** (2026-10-15) — see the
+S2 paragraph below; it was a separate composing fault and needed its own change.
+
+**The S2 fix (2026-10-15) — the slave half's chain.** The master ordered the slave
+asleep with `0xAA` (which makes the slave arm its *own* stop), while the only release,
+`0xCC`, has exactly one call site and returns early on USB — so on USB the slave was
+ordered with no way out. The rule is now a pure predicate,
+`wls_split_can_order_sleep(sends_wake_on_this_transport)` (`split_logic.{h,c}`), and the
+master's presleep send routes through it (`wls_lifecycle.c`): on USB the order is skipped,
+so the slave is never ordered on a transport that cannot release it. **Tested:** 3 new
+vectors in `tests/split_logic` (11/11 green), composed the S1 way — *"order sent on a
+transport whose wake is suppressed ⇒ refuse."* The rule's home and the composite it
+belongs to are in `docs/STATE-MACHINE-stop-wake-split.md` §0/§3/§5. **Liveness is still
+undetermined**: the tree still has nothing asserting that an order once given is
+*eventually* released (only that it is never given when unreleasable), and this is an
+explicit open row there.
 
 **What was observed (2026-10-15, flashed `8ea408a4…`).** Verbatim: *"When I execute
 cold boot, let the boot code finish, then switch the switch from USB to BT and let the
