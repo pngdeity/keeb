@@ -222,6 +222,42 @@ else
     ok "lpwr_wakeup_armed_mask does not return a bare constant"
 fi
 
+# --- the pad -> code attribution has a home, and the classifier consults it ----
+#
+# D6. The mask's soundness reasons about which pad a code is reported on, and that
+# relation used to be prose: a table in the doc plus a `switch` in the board's
+# `palcallback_cb`. A pin move would update the code and not the table with
+# nothing failing. The attribution is now `lpwr_code_of_pad` / `lpwr_pad_of_code`
+# in the pure core, and the board's classifier is a CALLER of it rather than a
+# second copy. This guard keeps the home, and keeps the board classifying through
+# it -- a reintroduced inline `case PAL_PAD(...): lpwr_set_sleep_wakeupcd(...)`
+# switch restates the pads the mask depends on; it fails here instead.
+# See D6 of `TODO.md` "Determination residue" and
+# `docs/STATE-MACHINE-pad-attribution.md`.
+wls_root="qmk_firmware/keyboards/linker/wireless"
+if rg -q '^uint32_t\s+lpwr_code_of_pad\s*\(' "$wls_root/lowpower_logic.c" \
+    && rg -q 'lpwr_code_of_pad' "$wls_root/lowpower_logic.h"; then
+    ok "the pad -> code attribution has a home in the pure core"
+else
+    fail "the pad -> code attribution is not stated in the pure core" \
+         "keep lpwr_code_of_pad in lowpower_logic so 'which code does pad N report' is checkable"
+fi
+
+if rg -q 'lpwr_code_of_pad\s*\(' "$wls_c"; then
+    ok "the board's wake classifier derives the code from the attribution"
+else
+    fail "the board's wake classifier does not use lpwr_code_of_pad" \
+         "classify through the pure attribution rather than a second switch over the pads"
+fi
+
+attr_switches=$(rg -c 'case\s+PAL_PAD\(' "$wls_c" || true)
+if [ "${attr_switches:-0}" -eq 0 ]; then
+    ok "the board's classifier has no second pad switch"
+else
+    fail "the board's classifier restates the pads in a switch ($attr_switches cases)" \
+         "route every pad through lpwr_code_of_pad so the attribution has one home"
+fi
+
 # --- the transport decision reads intent, never the USB line's own state ------
 #
 # The ADR's invariant has two halves. The first (one call site, on a change only)

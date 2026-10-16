@@ -921,8 +921,8 @@ an edit, and it belongs to the batched hardware session.
 | D3 | Which painter owns which LED index (overlaps) | `STATE-MACHINE-indicator-ownership.md` §4 | **determined** (executable, 2026-10-15) | `wls_led_painter_of` / `wls_led_painters_overlap` / `wls_led_can_paint` (`indicator_logic`) + the cue's consult + `tests/indicator_logic` + `bin/guard-invariants` |
 | D4 | Whether a painter added later is exclusive | same doc §4 | **determined** (executable, 2026-10-15) | `wls_led_painter_is_exclusive` (`indicator_logic`) + `tests/indicator_logic` |
 | D5 | Whether the presleep hook may read the USB line's own state to decide a teardown | `STATE-MACHINE-transport-authority.md` §4 | **determined** (executable, 2026-10-15) | `hsm_usb_teardown_is_safe` (`transport_logic`) + the presleep site's consult in `wls_lifecycle.c` + `tests/transport_logic` + `bin/guard-invariants` |
-| D6 | The pin → wake-code attribution table | `STATE-MACHINE-pad-attribution.md` §4 | weakly determined | prose (the doc's §2 table) |
-| D7 | "No other pad collision drops a wake" | same doc §4 | weakly determined | prose (the doc's §2 argument) |
+| D6 | The pin → wake-code attribution table | `STATE-MACHINE-pad-attribution.md` §4 | **determined** (executable, 2026-10-15) | `lpwr_code_of_pad` / `lpwr_pad_of_code` (`lowpower_logic`) + the classifier as its caller in `wls.c` + `tests/lowpower_logic` + `bin/guard-invariants` |
+| D7 | "No other pad collision drops a wake" | same doc §4 | **determined** (executable, 2026-10-15) | two composed tests over the derived map in `tests/lowpower_logic` |
 | D8 | The arm sites and their ordering (`ordered_sleep` vs `manual_timeout`) | `STATE-MACHINE-stop-wake-split.md` §5 | weakly determined | prose (the doc's §1 table) |
 | D9 | "A confirmed host is never torn down at the actuator" | `STATE-MACHINE-transport-authority.md` §4 | weakly determined | in-code prose (`wls_usb.c`) |
 | D10 | The WB32 EXTI truly reports port-agnostically on this silicon | `STATE-MACHINE-pad-attribution.md` §4 | **plant premise** | hardware only (cheap: float an unclaimed pad, watch the code) |
@@ -1010,6 +1010,21 @@ positionally; 4 new vectors in `tests/transport_logic` (**57/57**) settle the fo
 site consulting it. The rung-3 form would be a teardown API that cannot be called without passing
 the line's in-use reading — not built: one site, one rule, already stated.
 
+**D6/D7 are the pad-attribution prose made checkable, and are now determined at the executable
+rung (2026-10-15).** The mask's soundness reasons about *which pad a code is reported on*, and
+that relation lived as a table in `docs/STATE-MACHINE-pad-attribution.md` §2 plus a `switch` in
+the board's `palcallback_cb`. A pin move would have updated the code and not the table, with
+nothing failing. It is now a function in the pure core — `lpwr_code_of_pad(attr, pad, is_master)`
+and its inverse `lpwr_pad_of_code` — and the board's classifier is a **caller** of it, not a
+second copy (**D6**). `MATRIX` is the `default_code` field rather than a firmware macro, so the
+core keeps its no-`lowpower.h` contract. The "no other collision drops a wake" argument (**D7**)
+becomes two composed tests over the derived map: every *registered* pad reports an armed code or
+the one covered exclusion (UART), and every *unregistered* pad reports the armed default. A
+future pin move that put an unarmed code on a registered pad fails those tests, which the prose
+could not enforce. 9 new vectors in `tests/lowpower_logic` (**26/26**); 3 new
+`bin/guard-invariants` checks (each negative-tested) keep the attribution in the core, keep the
+classifier a caller, and reject a reintroduced `case PAL_PAD(...)` switch.
+
 **D10/D11 are the batched hardware session's business, not edits.** D10 is cheap to settle
 (one floating pin); D11 is the ADR's "Costs and risks" — a missed event leaves the transport
 uncorrected until the next input, and no code can assert the queue's completeness on this
@@ -1045,7 +1060,9 @@ violation, and the cheapest rung that does so is the right one:
   it, four vectors, two negative-tested guards.
 - **D6–D9 (weakly determined)** each close by promoting the prose to a test or guard that
   pins the same fact — e.g. D6 by deriving the attribution from the `palEnableLineEvent` sites
-  rather than restating them.
+  rather than restating them. **D6/D7 done (2026-10-15)** — `lpwr_code_of_pad` /
+  `lpwr_pad_of_code` in the core, the classifier a caller of it, nine vectors, three
+  negative-tested guards.
 - **D10/D11 (plant premises)** do not close by an edit at all; they are settled in a batched
   hardware session and recorded in `docs/HARDWARE.md` / `docs/OBSERVATIONS.md` when measured.
 

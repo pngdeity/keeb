@@ -95,25 +95,17 @@ was "the matrix case" and which is in fact "every pad nobody claimed."
 |---|---|---|
 | An excluded code's pad must be covered by an armed code | `lpwr_excluded_code_is_safe` + test | **executable** |
 | The board's mask is built through that predicate | `wls.c` `lpwr_wakeup_armed_mask` + `bin/guard-invariants` | **unrepresentable** (the hand-written form is refused) |
-| Which pin each code is *registered* under (the attribution itself) | this document, §2 | prose |
+| Which pin each code is *registered* under (the attribution itself) | `lpwr_code_of_pad` / `lpwr_pad_of_code` + tests + `bin/guard-invariants` | **executable** + guard |
+| That no *other* pad collision drops a wake | composed test from the attribution | **executable** |
 | Whether the WB32 EXTI truly reports port-agnostically on this silicon | `lowpower.h` comment; no check | **undetermined** |
-| That no *other* pad collision drops a wake | argued in §2 (every pad is a matrix pad); no test | **weakly determined** |
 
-The last three rows are the honest floor:
+The attribution and the collision argument (§2) are no longer prose. Both were *derived by reading the `palEnableLineEvent` sites*, and that derivation is now a function: `lpwr_code_of_pad(attr, pad, is_master)` returns the code a pad reports (with `MATRIX` as the `default_code` field rather than a firmware macro, so the pure core keeps its no-`lowpower.h` contract), and the board's `palcallback_cb` is a **caller** of it rather than a second `switch`. That closes **D6** at the executable rung: a pin move now updates the code and the classifier together, and a `switch` that restated the pads fails a guard. **D7** closes with it — the "no other collision drops a wake" argument becomes two composed tests over the derived map: every *registered* pad reports either an armed code or the one covered exclusion (UART), and every *unregistered* pad reports the armed default. A future pin move that put an unarmed code on a registered pad fails those tests, which the prose could not enforce.
 
-- The **attribution table** (which pin → which code) is prose. It is derived by reading the
-  `palEnableLineEvent` sites; a pin change would update the code and not this table, and
-  nothing fails. That is the residue the executable rung does not cover.
-- **Port-agnostic reporting** is a property of the WB32 EXTI hardware, read from the ChibiOS
-  LLD source (`PAL_PAD`), not measured on this part. It is a premise (§I.4's plant
-  assumption), and a premise is not a proof — this is a batched-flash candidate in the sense
-  of the flash-epistemology note, though a *cheap* one: a pin left floating on an unclaimed
-  pad and watched for which code fires would settle it.
-- **No other collision drops a wake** is argued: because MATRIX is the default, every pad is
-  reachable as MATRIX unless a *different* code claims it, and the only code that does is
-  UART/USB/CABLE/SWITCH, all of which the board arms — UART excepted, and UART's pad is a
-  matrix pad. The argument is complete for the pads in the table; it is prose, so it is
-  "weakly determined", not executable.
+Two consequences this makes plain, and one honest floor:
+
+- The **inverse lookup** (`lpwr_pad_of_code`) is the mask's question ("which pad does this code claim") and is pinned consistent with the forward map by a round-trip test, so the two cannot drift.
+- The **`is_master` gate** is part of the attribution, not a property of the classifier: the mode-switch pads exist only on the master, so on the slave a pad-14/15 edge reports the default. A test pins that, because arming a wake source the slave never registered is a phantom in the other direction.
+- **Port-agnostic reporting** stays a premise. It is a property of the WB32 EXTI hardware, read from the ChibiOS LLD source (`PAL_PAD`), not measured on this part. It is **D10** below.
 
 The attribution-table row is **D6**, the collision argument **D7**, and port-agnostic
 reporting **D10** in `TODO.md` "Determination residue".
@@ -126,13 +118,22 @@ Per `docs/DETERMINATION.md` §II.2, in ascending strength:
    absent ... the module UART RX pad is aliased to a matrix column."
 2. **Executable (done, 2026-10-15).** `lpwr_excluded_code_is_safe(excluded, covered)` in
    `lowpower_logic.{h,c}`: `!excluded || covered`. Four vectors in `tests/lowpower_logic`
-   (17 tests), including the composed case the board builds its mask with.
-3. **Unrepresentable (done, 2026-10-15, for the mask's *shape*).** The board's
+   (26 tests), including the composed case the board builds its mask with. **And the
+   attribution itself (D6/D7):** `lpwr_code_of_pad` / `lpwr_pad_of_code` /
+   `lpwr_pads_collide` state which code each pad reports and which pads collide, with the
+   board's classifier a *caller* of the first (so a fourth rung is not needed for it — the
+   second copy is refused by the guard, below). Nine new vectors cover the map, the master
+   gate, the inverse round trip, the collisions, and the two composed "no collision drops a
+   wake" checks.
+3. **Unrepresentable (done, 2026-10-15, for the mask's *shape* and the classifier).** The board's
    `lpwr_wakeup_armed_mask()` no longer returns a hand-written constant: it classifies UART
    (`uart_is_armed`, `uart_pad_is_covered_by_matrix`) and computes the code through the
    predicate. Two checks in `bin/guard-invariants` — the mask must be built through
    `lpwr_excluded_code_is_safe`, and must not be a bare `return LPWR_WAKEUP...` constant —
    each negative-tested. The hand-written form is now unwritable without failing the guard.
+   **The classifier too:** `palcallback_cb` may not restate the pads — a `switch` with
+   `case PAL_PAD(...)` cases fails a third guard — so the classifier is a *caller* of
+   `lpwr_code_of_pad`, and "the attribution has a second copy" is unwritable (D6).
 
 The rung-3 form is deliberately *not* a hard failure at runtime: an unsound exclusion falls
 through to **arming the code**, so the board fails toward waking on a phantom rather than
@@ -152,9 +153,12 @@ complaint; the runtime behaviour is the safe floor.
   `config.h:9,75,76,81,82` (`HS_BAT_CABLE_PIN`, `UART_TX/RX_PIN`, `SERIAL_USART_TX/RX_PIN`),
   `wls.h:17,18` (`HS_BT_DEF_PIN`, `HS_2G4_DEF_PIN`).
 - The predicate and its home: `keyboards/linker/wireless/lowpower_logic.{h,c}`
-  (`lpwr_excluded_code_is_safe`, `lpwr_wakeup_is_real`); the mask
-  (`wls.c` `lpwr_wakeup_armed_mask`); the tests
-  (`tests/lowpower_logic/lowpower_logic_tests.cpp`); the guards (`bin/guard-invariants`).
+  (`lpwr_excluded_code_is_safe`, `lpwr_wakeup_is_real`, and now `lpwr_attribution_t`,
+  `lpwr_code_of_pad`, `lpwr_pad_of_code`, `lpwr_pads_collide`); the mask
+  (`wls.c` `lpwr_wakeup_armed_mask`); the classifier (`wls.c` `palcallback_cb`, a caller of
+  `lpwr_code_of_pad`); the tests (`tests/lowpower_logic/lowpower_logic_tests.cpp`, 26 tests);
+  the guards (`bin/guard-invariants`, three checks for the attribution). The attribution row
+  is D6 and the collision argument D7 in `TODO.md` "Determination residue".
 - The weak default on the other side: `lowpower.c:252-258` (`lpwr_wakeup_armed_mask` weak
   decl/def, default `-1` = every code armed), and its contract comment,
   `lowpower.h:42-58`.
