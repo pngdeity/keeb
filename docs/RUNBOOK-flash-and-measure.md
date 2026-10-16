@@ -151,9 +151,10 @@ The flash is a **human action**: `wb32-dfu-updater_cli -t -s 0x08000000 -D
 walk-close draft that stood here before 2026-10-15.** That draft pinned
 `aec731388c…` (64,600 B); requirement fixes have landed since (A7, A8, and the
 X-4 channel cue), so the predictions below are rebuilt from the current tree —
-**but the pinned hash still names the A7+A8 build and has not been regenerated for
-the X-4 cue (see § 1's staleness note).** It is built from a committed, signed
-tree, so the checklist wording "confirmed clean against HEAD" is met.
+**and the pinned hash was regenerated on 2026-10-15 for the X-4 cue's build
+(`8ea408a4…`, § 1), so this pre-flight and the artefact now agree.** It is built
+from a committed, signed tree, so the checklist wording "confirmed clean against
+HEAD" is met.
 
 **What is new in this build over the walk-close artefact, and why each is here:**
 

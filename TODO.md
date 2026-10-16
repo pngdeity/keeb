@@ -2008,6 +2008,346 @@ bookkeeping, one owner, no-ops silent) — board-local.
 Build clean (63,804 B); `format-c` clean; tests pass (transport_logic 6,
 lowpower_logic 8, wireless_nkro_parity 8). **Not yet flashed.**
 
+### 7. The boot code's ownership latch can starve every indicator — LATENT HAZARD, not the observed fault (found 2026-10-15)
+
+**Status: NOT the cause of the 2026-10-15 darkening. Kept because the hazard is real.**
+
+**What was observed (2026-10-15, flashed `8ea408a4…`).** On the flash built to verify
+the X-4 at-rest channel cue, **no indicator appeared at all** on the right half's top
+row: the X-4 cue was invisible, USB looked identical to BT, and the A7 link cue and
+A8 behaviour could not be observed. Separately the backlight went out unattended
+**after ~30 s idle** (wristwatch), and a keypress did not obviously restore it.
+Pressing a key *during* the boot code, however, restored the backlight immediately.
+
+**The hypothesis (raised, then refuted).** `rgb_matrix_indicators_advanced_kb()`
+(`epomaker_split65.c:264-268`) returns early — abandoning the rest of the frame pass —
+while `wls_indicator_boot_code_owns_matrix()` is true, and that predicate is just
+`boot_code_active` (`wls_indicator.c:449-451`). The only clear while playing is
+`wls_indicator_boot_code()` reaching its own deadline (`:506-509`), which requires
+**that function to be called**. The window is one frame = **11,700 ms** for the
+reported `7 amber, 5 white` (`2*300*7 + 1500 + 2*300*5 + 3000`). So a pass starved
+inside the window would latch every indicator off forever.
+
+**Why it was refuted.** On a **cold boot the code finishes cleanly on its own** (11.7 s
+< 30 s), and afterwards the battery LEDs paint — so the pass is not starved and
+`boot_code_active` clears normally. The keypress's effect is real but is **not** a
+latch release.
+
+**What survives.** The exit genuinely does depend on the paint being called, which is
+the **feedback shape** of the defect class in `docs/FINDINGS.md` ("a state whose only
+exit is a call the same state suppresses"). It is a latent hazard worth closing — but
+it is **not** what this board did, and must not be cited as such.
+
+**The fix, if taken.** Make the expiry a **fact, not a call**: have
+`wls_indicator_boot_code_owns_matrix()` itself return false once
+`timer_elapsed32(boot_code_started) >= wls_boot_code_show_ms(...)`, so a predicate that
+can be *read* without the paint function *running* still expires. Settle the
+`boot_code_active`/`boot_code_done` asymmetry (`start` guards on both; `:496` clears
+only `active`) in the same change — it is the same latch.
+
+**The real suspect for the 30 s darkening** turned out to be the link watch and low-power
+path, and it is now filed as **§ 8 below** — including the reproduce-on-demand result and
+the half-dead-USB consequence. **The mechanism is still unidentified** (§ 8's first
+candidate was refuted by the source). See `docs/OBSERVATIONS.md`; `HS_LBACK_TIMEOUT` is
+exactly 30 s (`wls/wls.h:26`) against a 60 s `HS_SLEEP_TIMEOUT` (`:27`).
+
+### 8. After the 30 s link-back stop, returning the switch to USB leaves the board half-dead (found 2026-10-15)
+
+**Status: REPRODUCED on hardware from a cold boot; MECHANISM IDENTIFIED IN SOURCE
+(2026-10-15, fourth reading) — a refused stop leaves the matrix disabled; the slave half
+composes with the third reading.** Two mechanisms have now been proposed and killed by
+evidence (the pin-mode write-up, refuted by the source; the phantom-wake discard, refuted
+by test (A) on hardware), and a third was **half-wrong** (its slave chain stands, its
+master cause did not). All four readings are recorded below so they are not re-derived.
+The master/slave asymmetry measured on the board is what the surviving pair explains.
+
+**What was observed (2026-10-15, flashed `8ea408a4…`).** Verbatim: *"When I execute
+cold boot, let the boot code finish, then switch the switch from USB to BT and let the
+backlight turn off after 30 seconds, after flipping the switch from BT back to USB, the
+backlight does not come back on and only the left half types and the right half does not
+type."* The darkening is now **reproducible on demand** (USB → BT, idle 30 s), and it has
+a **consequence**: the board does not come back.
+
+**This supersedes the darkening as the thing to chase.** The question is not *why the
+backlight goes out* but **what state the 30 s deadline puts the board in, and why the
+switch back to USB does not clear it** — including why the right half's keycodes stop.
+
+**What is established (source-verified).**
+
+1. Idle with the switch off USB and the link not up → `hs_rgb_blink_hook`
+   (`wls/wls.c:287-313`) → `hsm_link_watch` returns `HSM_LINK_ACT_RECONNECT`
+   (DISCONNECTED + `HS_LBACK_TIMEOUT`, exactly `30 * 1000` ms, `wls/wls.h:26`) →
+   **`lpwr_set_timeout_manual(true)` at `wls.c:305`.** The RECONNECT arm arms a
+   **stop**, not merely a reconnect; `HSM_LINK_ACT_SLEEP` does the same at `wls.c:308`.
+   So **both arms arm the stop**, and the 30 s figure is `HS_LBACK_TIMEOUT`, not the
+   60 s `HS_SLEEP_TIMEOUT`.
+2. `lpwr_stop_hook_pre` (`wls.c:380-387`) writes `LED_POWER_EN_PIN` **low** → the
+   backlight goes out. That is the observed darkening.
+3. The guard that makes this USB-shaped is real: `wls_lifecycle_lpwr_allow_timeout`
+   (`wls_lifecycle.c:198-214`) refuses the stop at `DEVS_USB`. The darkenings were all
+   off-USB (BT, then 2.4 GHz).
+
+**A mechanism proposed and refuted (2026-10-15) — recorded so it is not re-derived.**
+The claim was: both halves set the split-link UART pins to `PAL_OUTPUT_TYPE_OPENDRAIN`
+on the way into the stop (master at `wls_lifecycle_lpwr_allow_presleep`,
+`wls_lifecycle.c:225-228`; slave at `wls_split.c:53-61`), and the only restore is
+`usart_init()` (`wls_eeprom.c:11-15`), which the wake path
+(`wls_lifecycle_suspend_wakeup_init_user`, `wls_lifecycle.c:169-184`) **skips on USB**
+via its early-return at `:175-177` — so the pins stay open-drain and the split link is
+dead.
+
+**It is refuted on two counts, both read from the source:**
+- `usart_init()` is called at `wls_lifecycle.c:170`, **before** the USB early-return at
+  `:175` — so the wake path restores the pins *even on USB*. The early-return only skips
+  the subsequent `WLS_SPLIT_CMD_WAKEUP` broadcast.
+- A BT→USB switch flip runs `suspend_wakeup_init()` at `wls.c:212` (inside
+  `hs_modeio_detection`, on the `sw_mode` edge), which reaches that same `usart_init()`.
+  So the restore is on the switch-flip path by design.
+
+**Where that leaves it.** The pins are restored on the flip, yet the right half is still
+silent — so the fault is **not** the pin mode.
+
+**THE MECHANISM PROPOSED (source-verified 2026-10-15) — the mask is doing its job, and
+that is the trap — AND FALSIFIED by test (A) on hardware (2026-10-15).** The reading is
+kept below because the *symptom* it explains is real and it is the natural next guess;
+**it is wrong, and test (A) is what killed it.** The original reading drew on the tree's
+own documentation of the phantom-wake failure mode — which is real — and put that reading
+against this board's configuration.
+
+**THE FALSIFICATION — test (A), run 2026-10-15 (this is the measurement; it overrides
+the reading above).** Verbatim from the board: *"1. Backlight still off. 2. Backlight
+still off. 3. Backlight is off. Typing on left half. No typing on right half. 4.
+backlight off."* (1 = a key on the **left** half while stranded; 2 = a key on the
+**right** half while stranded; 3 = the switch flipped BT → USB while stranded; 4 = a
+second strand, then the switch flipped with **no** keypress first.)
+
+The mechanism predicted a **keypress** would be accepted — a key is a genuine
+`LPWR_WAKEUP_MATRIX` edge, and `MATRIX` **is** in the armed mask — so `lpwr_wakeup_cb()`
+would run and the backlight would return. **It did not (step 1).** Neither a left-half
+keypress nor a switch flip restored it, and step 4 matched step 3. If the mask had been
+the trap, step 1 would have recovered the board. **The mask is therefore not the fault,
+and the wake path is not the fault.**
+
+**WHAT SURVIVES — the measurement that matters (step 3).** After the flip to USB the
+board is **not** uniformly dead: **the left half types and the right half does not.** The
+master is **alive and running on USB** — its USB is enumerated, its matrix scans, it
+sends keycodes — while the slave is not. So the fault is narrowed to **the slave's own
+state, or the split link between the halves.** It is *not* a whole-board STOP, *not* a
+shared wake path, and *not* the master's low-power bookkeeping.
+
+### THE MECHANISM, THIRD ATTEMPT — read only *after* test (A), and its gates checked first
+
+**The claim: the master never sends the slave a wake, because the only wake command in
+the protocol is USB-gated, and USB is the transport the user returns to.** This is
+*narrower* than the two refuted readings — it does not require the mask, the phantom, or
+the pin mode to misbehave. Every link in the chain is a literal in the tree.
+
+1. **The slave is told to sleep, and arms its own stop.** The master's presleep path
+   sends `WLS_SPLIT_CMD_SLEEP` (`0xAA`) at `wls_lifecycle.c:219`. The slave's handler
+   (`wls_split.c:53-61`) runs `wls_order_sleep(action.sleep_flag)` **and**
+   `lpwr_set_timeout_manual(true)` — the slave is now ordered to stop and has armed it.
+2. **The slave's *wake* command does not undo that.** `WLS_SPLIT_CMD_WAKEUP` (`0xCC`)
+   decodes to `WLS_SPLIT_ACT_REAPPLY_RAIL` (`split_logic.c:33-35`), whose handler is
+   `wls_led_rail_apply()` **and nothing else** (`wls_split.c:62-64`). It does **not**
+   call `wls_order_sleep(false)`, does **not** clear the manual timeout, and does **not**
+   run `suspend_wakeup_init()`. The slave's only flag-clearing path is its own
+   `lpwr_stop_hook_post()` (`wls.c:433-442`), gated on the slave's **own**
+   `lpwr_get_state() == LPWR_WAKEUP` — which cannot be reached from inside a STOP.
+3. **And the master never sends even that.** `WLS_SPLIT_CMD_WAKEUP` is sent from exactly
+   **one** call site in the tree — `wls_lifecycle.c:179` — and that function
+   (`wls_lifecycle_suspend_wakeup_init_user`) **returns before it on USB**
+   (`wls_lifecycle.c:175-177`): *"While cabled the rail must stay up on both halves;
+   broadcasting it would extinguish the slave's backlight."* So on the **USB** transport
+   the master sends the slave **no wake at all**.
+
+**Why this matches every observation, without strain.** The master is on USB and alive →
+**left half types**. The slave is still in its ordered stop, and the only command that
+could release it is never sent on USB → **right half does not type**. The master's own
+stop wrote its rail low, and the slave's rail re-apply (which is all `0xCC` would have
+done anyway) is never reached → **the backlight does not come back**.
+
+**The gates I checked *before* writing this down (unlike the previous two).**
+- *Is `0xCC` really sent from one place?* Yes — `rg` over the board finds
+  `wls_split_send(WLS_SPLIT_CMD_WAKEUP, NULL)` at `wls_lifecycle.c:179` only.
+- *Does the USB early-return really precede it?* Yes — `:175-177`, three lines above.
+- *Does any other path clear the slave's ordered sleep?* The slave's `lpwr_stop_hook_post`
+  (`wls.c:433-442`) is the only `wls_order_sleep(false)` on a wake, and it needs the
+  slave's own `LPWR_WAKEUP` state.
+- *Is `REAPPLY_RAIL` really rail-only?* Yes — `wls_split.c:62-64`, one call.
+- *Independence from the refuted readings:* this does not use `lpwr_wakeup_armed_mask`,
+  the phantom UART, or the pin mode. Those can all be as-intended and this still holds.
+
+**What would still falsify it — the fourth test.** The mechanism predicts that the slave
+is recoverable **only** by a full power cycle of *both* halves, and specifically that:
+(i) a **keypress on the slave** does nothing (its matrix scanner is not running), and
+already ran in test (A) step 2 — **backlight stayed off, consistent**; and (ii) the slave
+would recover if the master *were* made to send `0xCC` while on USB. **(ii) is not
+reachable without a code change**, so the confirmation that *is* reachable is: **unplug
+and replug both halves and confirm both type again** (the severity claim), and **check
+whether the same half-death occurs on a BT→2.4 GHz flip** (predicts: same, since
+`0xCC` is gated on USB, not on "not BT").
+
+**Judged (2026-10-15):** *candidate, source-verified, gates checked; NOT yet measured.*
+This is the first of the three that was written **after** its discriminating test ran and
+with its call sites enumerated first. It still does not become a finding on the strength
+of being the surviving guess — `docs/METHOD.md` Part II § 0.
+
+> **SUPERSEDED THE SAME DAY by the fourth reading below — and the third was WRONG about
+> the master.** Its slave half (links 1–3: the slave is ordered to sleep, `0xCC` only
+> re-applies the rail, and `0xCC` is never sent on USB) survives and is re-used. Its
+> *cause* is wrong: the master does **not** actually stop on the 30 s path, so there is no
+> master stop whose wake was discarded. The real master-side mechanism is the fourth
+> reading. Kept because the slave chain is correct and because the reasoning error is
+> itself the record (the assistant checked the slave's gates and *assumed* the master's).
+
+### THE MECHANISM, FOURTH READING — `presleep` disables the matrix and the refused stop never re-enables it (2026-10-15)
+
+Found while verifying the third reading's gates, which is the only reason it exists: the
+third reading assumed the master *stops*. Reading `lpwr_stop_is_allowed` (`wls/wls.c:389-421`)
+showed the stop is **refused** on this path — and that a refused stop still leaves the
+matrix disabled, because the disable happens one state **earlier**.
+
+**Every line below was read in the file; none is inferred.**
+
+1. **The manual timeout only *permits* a timeout; it does not order a sleep.**
+   `lpwr_set_timeout_manual(true)` (`lowpower.c:123-125`) sets `manual_timeout`. That
+   value reaches `lpwr_timeout_allowed_decide(hook_allows, usb_active, manual_pending,
+   idle_elapsed)` (`lowpower_logic.c:20-32`) as `manual_pending`, which returns true if
+   `manual_pending || idle_elapsed` (given no USB host and the hook allows). So
+   `lpwr_is_allow_timeout()` becomes true and `lpwr_task`'s NORMAL case advances to
+   `LPWR_PRESLEEP` (`lowpower.c:317-323`) — **it clears the manual flag on the way**. The
+   `lpwr_set_timeout_manual(true)` calls at `wls.c:305` and `wls.c:308` are therefore the
+   *permission*, which is what makes the 30 s idle path reachable at all.
+2. **PRESLEEP disables the matrix unconditionally, and that is the darkening.**
+   `lpwr_task`'s `LPWR_PRESLEEP` case (`lowpower.c:324-330`) calls `lpwr_presleep_cb()`
+   (`:225-239`), which runs `rgb_matrix_disable_noeeprom()` (`:230`) after saving
+   `rgb_enable_bak`. **The panel is dark from this moment**, and this happens *before*
+   the STOP state.
+3. **In STOP the stop is REFUSED, because nothing ordered the sleep.**
+   `lpwr_stop_cb()` (`:260-291`) opens with
+   `if (!lpwr_stop_is_allowed()) { lpwr_set_state(LPWR_NORMAL); return; }` (`:267-268`).
+   `lpwr_stop_is_allowed()` (`wls/wls.c:389-421`) returns
+   `lpwr_stop_is_allowed_decide(is_keyboard_master(), wls_sleep_ordered())`
+   (`lowpower_logic.c:5-11`), i.e. `is_master && lower_sleep`. On the 30 s idle path
+   **nothing calls `wls_order_sleep(true)`** — its only callers are the low-battery path
+   (`wls_indicator.c:180`), the slave's `0xAA` handler (`wls_split.c:59`), and the
+   post-stop release (which sets it *false*). So `ordered_sleep` is false, the stop is
+   **refused**, and `lpwr_enter_stop()` (`:275`) **never runs** — the MCU does not sleep.
+4. **The re-enable lives in the state the refusal prevents.** `rgb_matrix_enable_noeeprom()`
+   is called in exactly one place in the whole machine: `lpwr_wakeup_cb()`
+   (`lowpower.c:296-311`, at `:301`), and `lpwr_wakeup_cb()` is called at
+   `lpwr_task`'s `LPWR_WAKEUP` case (`:339-345`). A refused stop goes straight to
+   `LPWR_NORMAL`; **`LPWR_WAKEUP` is never entered, so the matrix is never re-enabled.**
+   The board is dark **permanently** until a power cycle.
+
+**This is the feedback shape of the class in `FINDINGS.md`, in its purest form so far:**
+an effect (`presleep`'s `rgb_matrix_disable_noeeprom()`) whose **undo is reachable only
+through a state transition that the very guard refusing the stop makes unreachable**. No
+wake code, mask, phantom, pin mode, or split command is involved. Every previously
+refuted candidate can be exactly as intended and this still holds — which is *why* test
+(A)'s four readings were all "backlight still off" regardless of key or switch: neither
+reaches `LPWR_WAKEUP`.
+
+**What it explains, and what it does not.**
+- *Explains:* the darkening at the timeout, and its permanence; why **no** recovery short
+  of a power cycle was observed; why a keypress (test (A) step 1) changed nothing — keys
+  are armed wake sources, but the machine is not *in* a stop, so there is nothing to wake.
+- *Does NOT yet explain, and must not be papered over:* **the right half's silence.** This
+  mechanism is about the master's matrix. The slave's half of the fault is the *third*
+  reading's chain (links 1–3), which stands on its own: the slave is ordered to sleep by
+  `0xAA`, and the only command that would release it (`0xCC`) is never sent on USB. The two
+  readings compose: master dark-and-refusing, slave ordered-and-unreleased.
+- *A prediction that is genuinely falsifiable here (the fifth test):* the refused-stop
+  reading predicts the master is **not** asleep — it is running, matrix disabled. If the
+  board is on a transport with a host, the host should still see it enumerate and the
+  left half should still type (which is exactly what test (A) step 3 saw, and what the
+  current entry records). It also predicts that **a switch flip while the board is dark is
+  not a wake** (there is no stop to escape) — consistent with test (A) step 4.
+
+**Status of this reading:** source-verified on every line and consistent with all four of
+test (A)'s readings. Still **not** confirmed by a measurement that isolates it, and per
+`docs/METHOD.md` Part II § 0 it does not become a finding on that strength. The isolating
+test is a **code change** (a stop that is actually ordered, or moving the matrix re-enable
+out of `lpwr_wakeup_cb()`), which is the natural next work item rather than another
+hardware probe.
+
+**Judged (2026-10-15):** *candidate, source-verified line by line; composes with the third
+reading's slave chain; NOT yet isolated by measurement.*
+
+1. **The machine.** `lpwr_task` (`lowpower.c:313-348`) walks NORMAL → PRESLEEP → STOP →
+   WAKEUP → NORMAL. `lpwr_presleep_cb` (`:225-239`) **disables the RGB matrix**
+   (`rgb_matrix_disable_noeeprom()`, `:230`) and saves whether it had been on
+   (`rgb_enable_bak`). `lpwr_stop_cb` (`:260-291`) writes the LED rail low via
+   `lpwr_stop_hook_pre()` then enters the hardware stop.
+2. **The escape test.** On wake, `lpwr_stop_cb` asks
+   `lpwr_wakeup_is_real(lpwr_get_sleep_wakeupcd(), lpwr_wakeup_armed_mask())`
+   (`lowpower.c:284`). `lpwr_wakeup_is_real` (`lowpower_logic.c:13-18`) is
+   `(wake_set & armed_mask) != 0` — a **set intersection**, not a last-code equality.
+3. **This board's mask.** `lpwr_wakeup_armed_mask` (`wls/wls.c:423-431`) returns
+   `LPWR_WAKEUP_MATRIX | _CABLE | _SWITCH | _USB` and **omits `LPWR_WAKEUP_UART`
+   deliberately**. The comment states why: *"the module UART RX pad is aliased to a
+   matrix column and a column edge arrives here stamped `LPWR_WAKEUP_UART`. Naming UART
+   armed would let that phantom be acted on as a real wake."*
+4. **The aliasing, and its direction.** `lpwr_wb32.c:40-49` attributes wakes by pad:
+   the `case PAL_PAD(UART_RX_PIN)` branch sets `LPWR_WAKEUP_UART`, the `default:`
+   branch sets `LPWR_WAKEUP_MATRIX`. Because UART_RX **shares a pad with a matrix
+   column**, a *legitimate matrix/switch edge* is stamped `LPWR_WAKEUP_UART`.
+5. **The discard, and the missing escape.** `lowpower.c:284-288`: an unreal code sets
+   the state back to **`LPWR_STOP`** and re-enters at `:333`. **`lpwr_wakeup_cb()`
+   (`:296-311`) is never called** — and that callback is the *only* place that runs
+   `rgb_matrix_enable_noeeprom()` (`:301`) and `suspend_wakeup_init()` (`:307`).
+
+**Why this reproduces the symptom exactly.** The matrix was disabled on the way in
+(`:230`) and is re-enabled only in `lpwr_wakeup_cb`; a discarded wake therefore leaves
+it **dark with no path back on** — the user's "the backlight does not come back on".
+`suspend_wakeup_init()` is likewise only in that callback, so the **slave is never
+woken** and its UART pins stay open-drain — the user's **"only the left half types and
+the right half does not type."** The left half still types because the flip already
+re-engaged USB through `wls_transport_decide()` (`wls.c:205`); only the wake
+bookkeeping was skipped.
+
+**IMPORTANT — this reverses the first reading of this entry, and then test (A) reversed
+this one too.** The initial write-up claimed the board's *mask* was wrong (a real UART
+wake rejected as a phantom). `lowpower.h:44-58` shows the opposite — the mask exists
+**precisely** to reject a UART-stamped code. That much stands, and is worth keeping: the
+guard is not a bug. But the conclusion drawn from it (that the flip's code is the
+rejected phantom, and the discard path is why nothing recovers) is **falsified**: a
+keypress would then have been accepted and it was not. Two reversals in one entry is
+itself the lesson — the reading was fluent and wrong, and only the board settled it.
+
+**Open in the reading (state plainly, do not paper over).** Whether a switch-flip
+specifically reports as the aliased UART stamp or as `LPWR_WAKEUP_MATRIX` is **not
+established from the source** — the aliasing argument in `wls.c:423-431` and
+`lowpower.h:44-58` is about *matrix columns*, and the switch pins are separate. If a
+flip does report MATRIX, it would be a *real* wake, `lpwr_wakeup_cb()` would run, and
+this mechanism is wrong. **Test (A) settled it: wrong.** A keypress — the strongest case
+for a real `MATRIX` edge — recovered nothing, so the mask is not what strands the board.
+
+**Not yet measured:** whether the halves are truly in a STOP or merely dark with the
+pins flipped; whether a **cold boot** recovers; whether the same happens on 2.4 GHz; and
+whether the earlier unplug/replug recovery (which is a *cold boot*) is the only recovery
+— i.e. whether the fault is permanent until power-cycled.
+
+**The next discriminating tests. (A) has run — its result is the falsification above.**
+
+- **(A) RAN 2026-10-15 — falsified the mechanism:** a keypress does not recover the board
+  and neither does the switch flip.
+- **(B) The master/slave asymmetry — PARTLY ANSWERED, and now the main line.** (A) step 3
+  measured **left types / right does not**: the master is fully alive on USB and the fault
+  is the slave or the split link. What is *not* established is **why** — the slave may be
+  (i) in its own `lpwr` STOP that the master's flip never wakes, (ii) running but off the
+  split link, or (iii) linked but its keycodes dropped. **Next step: read
+  `wls/wls_split.c` and the split command set** — whether the master ever *sends* the
+  slave a wake after the 30 s arm sent it to sleep, and whether a transport change
+  re-establishes the link at all. Read before proposing a third mechanism.
+- **(C) The USB-hold control — still unrun, and it is what makes the BT result
+  meaningful.** Switch on **USB**, cable in the left half, idle **90 s** (past both
+  deadlines): the backlight must **stay on**, because `wls_lifecycle_lpwr_allow_timeout()`
+  refuses the arm at `DEVS_USB`. If USB also darkens, the whole 30 s story changes.
+- **(D) Recovery route — partially answered.** A keypress does not recover and neither
+  does the flip. Still unrun: whether **unplug/replug** recovers — the severity claim,
+  "permanent until power-cycled".
+
 ### Process note — anticipatable issues were not anticipated
 
 Both §1 and §2 were foreseeable from upstream's own code and mechanics, and §2 and
