@@ -127,12 +127,12 @@ wls_frame_owner_t wls_frame_owner_of(bool exclusive_claim_live);
   The *visible behaviour is identical*; what changes is that the rule is now readable
   without reading the pass's line numbers.
 
-**What the arbiter deliberately does not do.** It does not reorder the pass. Painters 5–8
-still compose by index in their existing order, and painter 7's all-LED write is still
-made safe by position rather than by a claim. Making *that* unrepresentable would mean
-giving every painter an index range and arbitrating overlaps — real work for a real
-benefit, and not what this artefact needs. It is named here as undetermined rather than
-implied to be solved.
+**What the frame arbiter deliberately does not do.** It does not reorder the pass. Painters 5–8
+still compose by index in their existing order. Making *that* a rule is the separate LED-index
+arbiter (`wls_led_painter_of` and friends, §4 and §5): the frame arbiter decides *who owns the
+frame*, the LED arbiter decides *who owns which LED*. The LED rule is determined at the
+executable rung; forcing every painter through it (the unrepresentable rung) is named as residue
+in §4 and §5 rather than implied to be solved.
 
 ---
 
@@ -144,14 +144,19 @@ implied to be solved.
 | C2: the boot code's claim expires from a fact | `wls_indicator_boot_code_owns_matrix` (`:449-464`) | **executable** |
 | The pass gates on the arbiter, not on a position | `bin/guard-invariants` (2 checks) | **executable** |
 | The painters and their precedence order | this document, §1 table | prose |
-| **Which painters overlap which LEDs** | nothing | **undetermined** |
-| **Whether a painter added later is exclusive** | nothing | **undetermined** |
+| **Which painter owns which LED index (overlaps)** | `wls_led_painter_of` + tests + guard | **executable** (2026-10-15) |
+| **Whether a painter added later is exclusive** | `wls_led_painter_is_exclusive` + tests | **executable** (2026-10-15) |
 
-The last two rows are the honest ones. The arbiter decides *who owns the frame*; nothing
-decides *who owns which LED*, so two non-exclusive painters that write the same index still
-resolve by call order. The guard catches a *regression* of the pass's gate, not the
-addition of a new overlapping painter. These two rows are **D3** and **D4** in `TODO.md`
-"Determination residue".
+The last two rows are now determined, at the **executable** rung. The frame arbiter
+decides *who owns the frame*; `wls_led_painter_of` decides *who owns which LED*, so two
+non-exclusive painters that write the same index no longer resolve by call order. These two
+rows are **D3** and **D4** in `TODO.md` "Determination residue".
+
+**What is still short of the rung-3 target.** The rule is determined (a wrong winner fails a
+test), but the *shell* is not yet forced through it for every painter: only the at-rest channel
+cue consults the arbiter (`wls_led_can_paint`). The battery, set-flash and marker painters still
+paint directly, so "a painter writes an LED it does not own" is caught by a test of the rule, not
+by a construction that makes the write impossible. That residue is stated, not implied solved.
 
 ---
 
@@ -167,7 +172,11 @@ Per `docs/DETERMINATION.md` §II.2, in ascending strength:
    the raw predicate; both were **negative-tested**.
 3. **Unrepresentable.** Give every painter an index range and arbitrate overlaps in the
    core, so a painter that writes an LED it does not own cannot be written. This is the
-   honest target, and it subsumes the two undetermined rows above. Not started.
+   honest target, and it subsumes the two undetermined rows above. **Partly reached
+   (2026-10-15):** the rule and the arbiter exist (`wls_led_painter_of`,
+   `wls_led_painter_is_exclusive`, `wls_led_can_paint`), and the at-rest channel cue consults
+   it, but the battery / set-flash / marker painters are not yet forced through it — so the
+   rule is *executable*, not yet *unrepresentable*. See §4's residue note. Not finished.
 
 ---
 
@@ -186,3 +195,9 @@ Per `docs/DETERMINATION.md` §II.2, in ascending strength:
   `epomaker_split65.c` (the pass gates on the arbiter),
   `tests/indicator_logic/indicator_logic_tests.cpp` (12 tests),
   `bin/guard-invariants` (2 checks, negative-tested).
+- The LED-index arbiter (2026-10-15, D3/D4): `indicator_logic.h` / `.c`
+  (`wls_led_painter_t`, `wls_led_painter_of`, `wls_led_painter_is_exclusive`,
+  `wls_led_painters_overlap`, `wls_led_can_paint`), `wls_indicator.c`
+  (`wls_indicator_channel_state` consults `wls_led_can_paint`),
+  `tests/indicator_logic/indicator_logic_tests.cpp` (20 tests),
+  `bin/guard-invariants` (3 further checks, negative-tested).

@@ -891,9 +891,8 @@ can observe changes if they stay unknown. Lane A is short, and most of it is
 either flash-gated or blocked on the module's BT fault.
 
 **One class of open item is not in either lane, and correctly so.** The
-determination residue — the §II.3 relations still short of a home (a liveness
-half with no deadline, an unasserted release path, an unarbitrated painter
-overlap, two plant premises) — is **not requirement work** and has no X-n. It is
+determination residue — the §II.3 relations still short of a home (D1–D11, less the
+rows since closed) — is **not requirement work** and has no X-n. It is
 listed plainly in `## Determination residue` below, with what "undetermined"
 means there. It enters this index only if one of its rows turns out to fail a
 requirement; none does today.
@@ -919,8 +918,8 @@ an edit, and it belongs to the batched hardware session.
 | --- | --- | --- | --- | --- |
 | D1 | A half, once ordered to sleep, is *eventually* released | `STATE-MACHINE-stop-wake-split.md` §5 last row | **determined** (executable + wired, 2026-10-15) | `wls_sleep_order_outlived_release()` + the `wls.c` record (`wls_note_sleep_order_sent/_released`, `hs_sleep_order_liveness_check`) + `tests/split_logic` + `bin/guard-invariants` |
 | D2 | The release path itself (`0xCC` on USB) | same doc §3, §5 | **determined** (executable, 2026-10-15) | `wls_sleep_release_open()` / `wls_sleep_release_permitted()` / `wls_split_can_send_relay()` + both relay sites in `wls_lifecycle.c` + `tests/split_logic` + `bin/guard-invariants` |
-| D3 | Which painter owns which LED index (overlaps) | `STATE-MACHINE-indicator-ownership.md` §4 | **undetermined** | nothing (rung 3 not started) |
-| D4 | Whether a painter added later is exclusive | same doc §4 | **undetermined** | nothing |
+| D3 | Which painter owns which LED index (overlaps) | `STATE-MACHINE-indicator-ownership.md` §4 | **determined** (executable, 2026-10-15) | `wls_led_painter_of` / `wls_led_painters_overlap` / `wls_led_can_paint` (`indicator_logic`) + the cue's consult + `tests/indicator_logic` + `bin/guard-invariants` |
+| D4 | Whether a painter added later is exclusive | same doc §4 | **determined** (executable, 2026-10-15) | `wls_led_painter_is_exclusive` (`indicator_logic`) + `tests/indicator_logic` |
 | D5 | Whether the presleep hook may read the USB line's own state to decide a teardown | `STATE-MACHINE-transport-authority.md` §4 | **undetermined** | nothing (a deliberate read; `wls_lifecycle.c:256`) |
 | D6 | The pin → wake-code attribution table | `STATE-MACHINE-pad-attribution.md` §4 | weakly determined | prose (the doc's §2 table) |
 | D7 | "No other pad collision drops a wake" | same doc §4 | weakly determined | prose (the doc's §2 argument) |
@@ -971,9 +970,30 @@ is exactly what this gives it. Two `bin/guard-invariants` checks keep it (the ga
 pure core; each relay send gated by its own handle), both negative-tested. Distinct from D1,
 which is the *deadline* fact.
 
-**D3/D4 are artefact 2's rung 3, deliberately not started.** Rung 3 there is "give every painter
-an index range and arbitrate overlaps", which subsumes both rows — but it is real work for a
-benefit this artefact did not need, so it was named rather than built.
+**D3/D4 are artefact 2's rung 3, and are now determined at the executable rung
+(2026-10-15).** Rung 3 there is "give every painter an index range and arbitrate overlaps".
+The rule now has a home in the pure core: `wls_led_painter_of(index, boot_code_claim_live)`
+returns the winning painter for an LED index by a stated precedence (the order the frame pass
+runs the painters, restated once); `wls_led_painter_is_exclusive` enumerates which painters own
+every LED (today only the boot code), as a switch so a new painter's exclusivity is a core
+decision with tests rather than a silent property of a new enum value (**D4**); and
+`wls_led_painters_overlap` answers "can these two touch one LED", derived from the same sets,
+with the honest exception that the runtime-armed set-flash pass can write any index. The sets
+are the painters' own `config.h` constants (17/18/19 BT1/2/3, 20 2.4G, 63/64/65 battery) plus the
+two literals the shell writes (41/42 BT4/BT5, 32 the `filp` marker) — nothing inferred. The
+at-rest channel cue, which shares 17/18/19/20 with the link-state cue and the flash, now asks
+the core (`wls_led_can_paint`) instead of relying on the position of its REJECT early return, so
+the arbitration that used to be a line number is a rule (**D3**). 8 new vectors in
+`tests/indicator_logic` (**20/20**) pin the winner, the exclusivity table and the real overlaps;
+3 new `bin/guard-invariants` checks (each negative-tested) keep the rule in the core, keep the
+cue consulting it, and reject a reintroduced bare REJECT early-return.
+
+**What D3/D4 still do not reach.** The honest residue: the rule is *executable* (a wrong winner
+fails a test), but it is not yet *unrepresentable* — the battery, set-flash and marker painters
+still call `rgb_matrix_set_color` directly, so "a painter writes an LED it does not own" is
+caught by the rule's test, not by a construction that makes the write impossible. Only the
+channel cue is wired through the arbiter. That is the remaining rung-3 work, stated here rather
+than implied solved.
 
 **D10/D11 are the batched hardware session's business, not edits.** D10 is cheap to settle
 (one floating pin); D11 is the ADR's "Costs and risks" — a missed event leaves the transport
@@ -998,6 +1018,9 @@ violation, and the cheapest rung that does so is the right one:
   that cannot be sent" is unrepresentable. Rung 3.
 - **D3/D4 (painter overlaps)** close together at rung 3: a per-painter index range the arbiter
   can check, which makes "two owners of one index" unrepresentable rather than order-dependent.
+  **Done to the executable rung (2026-10-15)** — the ranges and the precedence are stated and
+  tested (`wls_led_painter_of`, `wls_led_painter_is_exclusive`), and the cue consults them; the
+  unrepresentable rung is reached only when every painter is forced through the arbiter.
 - **D5 (the presleep line read)** closes at the **executable** rung by stating the rule it
   already obeys (a teardown is refused when the line is enumerated), not by forbidding the read.
 - **D6–D9 (weakly determined)** each close by promoting the prose to a test or guard that

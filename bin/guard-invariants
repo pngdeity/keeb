@@ -338,4 +338,41 @@ fi
 # endpoints take the same fact, which `the_order_and_the_release_cannot_disagree`
 # pins in `tests/split_logic`. No further shell check is honest here.
 
+# --- LED-index ownership has a home, and the cue consults it -------------------
+#
+# `wls_frame_owner_of()` arbitrates the FRAME; nothing arbitrated the LED. Two
+# non-exclusive painters writing one index resolved by CALL ORDER, so the winner
+# was a line number and moving a paint call changed the sight with nothing
+# failing. D3/D4 of `TODO.md` "Determination residue". The rule now lives in
+# `wls_led_painter_of` / `wls_led_painter_is_exclusive` / `wls_led_can_paint`
+# (indicator_logic), and the at-rest channel cue asks it rather than testing the
+# REJECT early-return positionally.
+# See `docs/STATE-MACHINE-indicator-ownership.md`.
+if rg -q '^wls_led_painter_t\s+wls_led_painter_of\s*\(' "$WLS/indicator_logic.c" \
+    && rg -q 'wls_led_painter_of' "$WLS/indicator_logic.h"; then
+    ok "the LED-index ownership rule has a home in the pure core"
+else
+    fail "the LED-index ownership rule is not stated in the pure core" \
+         "keep wls_led_painter_of in indicator_logic so 'who owns index N' is checkable"
+fi
+
+# The cue must consult the core rule, not re-derive REJECT positionally. A future
+# edit that reintroduces `if (hsm_link_state_of_md(...) == HSM_LINK_REJECT)
+# return;` in `wls_indicator_channel_state` puts the arbitration back in a line's
+# position; it fails here instead.
+ind_c="qmk_firmware/keyboards/epomaker/epomaker_split65/wls/wls_indicator.c"
+if rg -q 'wls_led_can_paint\s*\(' "$ind_c"; then
+    ok "the at-rest channel cue arbitrates through the core's LED ownership"
+else
+    fail "the at-rest channel cue does not consult the LED-ownership arbiter" \
+         "gate it on wls_led_can_paint(...) so the arbitration is the core's, not a line's position"
+fi
+
+if rg -n '==\s*HSM_LINK_REJECT\s*\)\s*(/\*.*\*/\s*)?\{\s*$' "$ind_c" >/dev/null; then
+    fail "the channel cue still gates on a bare REJECT early-return" \
+         "route the suppression through wls_led_can_paint so the rule has one home"
+else
+    ok "the channel cue does not gate on a bare REJECT early-return"
+fi
+
 exit "$status"
