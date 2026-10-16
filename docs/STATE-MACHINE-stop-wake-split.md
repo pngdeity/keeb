@@ -197,6 +197,7 @@ separate change, and the release path itself (`0xCC` on USB) is not yet asserted
 | Property | Home | Rung (`II.2`) |
 |---|---|---|
 | S1: PRESLEEP needs the STOP transition | `lpwr_presleep_is_allowed_decide` + test | **executable** |
+| S1: the state is writable only by the machine | `bin/guard-invariants` (3 checks) | **unrepresentable** |
 | The arm sites and their ordering (`ordered_sleep` vs `manual_timeout`) | this document, §1 table | prose |
 | S2: an ordered half must have a reachable release | `wls_split_can_order_sleep` + test | **executable** |
 | The composite's liveness (a half, once ordered, *eventually* released) | nothing | **undetermined** |
@@ -221,9 +222,36 @@ Per `docs/DETERMINATION.md` §II.2, in ascending strength:
    the order is skipped rather than stranding the slave. The suppression fact is derived as
    `wireless_get_current_devs() != DEVS_USB` — the same predicate the sole `0xCC` call site
    uses.
-3. **Unrepresentable.** Make the master's order and its release a single transaction
-   whose handle cannot exist without naming a transport on which the release is
-   reachable. Expensive; the honest target, not the next step.
+3. **Unrepresentable (S1 done 2026-10-15; S2 target unchanged).** See §6a. Rung 3 was
+   reached for **S1** — the unsafe *order* is no longer writable, checked by a guard. For
+   **S2** it remains the honest target: make the master's order and its release a single
+   transaction whose handle cannot exist without naming a transport on which the release is
+   reachable. Expensive; not started.
+
+### 6a. Rung 3 for S1 — the unsafe order is now unwritable (2026-10-15)
+
+The gate added in rung 2 (`lpwr_presleep_is_allowed_decide`) **refused** an unsafe entry to
+`LPWR_PRESLEEP`, but it did not make the entry *unwritable*: the state was exposed as a
+public free-writer, `lpwr_set_state(state)`, so any of six other files could have named
+`LPWR_PRESLEEP` directly and bypassed the gate — re-creating the very defect rung 2 fixed,
+without any test going red. Rung 3 removes the possibility:
+
+- `lpwr_set_state()` is gone. The only writer is a **file-static** `lpwr_transition()`
+  inside `lowpower.c` (`lowpower.c:68`), so the machine owns its own transitions and no
+  external translation unit can name a state.
+- The public surface keeps `lpwr_get_state()` (read) and gains
+  `lpwr_request_wakeup()` (`lowpower.c:73`) — the one transition an outside caller may
+  legitimately force, and one that **can only restore, never strand** (it enters
+  `LPWR_WAKEUP`, whose callback re-enables the matrix). The generic resume path in
+  `md_receive_host_cb` now routes through it rather than writing state directly.
+- Three checks were added to `bin/guard-invariants`: no public state setter in the header,
+  `lpwr_transition` is file-static, and no file outside `lowpower.c` writes the state. Each
+  was **negative-tested** — the invariant was deliberately broken and the guard failed, then
+  the tree was restored and it passed.
+
+The property this determines: *the low-power state is writable only by the state machine.*
+It is the rung-3 form of S1's rule. It does not replace rung 2 — a reordering *inside*
+`lowpower.c` is still caught by the rung-2 test — it closes the bypass.
 
 **Not to be done in this document:** writing the fix. `docs/DETERMINATION.md` §II.4 (a
 candidate, not yet adopted) says *name the property's home before writing the fix* — this
@@ -243,3 +271,6 @@ its own test vectors.
 - The S2 fix and its test (rung 2, 2026-10-15): `split_logic.{h,c}`
   (`wls_split_can_order_sleep`), `wls_lifecycle.c` (the presleep send routed through it),
   `tests/split_logic/split_logic_tests.cpp` (11 tests).
+- The S1 rung-3 change and its guard (2026-10-15): `lowpower.c` (`lpwr_transition` static,
+  `lpwr_request_wakeup`), `lowpower.h` (the public setter removed),
+  `bin/guard-invariants` (three checks, negative-tested).

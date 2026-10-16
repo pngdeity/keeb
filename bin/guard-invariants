@@ -116,4 +116,52 @@ else
          "the suspend hook is how host suspend is reported as an event"
 fi
 
+# --- the sleep state may not be writable from outside its own file ------------
+#
+# The 30 s dark board was a stop entered with the matrix already disabled, then
+# REFUSED, so the only path that re-enables the matrix (LPWR_WAKEUP) was never
+# reached. Rung 1 of the fix consulted the policy before the effect; rung 2 gave
+# the rule a test. This guard is rung 3: the unsafe order is made *unwritable*.
+#
+# The state used to be exposed as a public `lpwr_set_state(state)` free-writer,
+# so any of six other files could name LPWR_PRESLEEP directly and bypass the
+# gate entirely. It is now a file-static `lpwr_transition()`; outside callers get
+# only reads and `lpwr_request_wakeup()` (which can restore, never strand).
+#
+# The rule: nothing outside `lowpower.c` may name a low-power state as a write.
+# A future edit that re-adds a public setter, or that writes `lpwr_state`
+# directly, fails here rather than on the board.
+# See `docs/STATE-MACHINE-stop-wake-split.md` section 6 (rung 3).
+lpwr_c="qmk_firmware/keyboards/linker/wireless/lowpower.c"
+lpwr_h="qmk_firmware/keyboards/linker/wireless/lowpower.h"
+
+# (a) no public state setter declared in the header
+if rg -n 'lpwr_set_state\s*\(' "$lpwr_h" | rg -v ':\s*(/\*|\*|//)' | rg -q .; then
+    fail "lpwr_set_state is declared public again" \
+         "the state must be writable only inside $lpwr_c (see rung 3)"
+    rg -n 'lpwr_set_state\s*\(' "$lpwr_h" | rg -v ':\s*(/\*|\*|//)' || true
+else
+    ok "no public lpwr state setter in the header"
+fi
+
+# (b) the state variable and its transition helper are file-static
+if rg -q '^static\s+void\s+lpwr_transition\s*\(' "$lpwr_c"; then
+    ok "lpwr_transition is file-static (the unsafe order is unwritable)"
+else
+    fail "lpwr_transition is not a static function in $lpwr_c" \
+         "the state machine must own its own transitions"
+fi
+
+# (c) no other firmware file writes the state
+stray=$(rg -n 'lpwr_set_state\s*\(' qmk_firmware/keyboards --glob '*.c' --glob '*.h' \
+    | rg -v '^\S+:[0-9]+:\s*(/\*|\*|//)' \
+    | rg -v "lowpower\.(c|h):") || true
+if [ -z "$stray" ]; then
+    ok "no firmware file outside lowpower.c writes the low-power state"
+else
+    fail "a file outside lowpower.c writes the low-power state" \
+         "route it through lpwr_request_wakeup() instead"
+    echo "$stray"
+fi
+
 exit "$status"
