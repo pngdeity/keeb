@@ -656,10 +656,10 @@ It is harmless and may stay, but do not treat it as a fix for anything.
   and Stage 4's journal build are committed. **The next requirement-serving work
   is the Tier-1 hardware session** — the batch in
   `docs/RUNBOOK-flash-and-measure.md`, pre-flight written as § 0.0.5 and
-  **refreshed 2026-10-15** for the artefact that carries A7 and A8
-  (`44eea0d4…`, 64,640 B, submodule `a4878e7bfe`); it is
+  **re-pinned 2026-10-15** for the built artefact that carries A7, A8 and the
+  X-4 at-rest channel cue (`8ea408a4…`, 64,760 B, submodule `b370a3b2f1`); it is
   blocked on a human at the keyboard, and the no-hardware Lane A items (A7
-  X-30, A8 X-7, A10 X-5, A11 X-5) landed or were decided 2026-10-15; A9
+  X-30, A8 X-7, A10 X-5, A11 X-5, A17 X-4) landed or were decided 2026-10-15; A9
   X-20/X-21 is deferred to B14 (see the index and the A9/A10/A11 notes).
   **Not merged into `main` upstream.**
 - **The tree holds our battery firmware, committed inside the `qmk_firmware`

@@ -190,25 +190,16 @@ tree, so the checklist wording "confirmed clean against HEAD" is met.
   BT LEDs). See § 4's channel-cue prediction and § 5.
 
 **1. The artefact.** `qmk_firmware/.build/epomaker_epomaker_split65_nathan.bin`,
-**64,640 bytes**, sha256
-**`44eea0d45ba62d8b797489b703b312e11d8e301090c79e519a24ab4bb0dffd3b`**. This is
-the walk-close build **plus A7 (the REJECT cue) and A8 (the value floor)**, and is
-**32 bytes smaller** than the walk-close `aec73138…` (64,600 → 64,640). Verify the
-hash **before** flashing; if it differs, the tree moved and this pre-flight is
-stale — regenerate it (§ 0.2) and update the hash here.
+**64,760 bytes**, sha256
+**`8ea408a432dc47fc332e89d5ba0a45d40f7720c81e75d8d27f7148c5297319b9`**. This is
+the walk-close build **plus A7 (the REJECT cue), A8 (the value floor) and the X-4
+at-rest channel cue**, and is **160 bytes larger** than the walk-close
+`aec73138…` (64,600 → 64,760). Verify the hash **before** flashing; if it differs,
+the tree moved and this pre-flight is stale — regenerate it (§ 0.2) and update the
+hash here.
 
-> **STALE AS OF 2026-10-15 (the X-4 channel cue).** The hash and size above are the
-> **A7+A8** build, and the tree has since gained the at-rest channel cue
-> (`hsm_chan_cue_of` + `wls_indicator_channel_state()`), so **the current on-disk
-> artefact no longer matches** this line — it has not been rebuilt, because a full
-> cross-compile needs the user's go-ahead and was not run. **Do not flash
-> `44eea0d4…` as if it were current.** Before the session: rebuild with
-> `./bin/make epomaker/epomaker_split65:nathan` (with consent), then re-pin the
-> hash, the size, and the submodule SHA here. The § 2–§ 7 predictions now describe
-> **that** build (A7 + A8 + the X-4 cue), not `44eea0d4…`.
-
-- **Submodule `split65-overlay` = `a4878e7bfe`** (A8's landing; A7 is `5819516e2c`
-  beneath it), signed (`G`).
+- **Submodule `split65-overlay` = `b370a3b2f1`** (the X-4 cue; A8 is `a4878e7bfe`
+  beneath it, A7 is `5819516e2c` beneath that), signed (`G`).
 - **Root `main` = the commit that carries this runbook section, signed (`G`)**.
 - `git status --short` shows **only** the benign untracked `qmk_firmware/lib/lufa`
   in the submodule; nothing else.
@@ -390,7 +381,7 @@ A8's floor is not taking effect, and the X-7 defect is not fixed. *A refused BT
 connection renders the same as no connection* ⇒ A7's cue is not firing, or
 `HSM_LINK_REJECT` is never reached.
 
-**8. Verify the artefact on disk** matches `44eea0d4…` (§ 0.2) before flashing;
+**8. Verify the artefact on disk** matches `8ea408a4…` (§ 0.2) before flashing;
 it was rebuilt from the committed tree during this pre-flight and matched.
 
 The flash is a **human action** — see the note above.
